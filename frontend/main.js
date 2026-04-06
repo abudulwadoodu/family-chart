@@ -143,12 +143,12 @@ function renderChart() {
     .setCardXSpacing(250)
     .setCardYSpacing(150);
 
-  const card = state.chart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday']]);
+  const card = state.chart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
 
   if (canEdit) {
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'avatar'])
+      .setFields(['first name', 'last name', 'birthday', 'location', 'notes', 'avatar'])
       .setEditFirst(true)
       .setCardClickOpen(card);
   } else {
