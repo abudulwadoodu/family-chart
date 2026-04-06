@@ -95,6 +95,29 @@ button[disabled] {
   gap: 8px;
 }
 
+.import-stack {
+  margin-top: 8px;
+}
+
+.import-actions {
+  justify-content: flex-start;
+}
+
+.import-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #aeb8cb;
+}
+
+.import-help code {
+  color: #dbe8ff;
+  background: #12192a;
+  border: 1px solid #2c3a57;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
 .tree-item {
   display: flex;
   align-items: center;

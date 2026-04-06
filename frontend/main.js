@@ -19,9 +19,10 @@ const state = {
 };
 
 async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(path, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   });
 
@@ -79,6 +80,20 @@ function renderDashboard() {
           <input name="name" placeholder="New tree name" maxlength="120" required />
           <button type="submit">Create</button>
         </form>
+        <form id="import-csv-form" class="stack import-stack">
+          <label class="muted">Import CSV
+            <input type="file" id="csv-file-input" accept=".csv,text/csv" />
+          </label>
+          <div class="row import-actions">
+            <button type="submit" id="import-csv-btn">Import CSV</button>
+            <button type="button" id="download-csv-template-btn" class="secondary">Download Template</button>
+          </div>
+          <p class="import-help">
+            Required: <code>id</code>, <code>first_name</code><br/>
+            Relations: <code>father_id</code>, <code>mother_id</code>, <code>spouse_ids</code>, <code>child_ids</code><br/>
+            Use <code>;</code> to separate multiple IDs in <code>spouse_ids</code> and <code>child_ids</code>.
+          </p>
+        </form>
         <ul id="tree-list" class="tree-list"></ul>
       </aside>
       <section class="content card">
@@ -98,6 +113,8 @@ function renderDashboard() {
 
   document.querySelector('#logout-btn').addEventListener('click', handleLogout);
   document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
+  document.querySelector('#import-csv-form').addEventListener('submit', handleImportCsv);
+  document.querySelector('#download-csv-template-btn').addEventListener('click', handleDownloadCsvTemplate);
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
   renderTreeList();
 }
@@ -296,6 +313,58 @@ async function handleSaveTree() {
     body: JSON.stringify({ json_data: dataToSave }),
   });
   status.textContent = 'Saved successfully.';
+}
+
+async function handleImportCsv(event) {
+  event.preventDefault();
+  const status = document.querySelector('#status');
+  if (!state.selectedTreeId) {
+    status.textContent = 'Select a tree before importing.';
+    return;
+  }
+
+  const fileInput = document.querySelector('#csv-file-input');
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    status.textContent = 'Choose a CSV file to import.';
+    return;
+  }
+
+  try {
+    status.textContent = 'Importing CSV...';
+    const formData = new FormData();
+    formData.append('file', file);
+    const result = await api(`/api/trees/${state.selectedTreeId}/import-csv`, {
+      method: 'POST',
+      body: formData,
+    });
+    await loadTree(state.selectedTreeId);
+    status.textContent = `Imported ${result.imported_count} rows successfully.`;
+  } catch (error) {
+    status.textContent = error.message || 'Import failed.';
+  }
+}
+
+function handleDownloadCsvTemplate() {
+  const lines = [
+    'id,first_name,last_name,birthday,location,notes,avatar,gender,father_id,mother_id,spouse_ids,child_ids',
+    'p1,John,Doe,1985,New York,"Main person note",,M,p2,p3,p4,c1;c2',
+    'p4,Jane,Doe,1987,New York,"Spouse note",,F,,,p1,c1;c2',
+    'p2,Robert,Doe,1960,Boston,, ,M,,,p3,p1',
+    'p3,Mary,Doe,1962,Boston,, ,F,,,p2,p1',
+    'c1,Chris,Doe,2010,Chicago,, ,M,p1,p4,,',
+    'c2,Emma,Doe,2012,Chicago,, ,F,p1,p4,,',
+  ];
+  const csvContent = lines.join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'family-import-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 async function loadSession() {

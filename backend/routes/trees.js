@@ -1,12 +1,15 @@
 import express from 'express';
+import multer from 'multer';
 
 import { getDb } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
 import { isNonEmptyString } from '../utils/validation.js';
 import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
+import { parseCsvImport } from '../utils/csvImport.js';
 
 export const treesRouter = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 treesRouter.use(requireAuth);
 
@@ -101,3 +104,29 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), (req, res, next) =
     return next(error);
   }
 });
+
+treesRouter.post(
+  '/:id/import-csv',
+  requireTreeRole(['owner', 'editor']),
+  upload.single('file'),
+  (req, res, next) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'CSV file is required' });
+      const csvText = req.file.buffer.toString('utf8');
+      const importedData = parseCsvImport(csvText);
+      const treeId = Number(req.params.id);
+
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO family_data (tree_id, json_data)
+         VALUES (?, ?)
+         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data`
+      ).run(treeId, JSON.stringify(importedData));
+
+      return res.json({ ok: true, imported_count: importedData.length });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ error: error.message });
+      return next(error);
+    }
+  }
+);
