@@ -153,3 +153,55 @@ Project Link: [https://github.com/donatso/family-chart](https://github.com/donat
 [product-wiki-tree-screenshot]: https://github.com/user-attachments/assets/4e2dc169-4b43-46f3-b31c-db17f4d489da
 [create-tree-screenshot]: https://github.com/user-attachments/assets/ce5c4b33-48dd-441c-aa2f-f581b57ddcb7
 
+## Local Secure App Mode
+
+This repository now includes a local self-hosted full-stack app:
+
+- Frontend (Vite): `http://localhost:8080`
+- Backend (Express + SQLite): `http://localhost:3001`
+- Auth: session cookie (`httpOnly`) with local credentials
+
+### Setup
+
+1. Install dependencies:
+   - `npm install`
+2. Copy env file:
+   - Windows PowerShell: `Copy-Item .env.example .env`
+3. Seed demo data:
+   - `npm run db:seed`
+4. Start app (frontend + backend):
+   - `npm run dev:app`
+
+### Test Users (Seeded)
+
+- owner@example.com / OwnerPass123!
+- editor@example.com / EditorPass123!
+- viewer@example.com / ViewerPass123!
+
+### API Summary
+
+Auth:
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+Trees:
+- `GET /api/trees`
+- `POST /api/trees`
+- `GET /api/trees/:id`
+- `PUT /api/trees/:id`
+
+Membership:
+- `POST /api/trees/:id/request-access`
+- `GET /api/trees/:id/members` (owner only)
+- `PATCH /api/memberships/:id` (owner only)
+
+### Authorization Rules
+
+- Only users with `approved` membership can access a tree.
+- Roles:
+  - `owner`: manage members and edit data
+  - `editor`: edit tree data
+  - `viewer`: read-only access
+

@@ -5,3 +5,5 @@
 /tests/debugging/
 cypress/screenshots
 docs/api
+/.env
+/data/
