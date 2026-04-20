@@ -7,6 +7,14 @@ body {
   font-family: Arial, sans-serif;
   background: #101217;
   color: #f1f3f7;
+  --btn-primary-bg: #4f46e5;
+  --btn-primary-hover: #6366f1;
+  --btn-primary-active: #4338ca;
+  --btn-secondary-bg: #2a2f3a;
+  --btn-secondary-hover: #353c4b;
+  --btn-secondary-active: #414b60;
+  --btn-secondary-border: #4b556a;
+  --btn-focus-ring: #7fa4ff;
 }
 
 #app {
@@ -38,6 +46,15 @@ body {
   padding: 12px;
 }
 
+.sidebar {
+  background: #1e1e1e;
+  border-color: #343434;
+}
+
+.sidebar > * + * {
+  margin-top: 24px;
+}
+
 .stack {
   display: grid;
   gap: 10px;
@@ -53,7 +70,9 @@ body {
 label {
   display: grid;
   gap: 6px;
-  font-size: 14px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 input,
@@ -63,23 +82,53 @@ button {
 
 input {
   background: #0f1520;
-  border: 1px solid #2d3a52;
+  border: 1px solid #333;
   border-radius: 6px;
   color: #f1f3f7;
   padding: 8px;
 }
 
+input:focus-visible {
+  outline: 2px solid #7fa4ff;
+  outline-offset: 1px;
+}
+
 button {
-  border: none;
+  border: 1px solid transparent;
   border-radius: 6px;
+  min-height: 36px;
   padding: 8px 12px;
-  background: #2f6feb;
+  font-weight: 500;
+  background: var(--btn-primary-bg);
   color: #fff;
   cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+button:hover {
+  background: var(--btn-primary-hover);
+}
+
+button:active {
+  background: var(--btn-primary-active);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--btn-focus-ring);
+  outline-offset: 1px;
 }
 
 button.secondary {
-  background: #4d576d;
+  background: var(--btn-secondary-bg);
+  border-color: var(--btn-secondary-border);
+}
+
+button.secondary:hover {
+  background: var(--btn-secondary-hover);
+}
+
+button.secondary:active {
+  background: var(--btn-secondary-active);
 }
 
 button[disabled] {
@@ -122,10 +171,30 @@ button[disabled] {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .tree-link {
   width: 100%;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid #3a3a3a;
+  color: #d9deea;
+}
+
+.tree-link:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: #515d7c;
+}
+
+.tree-link:focus-visible {
+  outline: 2px solid #7fa4ff;
+  outline-offset: 1px;
+}
+
+.tree-link:active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #6278aa;
   text-align: left;
 }
 
@@ -138,9 +207,10 @@ button[disabled] {
 
 .chart-container {
   height: calc(100vh - 120px);
-  background: #212121;
+  background: #1f2127;
   border-radius: 6px;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 #view-mode-toggle {
@@ -155,6 +225,15 @@ button[disabled] {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: grab;
+}
+
+.all-nodes-svg.is-panning {
+  cursor: grabbing;
+}
+
+.all-nodes-svg .all-nodes g {
+  cursor: grab;
 }
 
 .muted {

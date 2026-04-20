@@ -85,7 +85,7 @@ function renderDashboard() {
             <input type="file" id="csv-file-input" accept=".csv,text/csv" />
           </label>
           <div class="row import-actions">
-            <button type="submit" id="import-csv-btn">Import CSV</button>
+            <button type="submit" id="import-csv-btn" class="secondary">Import CSV</button>
             <button type="button" id="download-csv-template-btn" class="secondary">Download Template</button>
           </div>
           <p class="import-help">

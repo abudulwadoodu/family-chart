@@ -86,7 +86,9 @@ export function renderAllNodesGraph(selector, graph) {
     .attr('width', width)
     .attr('height', height);
 
-  const links = svg
+  const graphLayer = svg.append('g').attr('class', 'all-graph-layer');
+
+  const links = graphLayer
     .append('g')
     .attr('class', 'all-links')
     .selectAll('line')
@@ -96,7 +98,7 @@ export function renderAllNodesGraph(selector, graph) {
     .attr('stroke-opacity', 0.75)
     .attr('stroke-width', (d) => (d.type === 'spouse' ? 2 : 1.25));
 
-  const nodes = svg
+  const nodes = graphLayer
     .append('g')
     .attr('class', 'all-nodes')
     .selectAll('g')
@@ -128,6 +130,37 @@ export function renderAllNodesGraph(selector, graph) {
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide().radius(22));
 
+  const zoomBehavior = d3
+    .zoom()
+    .scaleExtent([0.2, 3])
+    .on('start', () => svg.classed('is-panning', true))
+    .on('zoom', (event) => {
+      graphLayer.attr('transform', event.transform);
+    })
+    .on('end', () => svg.classed('is-panning', false));
+
+  svg.call(zoomBehavior);
+
+  const dragBehavior = d3
+    .drag()
+    .on('start', (event, d) => {
+      if (event.sourceEvent) event.sourceEvent.stopPropagation();
+      if (!event.active) simulation.alphaTarget(0.25).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    })
+    .on('drag', (event, d) => {
+      d.fx = event.x;
+      d.fy = event.y;
+    })
+    .on('end', (event, d) => {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    });
+
+  nodes.call(dragBehavior);
+
   simulation.on('tick', () => {
     links
       .attr('x1', (d) => d.source.x)
@@ -137,7 +170,27 @@ export function renderAllNodesGraph(selector, graph) {
     nodes.attr('transform', (d) => `translate(${d.x},${d.y})`);
   });
 
+  const fitTimer = setTimeout(() => {
+    const placed = graph.nodes.filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
+    if (placed.length === 0) return;
+
+    const minX = d3.min(placed, (d) => d.x);
+    const maxX = d3.max(placed, (d) => d.x);
+    const minY = d3.min(placed, (d) => d.y);
+    const maxY = d3.max(placed, (d) => d.y);
+    const graphW = Math.max(1, maxX - minX);
+    const graphH = Math.max(1, maxY - minY);
+    const pad = 40;
+    const scale = Math.max(0.2, Math.min(3, Math.min((width - pad * 2) / graphW, (height - pad * 2) / graphH)));
+    const tx = width / 2 - ((minX + maxX) / 2) * scale;
+    const ty = height / 2 - ((minY + maxY) / 2) * scale;
+    const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+
+    svg.transition().duration(300).call(zoomBehavior.transform, transform);
+  }, 220);
+
   return () => {
+    clearTimeout(fitTimer);
     simulation.stop();
     container.innerHTML = '';
   };
