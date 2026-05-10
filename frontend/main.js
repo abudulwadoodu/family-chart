@@ -1,8 +1,6 @@
-import '/src/styles/family-chart.css';
-import './styles.css';
-import f3 from '/src/index.ts';
+import * as d3 from 'd3';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
-
+window.d3=d3;
 const app = document.querySelector('#app');
 
 const state = {

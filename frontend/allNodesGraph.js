@@ -1,4 +1,3 @@
-import * as d3 from 'd3';
 
 function collectRelationIds(d) {
   return [

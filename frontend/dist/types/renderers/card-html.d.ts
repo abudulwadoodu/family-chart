@@ -1,0 +1,20 @@
+import { Store } from "../types/store";
+import { TreeDatum } from "../types/treeData";
+import { CardDim } from "../types/card";
+export default function CardHtml(props: {
+    style: 'default' | 'imageCircleRect' | 'imageCircle' | 'imageRect' | 'rect';
+    cardInnerHtmlCreator?: (d: TreeDatum) => string;
+    onCardClick: (e: Event, d: TreeDatum) => void;
+    onCardUpdate: (d: TreeDatum) => void;
+    onCardMouseenter?: (e: Event, d: TreeDatum) => void;
+    onCardMouseleave?: (e: Event, d: TreeDatum) => void;
+    mini_tree: boolean;
+    card_dim: CardDim;
+    defaultPersonIcon?: (d: TreeDatum) => string;
+    empty_card_label: string;
+    unknown_card_label: string;
+    cardImageField: string;
+    card_display: ((d: TreeDatum['data']) => string)[];
+    duplicate_branch_toggle?: boolean;
+    store: Store;
+}): (this: HTMLElement, d: TreeDatum) => void;
