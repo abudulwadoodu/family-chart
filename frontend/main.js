@@ -1,7 +1,16 @@
-import * as d3 from 'd3';
+import '../src/styles/family-chart.css';
+import './styles.css';
+import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
-window.d3=d3;
+
 const app = document.querySelector('#app');
+
+const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+
+function apiUrl(path) {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE ? `${API_BASE}${p}` : p;
+}
 
 const state = {
   user: null,
@@ -18,7 +27,7 @@ const state = {
 
 async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     credentials: 'include',
     headers: isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,

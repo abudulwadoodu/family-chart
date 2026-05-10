@@ -42,6 +42,8 @@
   ],
   "scripts": {
     "build": "node build.js",
+    "build:lib": "node build.js",
+    "build:app": "vite build",
     "test": "cypress open",
     "test-run": "cypress run",
     "dev": "vite",
