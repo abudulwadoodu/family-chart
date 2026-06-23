@@ -105,6 +105,21 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), (req, res, next) =
   }
 });
 
+treesRouter.delete('/:id', requireTreeRole(['owner']), (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const db = getDb();
+
+    const tree = db.prepare('SELECT id FROM trees WHERE id = ?').get(treeId);
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    db.prepare('DELETE FROM trees WHERE id = ?').run(treeId);
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 treesRouter.post(
   '/:id/import-csv',
   requireTreeRole(['owner', 'editor']),

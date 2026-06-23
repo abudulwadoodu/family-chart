@@ -2,7 +2,7 @@ import '../src/styles/family-chart.css';
 import './styles.css';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
-
+import { showConfirmDialog, showToast } from './ui.js';
 const app = document.querySelector('#app');
 
 const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
@@ -133,14 +133,94 @@ function renderTreeList() {
   for (const tree of state.trees) {
     const li = document.createElement('li');
     li.className = 'tree-item';
-    li.innerHTML = `<button data-tree-id="${tree.id}" class="tree-link">${tree.name}</button>
-      <small class="muted">${tree.role}</small>`;
+    const deleteButton =
+      tree.role === 'owner'
+        ? `<button type="button" data-tree-id="${tree.id}" data-tree-name="${escapeHtml(tree.name)}" class="tree-delete-btn secondary" aria-label="Delete ${escapeHtml(tree.name)}">Delete</button>`
+        : '';
+    li.innerHTML = `
+      <div class="tree-item-main">
+        <button data-tree-id="${tree.id}" class="tree-link">${escapeHtml(tree.name)}</button>
+        <small class="muted">${escapeHtml(tree.role)}</small>
+      </div>
+      ${deleteButton}`;
     treeList.appendChild(li);
   }
 
   treeList.querySelectorAll('.tree-link').forEach((button) => {
     button.addEventListener('click', () => loadTree(Number(button.dataset.treeId)));
   });
+
+  treeList.querySelectorAll('.tree-delete-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      promptDeleteTree(Number(button.dataset.treeId), button.dataset.treeName, button);
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function clearSelectedTreeView() {
+  cleanupAllNodesGraph();
+  state.selectedTreeId = null;
+  state.selectedTreeRole = null;
+  state.selectedTreeData = [];
+  state.chart = null;
+  state.editor = null;
+  state.viewMode = 'focused';
+  state.focusedMainId = null;
+
+  const title = document.querySelector('#tree-title');
+  const roleLabel = document.querySelector('#tree-role');
+  const saveButton = document.querySelector('#save-btn');
+  const chartContainer = document.querySelector('#FamilyChart');
+  const viewModeToggle = document.querySelector('#view-mode-toggle');
+
+  if (title) title.textContent = 'Select a tree';
+  if (roleLabel) roleLabel.textContent = '';
+  if (saveButton) saveButton.disabled = true;
+  if (chartContainer) chartContainer.innerHTML = '';
+  if (viewModeToggle) viewModeToggle.innerHTML = '';
+}
+
+function promptDeleteTree(treeId, treeName, triggerButton) {
+  showConfirmDialog({
+    message: `Are you sure you want to delete "${treeName}"? This action cannot be undone.`,
+    onConfirm: () => handleDeleteTree(treeId, treeName, triggerButton),
+  });
+}
+
+async function handleDeleteTree(treeId, treeName, triggerButton) {
+  const status = document.querySelector('#status');
+  if (triggerButton) triggerButton.disabled = true;
+  if (status) status.textContent = 'Deleting...';
+
+  try {
+    /** @type {import('./ui.js').DeleteTreeResponse} */
+    await api(`/api/trees/${treeId}`, { method: 'DELETE' });
+
+    state.trees = state.trees.filter((tree) => tree.id !== treeId);
+
+    if (state.selectedTreeId === treeId) {
+      clearSelectedTreeView();
+    }
+
+    renderTreeList();
+    if (status) status.textContent = '';
+    showToast('Family tree deleted successfully.');
+  } catch (error) {
+    if (status) status.textContent = error.message || 'Delete failed.';
+    showToast(error.message || 'Delete failed.', { type: 'error' });
+    if (triggerButton) triggerButton.disabled = false;
+    throw error;
+  }
 }
 
 function renderChart() {

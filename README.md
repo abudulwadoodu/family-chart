@@ -209,6 +209,7 @@ Trees:
 - `POST /api/trees`
 - `GET /api/trees/:id`
 - `PUT /api/trees/:id`
+- `DELETE /api/trees/:id` (owner only)
 
 Membership:
 - `POST /api/trees/:id/request-access`
@@ -219,7 +220,7 @@ Membership:
 
 - Only users with `approved` membership can access a tree.
 - Roles:
-  - `owner`: manage members and edit data
+  - `owner`: manage members, edit data, and delete the tree
   - `editor`: edit tree data
   - `viewer`: read-only access
 
