@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: resolve(__dirname, 'frontend'),
+    envDir: __dirname,
     base: env.VITE_BASE || '/',
     server: {
       port: 8080,
