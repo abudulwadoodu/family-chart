@@ -1,23 +1,27 @@
 import { getDb } from '../db/index.js';
 
-export function findUserByEmail(email) {
+export function findUserByCognitoSub(cognitoSub) {
   const db = getDb();
-  return db.prepare('SELECT id, email, created_at, last_login_at FROM users WHERE email = ?').get(email);
+  return db
+    .prepare('SELECT id, email, cognito_sub, created_at, last_login_at FROM users WHERE cognito_sub = ?')
+    .get(cognitoSub);
 }
 
 export function findUserById(userId) {
   const db = getDb();
-  return db.prepare('SELECT id, email, created_at, last_login_at FROM users WHERE id = ?').get(userId);
+  return db
+    .prepare('SELECT id, email, cognito_sub, created_at, last_login_at FROM users WHERE id = ?')
+    .get(userId);
 }
 
-export function createUser(email) {
+export function createUser(email, cognitoSub) {
   const db = getDb();
-  const result = db.prepare('INSERT INTO users (email) VALUES (?)').run(email);
+  const result = db.prepare('INSERT INTO users (email, cognito_sub) VALUES (?, ?)').run(email, cognitoSub);
   return findUserById(result.lastInsertRowid);
 }
 
-export function findOrCreateUserByEmail(email) {
-  return findUserByEmail(email) || createUser(email);
+export function findOrCreateUserByCognitoSub(cognitoSub, email) {
+  return findUserByCognitoSub(cognitoSub) || createUser(email, cognitoSub);
 }
 
 export function updateLastLogin(userId) {

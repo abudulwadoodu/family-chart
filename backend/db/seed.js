@@ -1,26 +1,83 @@
-import { initDb, getDb } from './index.js';
-import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Dynamic imports so dotenv.config() above runs before db/index.js reads
+// process.env.DB_PATH at module-load time (static imports are hoisted and
+// would otherwise run first) — same pattern as backend/server.js.
+const {
+  CognitoIdentityProviderClient,
+  AdminCreateUserCommand,
+  AdminSetUserPasswordCommand,
+  AdminGetUserCommand,
+} = await import('@aws-sdk/client-cognito-identity-provider');
+const { initDb, getDb } = await import('./index.js');
+const { getDefaultTreeDataJson } = await import('../utils/defaultTreeData.js');
+
+const userPoolId = process.env.COGNITO_USER_POOL_ID;
+const demoPassword = process.env.SEED_DEMO_PASSWORD || 'Demo-Pass-2026!';
+
+const cognito = userPoolId
+  ? new CognitoIdentityProviderClient({ region: process.env.AWS_REGION || 'ap-south-2' })
+  : null;
+
+// Idempotent: returns the Cognito `sub` for an existing or newly created demo user.
+async function ensureCognitoUser(email) {
+  if (!cognito) {
+    throw new Error('COGNITO_USER_POOL_ID is not set — cannot seed Cognito users.');
+  }
+
+  try {
+    const existing = await cognito.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: email }));
+    return existing.UserAttributes.find((attr) => attr.Name === 'sub').Value;
+  } catch (error) {
+    if (error.name !== 'UserNotFoundException') throw error;
+  }
+
+  const created = await cognito.send(
+    new AdminCreateUserCommand({
+      UserPoolId: userPoolId,
+      Username: email,
+      UserAttributes: [
+        { Name: 'email', Value: email },
+        { Name: 'email_verified', Value: 'true' },
+      ],
+      MessageAction: 'SUPPRESS',
+    })
+  );
+
+  await cognito.send(
+    new AdminSetUserPasswordCommand({
+      UserPoolId: userPoolId,
+      Username: email,
+      Password: demoPassword,
+      Permanent: true,
+    })
+  );
+
+  return created.User.Attributes.find((attr) => attr.Name === 'sub').Value;
+}
 
 async function seed() {
   initDb();
   const db = getDb();
 
-  const users = [{ email: 'owner@example.com' }, { email: 'editor@example.com' }, { email: 'viewer@example.com' }];
+  const emails = ['owner@example.com', 'editor@example.com', 'viewer@example.com'];
+  const userIdByEmail = {};
 
-  for (const user of users) {
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(user.email);
-    if (!existing) {
-      db.prepare('INSERT INTO users (email) VALUES (?)').run(user.email);
-    }
+  for (const email of emails) {
+    const cognitoSub = await ensureCognitoUser(email);
+    const existing = db.prepare('SELECT id FROM users WHERE cognito_sub = ?').get(cognitoSub);
+    userIdByEmail[email] = existing
+      ? existing.id
+      : db.prepare('INSERT INTO users (email, cognito_sub) VALUES (?, ?)').run(email, cognitoSub).lastInsertRowid;
   }
-
-  const owner = db.prepare('SELECT id FROM users WHERE email = ?').get('owner@example.com');
-  const editor = db.prepare('SELECT id FROM users WHERE email = ?').get('editor@example.com');
-  const viewer = db.prepare('SELECT id FROM users WHERE email = ?').get('viewer@example.com');
 
   let tree = db.prepare('SELECT id FROM trees WHERE name = ?').get('Demo Family Tree');
   if (!tree) {
-    const created = db.prepare('INSERT INTO trees (name, owner_id) VALUES (?, ?)').run('Demo Family Tree', owner.id);
+    const created = db
+      .prepare('INSERT INTO trees (name, owner_id) VALUES (?, ?)')
+      .run('Demo Family Tree', userIdByEmail['owner@example.com']);
     tree = { id: created.lastInsertRowid };
   }
 
@@ -31,9 +88,9 @@ async function seed() {
      DO UPDATE SET role = excluded.role, status = excluded.status`
   );
 
-  upsertMembership.run(owner.id, tree.id, 'owner', 'approved');
-  upsertMembership.run(editor.id, tree.id, 'editor', 'approved');
-  upsertMembership.run(viewer.id, tree.id, 'viewer', 'approved');
+  upsertMembership.run(userIdByEmail['owner@example.com'], tree.id, 'owner', 'approved');
+  upsertMembership.run(userIdByEmail['editor@example.com'], tree.id, 'editor', 'approved');
+  upsertMembership.run(userIdByEmail['viewer@example.com'], tree.id, 'viewer', 'approved');
 
   db.prepare(
     `INSERT INTO family_data (tree_id, json_data)
@@ -42,8 +99,9 @@ async function seed() {
   ).run(tree.id, getDefaultTreeDataJson());
 
   console.log('Seed complete.');
-  console.log('Users: owner@example.com, editor@example.com, viewer@example.com');
-  console.log('Login with the email OTP flow (no password) — check server console for the code in dev.');
+  console.log(`Demo accounts (password: ${demoPassword}):`);
+  console.log('  owner@example.com / editor@example.com / viewer@example.com');
+  console.log('Sign in through the app UI; set up TOTP MFA on first login if prompted.');
 }
 
 seed().catch((error) => {

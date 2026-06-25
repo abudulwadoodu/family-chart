@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and adjust as needed.
+
+aws_region   = "ap-south-2"
+project_name = "familytree"
+environment  = "prod"
+
+existing_instance_id      = "i-05110a66209f176ee"
+existing_security_group_id = "sg-0dfe3c93640c7a919"
+vpc_id                    = "vpc-0023ad5cadf288fd2"
+
+# Update this if your IP changes - it gates SSH access to the instance.
+ssh_allowed_cidr = "111.92.34.103/32"
+
+mfa_configuration          = "OPTIONAL"
+password_minimum_length    = 12
+access_token_validity_hours = 1
+refresh_token_validity_days = 30

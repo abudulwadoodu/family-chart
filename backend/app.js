@@ -1,5 +1,4 @@
 import express from 'express';
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
 
 import { initDb } from './db/index.js';
@@ -13,14 +12,8 @@ initDb();
 
 export const app = express();
 
-app.use(
-  cors({
-    origin: frontendOrigin,
-    credentials: true,
-  })
-);
+app.use(cors({ origin: frontendOrigin }));
 app.use(express.json({ limit: '1mb' }));
-app.use(cookieParser());
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });

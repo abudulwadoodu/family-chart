@@ -6,28 +6,20 @@ setBaseTestEnv();
 
 const { initDb, getDb } = await import('./index.js');
 
-describe('initDb migration', () => {
-  it('migrates a legacy users table (NOT NULL password_hash, no last_login_at) in place', () => {
-    const db = getDb();
-    db.exec('DROP TABLE IF EXISTS users');
-    db.exec(`
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
-    db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run('legacy@example.com', 'hash');
-
+describe('initDb', () => {
+  it('creates the users table with a cognito_sub column and no password/OTP/refresh-token tables', () => {
     initDb();
+    const db = getDb();
 
     const columns = db.prepare('PRAGMA table_info(users)').all();
-    const passwordHashColumn = columns.find((column) => column.name === 'password_hash');
-    expect(passwordHashColumn.notnull).toBe(0);
-    expect(columns.some((column) => column.name === 'last_login_at')).toBe(true);
+    expect(columns.some((column) => column.name === 'cognito_sub')).toBe(true);
+    expect(columns.some((column) => column.name === 'password_hash')).toBe(false);
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get('legacy@example.com');
-    expect(user.password_hash).toBe('hash');
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((row) => row.name);
+    expect(tables).not.toContain('otp_requests');
+    expect(tables).not.toContain('refresh_tokens');
   });
 });

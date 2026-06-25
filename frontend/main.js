@@ -1,9 +1,31 @@
 import '../src/styles/family-chart.css';
 import './styles.css';
+import { Amplify } from 'aws-amplify';
+import {
+  signUp,
+  confirmSignUp,
+  resendSignUpCode,
+  signIn,
+  confirmSignIn,
+  signOut,
+  getCurrentUser,
+  fetchAuthSession,
+  resetPassword,
+  confirmResetPassword,
+} from 'aws-amplify/auth';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
 import { showConfirmDialog, showToast } from './ui.js';
 const app = document.querySelector('#app');
+
+Amplify.configure({
+  Auth: {
+    Cognito: {
+      userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID,
+      userPoolClientId: import.meta.env.VITE_COGNITO_CLIENT_ID,
+    },
+  },
+});
 
 const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
 
@@ -11,8 +33,6 @@ function apiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
   return API_BASE ? `${API_BASE}${p}` : p;
 }
-
-const OTP_DURATION_SECONDS = 5 * 60;
 
 const state = {
   user: null,
@@ -25,24 +45,30 @@ const state = {
   viewMode: 'focused',
   focusedMainId: null,
   allNodesCleanup: null,
-  authStep: 'email',
+  authStep: 'signIn',
   authEmail: '',
-  otpResendAt: 0,
-  otpCountdownTimer: null,
+  totpSetup: null,
 };
 
-async function api(path, options = {}, _isRetry = false) {
+async function getAuthHeader() {
+  try {
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+    return idToken ? { Authorization: `Bearer ${idToken}` } : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
+  const authHeader = await getAuthHeader();
   const response = await fetch(apiUrl(path), {
-    credentials: 'include',
-    headers: isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: isFormData
+      ? { ...authHeader, ...(options.headers || {}) }
+      : { 'Content-Type': 'application/json', ...authHeader, ...(options.headers || {}) },
     ...options,
   });
-
-  if (response.status === 401 && !_isRetry && path !== '/api/auth/refresh') {
-    const refreshed = await tryRefreshSession();
-    if (refreshed) return api(path, options, true);
-  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -53,112 +79,171 @@ async function api(path, options = {}, _isRetry = false) {
   return payload;
 }
 
-async function tryRefreshSession() {
-  try {
-    const response = await fetch(apiUrl('/api/auth/refresh'), { method: 'POST', credentials: 'include' });
-    return response.ok;
-  } catch (_error) {
-    return false;
-  }
-}
-
 function render() {
   if (!state.user) return renderAuth();
   return renderDashboard();
 }
 
 function renderAuth() {
-  if (state.authStep === 'otp') return renderOtpStep();
-  return renderEmailStep();
+  if (state.authStep === 'signUp') return renderSignUpStep();
+  if (state.authStep === 'confirmSignUp') return renderConfirmSignUpStep();
+  if (state.authStep === 'mfaCode') return renderMfaStep();
+  if (state.authStep === 'forgotPassword') return renderForgotPasswordStep();
+  if (state.authStep === 'resetPassword') return renderResetPasswordStep();
+  return renderSignInStep();
 }
 
-function renderEmailStep() {
+function renderSignInStep() {
   app.innerHTML = `
     <main class="auth-layout">
       <section class="card">
         <h1>Family Chart Login</h1>
-        <p class="muted">Enter your email and we'll send you a one-time verification code.</p>
-        <form id="request-otp-form" class="stack">
+        <form id="sign-in-form" class="stack">
           <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
-          <button type="submit" id="send-otp-btn">Send Code</button>
-        </form>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
-
-  document.querySelector('#request-otp-form').addEventListener('submit', handleRequestOtp);
-}
-
-function renderOtpStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Enter verification code</h1>
-        <p class="muted">We sent a 6-digit code to <strong>${escapeHtml(state.authEmail)}</strong>. It expires in 5 minutes.</p>
-        <form id="verify-otp-form" class="stack">
-          <label>Verification code
-            <input
-              type="text"
-              name="otp"
-              class="otp-input"
-              inputmode="numeric"
-              pattern="\\d{6}"
-              maxlength="6"
-              autocomplete="one-time-code"
-              required
-            />
-          </label>
-          <button type="submit" id="verify-otp-btn">Verify</button>
+          <label>Password <input type="password" name="password" required /></label>
+          <button type="submit" id="sign-in-btn">Sign In</button>
         </form>
         <div class="row otp-actions">
-          <button type="button" id="change-email-btn" class="secondary">Use a different email</button>
-          <button type="button" id="resend-otp-btn" class="secondary" disabled>Resend code (<span id="otp-countdown">05:00</span>)</button>
+          <button type="button" id="go-sign-up-btn" class="secondary">Create an account</button>
+          <button type="button" id="go-forgot-password-btn" class="secondary">Forgot password?</button>
         </div>
         <p id="auth-error" class="error"></p>
       </section>
     </main>
   `;
 
-  document.querySelector('#verify-otp-form').addEventListener('submit', handleVerifyOtp);
-  document.querySelector('#change-email-btn').addEventListener('click', handleChangeEmail);
-  document.querySelector('#resend-otp-btn').addEventListener('click', handleResendOtp);
-  document.querySelector('.otp-input').focus();
-
-  startOtpCountdown();
+  document.querySelector('#sign-in-form').addEventListener('submit', handleSignIn);
+  document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
+    state.authStep = 'signUp';
+    render();
+  });
+  document.querySelector('#go-forgot-password-btn').addEventListener('click', () => {
+    state.authStep = 'forgotPassword';
+    render();
+  });
 }
 
-function startOtpCountdown() {
-  stopOtpCountdown();
-  state.otpResendAt = Date.now() + OTP_DURATION_SECONDS * 1000;
-  updateOtpCountdownDisplay();
-  state.otpCountdownTimer = setInterval(updateOtpCountdownDisplay, 1000);
+function renderSignUpStep() {
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>Create your account</h1>
+        <p class="muted">Password must be at least 12 characters and include upper/lowercase letters, a number, and a symbol.</p>
+        <form id="sign-up-form" class="stack">
+          <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
+          <label>Password <input type="password" name="password" minlength="12" required /></label>
+          <button type="submit" id="sign-up-btn">Sign Up</button>
+        </form>
+        <div class="row otp-actions">
+          <button type="button" id="go-sign-in-btn" class="secondary">Back to sign in</button>
+        </div>
+        <p id="auth-error" class="error"></p>
+      </section>
+    </main>
+  `;
+
+  document.querySelector('#sign-up-form').addEventListener('submit', handleSignUp);
+  document.querySelector('#go-sign-in-btn').addEventListener('click', () => {
+    state.authStep = 'signIn';
+    render();
+  });
 }
 
-function stopOtpCountdown() {
-  if (state.otpCountdownTimer) {
-    clearInterval(state.otpCountdownTimer);
-    state.otpCountdownTimer = null;
-  }
+function renderConfirmSignUpStep() {
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>Verify your email</h1>
+        <p class="muted">We sent a verification code to <strong>${escapeHtml(state.authEmail)}</strong>.</p>
+        <form id="confirm-sign-up-form" class="stack">
+          <label>Verification code
+            <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
+          </label>
+          <button type="submit" id="confirm-sign-up-btn">Verify</button>
+        </form>
+        <div class="row otp-actions">
+          <button type="button" id="resend-code-btn" class="secondary">Resend code</button>
+        </div>
+        <p id="auth-error" class="error"></p>
+      </section>
+    </main>
+  `;
+
+  document.querySelector('#confirm-sign-up-form').addEventListener('submit', handleConfirmSignUp);
+  document.querySelector('#resend-code-btn').addEventListener('click', handleResendConfirmationCode);
 }
 
-function updateOtpCountdownDisplay() {
-  const countdownEl = document.querySelector('#otp-countdown');
-  const resendBtn = document.querySelector('#resend-otp-btn');
-  if (!countdownEl || !resendBtn) return stopOtpCountdown();
+function renderMfaStep() {
+  const setupBlock = state.totpSetup
+    ? `
+      <p class="muted">Scan this in your authenticator app, or enter the secret manually, then enter the 6-digit code it generates.</p>
+      <p class="totp-secret">${escapeHtml(state.totpSetup.uri)}</p>
+      <p class="totp-secret">Secret: ${escapeHtml(state.totpSetup.secret)}</p>
+    `
+    : `<p class="muted">Enter the 6-digit code from your authenticator app.</p>`;
 
-  const remainingMs = state.otpResendAt - Date.now();
-  if (remainingMs <= 0) {
-    stopOtpCountdown();
-    resendBtn.disabled = false;
-    resendBtn.textContent = 'Resend code';
-    return;
-  }
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>${state.totpSetup ? 'Set up authenticator app' : 'Multi-factor verification'}</h1>
+        ${setupBlock}
+        <form id="mfa-form" class="stack">
+          <label>Authenticator code
+            <input type="text" name="code" class="otp-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required />
+          </label>
+          <button type="submit" id="mfa-submit-btn">Verify</button>
+        </form>
+        <p id="auth-error" class="error"></p>
+      </section>
+    </main>
+  `;
 
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
-  const seconds = String(totalSeconds % 60).padStart(2, '0');
-  countdownEl.textContent = `${minutes}:${seconds}`;
+  document.querySelector('#mfa-form').addEventListener('submit', handleMfaSubmit);
+}
+
+function renderForgotPasswordStep() {
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>Reset your password</h1>
+        <form id="forgot-password-form" class="stack">
+          <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
+          <button type="submit" id="forgot-password-btn">Send reset code</button>
+        </form>
+        <div class="row otp-actions">
+          <button type="button" id="go-sign-in-btn" class="secondary">Back to sign in</button>
+        </div>
+        <p id="auth-error" class="error"></p>
+      </section>
+    </main>
+  `;
+
+  document.querySelector('#forgot-password-form').addEventListener('submit', handleForgotPasswordRequest);
+  document.querySelector('#go-sign-in-btn').addEventListener('click', () => {
+    state.authStep = 'signIn';
+    render();
+  });
+}
+
+function renderResetPasswordStep() {
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>Enter reset code</h1>
+        <p class="muted">We sent a reset code to <strong>${escapeHtml(state.authEmail)}</strong>.</p>
+        <form id="reset-password-form" class="stack">
+          <label>Reset code
+            <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
+          </label>
+          <label>New password <input type="password" name="newPassword" minlength="12" required /></label>
+          <button type="submit" id="reset-password-btn">Reset password</button>
+        </form>
+        <p id="auth-error" class="error"></p>
+      </section>
+    </main>
+  `;
+
+  document.querySelector('#reset-password-form').addEventListener('submit', handleResetPasswordConfirm);
 }
 
 function renderDashboard() {
@@ -205,7 +290,7 @@ function renderDashboard() {
     </main>
   `;
 
-  document.querySelector('#logout-btn').addEventListener('click', handleLogout);
+  document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
   document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
   document.querySelector('#import-csv-form').addEventListener('submit', handleImportCsv);
   document.querySelector('#download-csv-template-btn').addEventListener('click', handleDownloadCsvTemplate);
@@ -413,97 +498,219 @@ function setupViewModeToggle() {
   syncModeButtons();
 }
 
-async function handleRequestOtp(event) {
+function authErrorMessage(error) {
+  return error?.message || 'Something went wrong. Please try again.';
+}
+
+async function handleAuthNextStep(nextStep) {
+  if (nextStep.signInStep === 'DONE' || !nextStep.signInStep) {
+    state.authStep = 'signIn';
+    state.authEmail = '';
+    state.totpSetup = null;
+    await loadSession();
+    return;
+  }
+
+  if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
+    state.totpSetup = null;
+    state.authStep = 'mfaCode';
+    render();
+    return;
+  }
+
+  if (nextStep.signInStep === 'CONTINUE_SIGN_IN_WITH_TOTP_SETUP') {
+    const { totpSetupDetails } = nextStep;
+    const setupUri = totpSetupDetails.getSetupUri('FamilyChart', state.authEmail);
+    state.totpSetup = { secret: totpSetupDetails.sharedSecret, uri: setupUri.toString() };
+    state.authStep = 'mfaCode';
+    render();
+    return;
+  }
+
+  if (nextStep.signInStep === 'CONFIRM_SIGN_UP') {
+    state.authStep = 'confirmSignUp';
+    render();
+    return;
+  }
+
+  throw new Error(`Unsupported sign-in step: ${nextStep.signInStep}`);
+}
+
+async function handleSignIn(event) {
   event.preventDefault();
   const form = new FormData(event.target);
   const email = String(form.get('email') || '').trim();
-  const submitBtn = document.querySelector('#send-otp-btn');
+  const password = String(form.get('password') || '');
+  const submitBtn = document.querySelector('#sign-in-btn');
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Sending...';
+  submitBtn.textContent = 'Signing in...';
   try {
-    await api('/api/auth/request-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
     state.authEmail = email;
-    state.authStep = 'otp';
-    render();
-    showToast('Verification code sent.');
+    const result = await signIn({ username: email, password });
+    if (result.isSignedIn) {
+      await handleAuthNextStep({ signInStep: 'DONE' });
+    } else {
+      await handleAuthNextStep(result.nextStep);
+    }
   } catch (error) {
-    errorEl.textContent = error.message;
-    showToast(error.message || 'Failed to send code.', { type: 'error' });
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Send Code';
+    submitBtn.textContent = 'Sign In';
   }
 }
 
-async function handleVerifyOtp(event) {
+async function handleSignUp(event) {
   event.preventDefault();
   const form = new FormData(event.target);
-  const otp = String(form.get('otp') || '').trim();
-  const submitBtn = document.querySelector('#verify-otp-btn');
+  const email = String(form.get('email') || '').trim();
+  const password = String(form.get('password') || '');
+  const submitBtn = document.querySelector('#sign-up-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Signing up...';
+  try {
+    const result = await signUp({
+      username: email,
+      password,
+      options: { userAttributes: { email } },
+    });
+    state.authEmail = email;
+    if (result.nextStep.signUpStep === 'CONFIRM_SIGN_UP') {
+      state.authStep = 'confirmSignUp';
+      render();
+    } else {
+      state.authStep = 'signIn';
+      render();
+      showToast('Account created. Please sign in.');
+    }
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Sign Up';
+  }
+}
+
+async function handleConfirmSignUp(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const code = String(form.get('code') || '').trim();
+  const submitBtn = document.querySelector('#confirm-sign-up-btn');
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
   submitBtn.disabled = true;
   submitBtn.textContent = 'Verifying...';
   try {
-    await api('/api/auth/verify-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email: state.authEmail, otp }),
-    });
-    stopOtpCountdown();
-    state.authStep = 'email';
-    state.authEmail = '';
-    await loadSession();
+    await confirmSignUp({ username: state.authEmail, confirmationCode: code });
+    state.authStep = 'signIn';
+    render();
+    showToast('Email verified. Please sign in.');
   } catch (error) {
-    errorEl.textContent = error.message;
-    showToast(error.message || 'Verification failed.', { type: 'error' });
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
     submitBtn.disabled = false;
     submitBtn.textContent = 'Verify';
   }
 }
 
-async function handleResendOtp() {
-  const resendBtn = document.querySelector('#resend-otp-btn');
-  const errorEl = document.querySelector('#auth-error');
-  errorEl.textContent = '';
-
-  resendBtn.disabled = true;
-  resendBtn.textContent = 'Sending...';
+async function handleResendConfirmationCode() {
   try {
-    await api('/api/auth/request-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email: state.authEmail }),
-    });
-    startOtpCountdown();
+    await resendSignUpCode({ username: state.authEmail });
     showToast('Verification code resent.');
   } catch (error) {
-    errorEl.textContent = error.message;
-    showToast(error.message || 'Failed to resend code.', { type: 'error' });
-    resendBtn.disabled = false;
-    resendBtn.textContent = 'Resend code';
+    showToast(authErrorMessage(error), { type: 'error' });
   }
 }
 
-function handleChangeEmail() {
-  stopOtpCountdown();
-  state.authStep = 'email';
-  render();
+async function handleMfaSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const code = String(form.get('code') || '').trim();
+  const submitBtn = document.querySelector('#mfa-submit-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Verifying...';
+  try {
+    const result = await confirmSignIn({ challengeResponse: code });
+    if (result.isSignedIn) {
+      await handleAuthNextStep({ signInStep: 'DONE' });
+    } else {
+      await handleAuthNextStep(result.nextStep);
+    }
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Verify';
+  }
 }
 
-async function handleLogout() {
-  await api('/api/auth/logout', { method: 'POST' });
-  stopOtpCountdown();
+async function handleForgotPasswordRequest(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const email = String(form.get('email') || '').trim();
+  const submitBtn = document.querySelector('#forgot-password-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Sending...';
+  try {
+    await resetPassword({ username: email });
+    state.authEmail = email;
+    state.authStep = 'resetPassword';
+    render();
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Send reset code';
+  }
+}
+
+async function handleResetPasswordConfirm(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const code = String(form.get('code') || '').trim();
+  const newPassword = String(form.get('newPassword') || '');
+  const submitBtn = document.querySelector('#reset-password-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Resetting...';
+  try {
+    await confirmResetPassword({ username: state.authEmail, confirmationCode: code, newPassword });
+    state.authStep = 'signIn';
+    render();
+    showToast('Password reset. Please sign in.');
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Reset password';
+  }
+}
+
+async function handleSignOut() {
+  await signOut();
   state.user = null;
   state.trees = [];
   state.selectedTreeId = null;
-  state.authStep = 'email';
+  state.authStep = 'signIn';
   state.authEmail = '';
+  state.totpSetup = null;
   render();
 }
 
@@ -589,6 +796,7 @@ function handleDownloadCsvTemplate() {
 
 async function loadSession() {
   try {
+    await getCurrentUser();
     const payload = await api('/api/auth/me');
     state.user = payload.user;
     await loadTrees();

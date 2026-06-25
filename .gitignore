@@ -3,8 +3,17 @@
 /node_modules/
 /.idea/
 /.vscode/
+/.claude/
 /tests/debugging/
 cypress/screenshots
 docs/api
 /.env
 /data/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log
+crash.*.log

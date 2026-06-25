@@ -45,6 +45,16 @@ body {
   flex-wrap: wrap;
 }
 
+.totp-secret {
+  font-family: monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  background: #0f1520;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+}
+
 .dashboard {
   grid-template-columns: 340px 1fr;
   min-height: 100vh;

@@ -177,17 +177,20 @@ This repository now includes a local self-hosted full-stack app:
 
 - Frontend (Vite): `http://localhost:8080`
 - Backend (Express + SQLite): `http://localhost:3001`
-- Auth: passwordless email OTP login, JWT access/refresh tokens in `httpOnly` cookies
+- Auth: AWS Cognito (email/password + optional TOTP MFA) via AWS Amplify on the
+  frontend; the backend verifies Cognito-issued ID tokens, it never sees passwords.
 
 ### Setup
 
-1. Install dependencies:
+1. Deploy the Cognito infrastructure (see [Infrastructure (Terraform)](#infrastructure-terraform) below) and note the
+   `cognito_user_pool_id` / `cognito_user_pool_client_id` outputs.
+2. Install dependencies:
    - `npm install`
-2. Copy env file:
+3. Copy env file and fill in the Cognito IDs from step 1:
    - Windows PowerShell: `Copy-Item .env.example .env`
-3. Seed demo data:
+4. Seed demo data (also provisions the 3 demo users directly in Cognito — requires AWS credentials):
    - `npm run db:seed`
-4. Start app (frontend + backend):
+5. Start app (frontend + backend):
    - `npm run dev:app`
 
 ### Test Users (Seeded)
@@ -196,16 +199,16 @@ This repository now includes a local self-hosted full-stack app:
 - editor@example.com
 - viewer@example.com
 
-There are no passwords — log in with the email OTP flow. In dev, `EMAIL_PROVIDER` defaults to `console`, so the 6-digit code is printed to the backend terminal instead of being emailed.
+Password is whatever `SEED_DEMO_PASSWORD` was set to when you ran `npm run db:seed`
+(defaults to `Demo-Pass-2026!`). TOTP MFA is optional — the app will prompt to set it
+up via an authenticator app the first time you choose to enable it.
 
 ### API Summary
 
-Auth (passwordless email OTP):
-- `POST /api/auth/request-otp` — body `{ email }`, sends a 6-digit code valid for 5 minutes
-- `POST /api/auth/verify-otp` — body `{ email, otp }`, creates the user on first login, returns `{ user }` and sets access/refresh token cookies
-- `POST /api/auth/refresh` — rotates the refresh token, returns a new access token cookie
-- `POST /api/auth/logout` — revokes the refresh token and clears cookies
-- `GET /api/auth/me`
+Auth:
+- `GET /api/auth/me` — requires `Authorization: Bearer <Cognito ID token>`; auto-creates the local user row on first sight
+
+Everything else (sign up, sign in, sign out, password reset, MFA setup/verification, token refresh) happens client-side against Cognito via Amplify — the backend is never involved and never stores credentials.
 
 Trees:
 - `GET /api/trees`
@@ -219,12 +222,20 @@ Membership:
 - `GET /api/trees/:id/members` (owner only)
 - `PATCH /api/memberships/:id` (owner only)
 
-### OTP Login Details
+### Authentication Flow
 
-- Codes are 6 digits, expire after 5 minutes, and are hashed (never stored in plain text).
-- Max 5 verification attempts per code; requesting a new code invalidates any pending one.
-- `/api/auth/request-otp` and `/api/auth/verify-otp` are rate-limited per IP (see `.env.example`).
-- Email delivery is provider-agnostic (`EMAIL_PROVIDER=console|ses|memory`); set `EMAIL_FROM`/`AWS_REGION` for SES.
+```
+Browser (Amplify Auth)                  Express backend                 AWS Cognito
+    |--- signUp / signIn / TOTP ------------------------------------------->|
+    |<-- ID token, access token, refresh token (Amplify manages refresh) --|
+    |
+    |--- GET /api/trees ------------------>|
+    |    Authorization: Bearer <ID token>  |
+    |                                      |--- verify signature via JWKS ->| (cached, no AWS creds needed)
+    |                                      |--- find-or-create local user by `cognito_sub`
+    |                                      |--- authorize via tree_memberships (local DB)
+    |<------------------------------------ response -------------------------|
+```
 
 ### Authorization Rules
 
@@ -233,4 +244,33 @@ Membership:
   - `owner`: manage members, edit data, and delete the tree
   - `editor`: edit tree data
   - `viewer`: read-only access
+
+### Infrastructure (Terraform)
+
+AWS resources (Cognito User Pool + SPA client, and the existing EC2 box this app
+runs on) are defined in `terraform/`, region `ap-south-2`.
+
+```powershell
+# One-time: create the S3 bucket + DynamoDB table that hold Terraform state
+cd terraform/bootstrap
+terraform init
+terraform apply
+
+# Main config
+cd ../
+terraform init
+terraform import aws_instance.app i-05110a66209f176ee
+terraform import aws_security_group.app sg-0dfe3c93640c7a919
+terraform plan   # review — should be additive only (new SG rules, new IAM instance profile), no destroys
+terraform apply
+terraform output
+```
+
+Cognito sends its own verification/MFA/password-reset emails (`COGNITO_DEFAULT`,
+~50/day, no setup required). If you outgrow that, switch `email_configuration` in
+`terraform/cognito.tf` to use Amazon SES as the sending account — that requires
+verifying a domain or email identity in SES first.
+
+Cost: Cognito's free tier covers 50,000 monthly active users, so this is
+effectively $0/month for a personal app.
 
