@@ -1,5 +1,3 @@
-import bcrypt from 'bcrypt';
-
 import { initDb, getDb } from './index.js';
 import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
 
@@ -7,17 +5,12 @@ async function seed() {
   initDb();
   const db = getDb();
 
-  const users = [
-    { email: 'owner@example.com', password: 'OwnerPass123!' },
-    { email: 'editor@example.com', password: 'EditorPass123!' },
-    { email: 'viewer@example.com', password: 'ViewerPass123!' },
-  ];
+  const users = [{ email: 'owner@example.com' }, { email: 'editor@example.com' }, { email: 'viewer@example.com' }];
 
   for (const user of users) {
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(user.email);
     if (!existing) {
-      const passwordHash = await bcrypt.hash(user.password, 12);
-      db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(user.email, passwordHash);
+      db.prepare('INSERT INTO users (email) VALUES (?)').run(user.email);
     }
   }
 
@@ -50,7 +43,7 @@ async function seed() {
 
   console.log('Seed complete.');
   console.log('Users: owner@example.com, editor@example.com, viewer@example.com');
-  console.log('Passwords: OwnerPass123!, EditorPass123!, ViewerPass123!');
+  console.log('Login with the email OTP flow (no password) — check server console for the code in dev.');
 }
 
 seed().catch((error) => {

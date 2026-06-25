@@ -51,19 +51,24 @@
     "dev:backend": "node backend/server.js",
     "dev:app": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "db:seed": "node backend/db/seed.js",
+    "test:backend": "vitest run",
+    "test:backend:watch": "vitest",
     "docs": "typedoc",
     "docs:deploy": "yarn docs && gh-pages -d docs/api -b gh-pages",
     "prepublishOnly": "node prePublish.js"
   },
   "sideEffects": false,
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.700.0",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.8.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "d3": "^7.9.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "express-session": "^1.19.0",
+    "express-rate-limit": "^7.4.1",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1"
   },
   "devDependencies": {
@@ -75,8 +80,10 @@
     "gh-pages": "^6.3.0",
     "http-server": "^14.1.1",
     "rollup": "^4.45.1",
+    "supertest": "^7.0.0",
     "typedoc": "^0.28.13",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^2.1.4"
   }
 }

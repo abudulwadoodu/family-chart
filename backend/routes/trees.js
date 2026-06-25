@@ -24,7 +24,7 @@ treesRouter.get('/', (req, res, next) => {
          WHERE tm.user_id = ? AND tm.status = 'approved'
          ORDER BY t.created_at DESC`
       )
-      .all(req.session.userId);
+      .all(req.user.id);
 
     return res.json({ trees });
   } catch (error) {
@@ -40,7 +40,7 @@ treesRouter.post('/', (req, res, next) => {
     }
 
     const db = getDb();
-    const userId = req.session.userId;
+    const userId = req.user.id;
 
     const initialJson = getDefaultTreeDataJson();
 

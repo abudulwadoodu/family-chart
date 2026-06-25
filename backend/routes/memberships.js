@@ -12,7 +12,7 @@ membershipsRouter.use(requireAuth);
 membershipsRouter.post('/trees/:id/request-access', (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const userId = req.session.userId;
+    const userId = req.user.id;
     const db = getDb();
 
     const treeExists = db.prepare('SELECT id FROM trees WHERE id = ?').get(treeId);
@@ -66,7 +66,7 @@ membershipsRouter.patch('/memberships/:id', (req, res, next) => {
          FROM tree_memberships
          WHERE user_id = ? AND tree_id = ?`
       )
-      .get(req.session.userId, targetMembership.tree_id);
+      .get(req.user.id, targetMembership.tree_id);
 
     if (!actingMembership || actingMembership.status !== 'approved' || actingMembership.role !== 'owner') {
       return res.status(403).json({ error: 'Owner access required' });

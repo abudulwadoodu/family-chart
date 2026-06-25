@@ -5,8 +5,8 @@ export function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-export function isValidPassword(password) {
-  return typeof password === 'string' && password.length >= 8 && password.length <= 128;
+export function isValidOtp(otp) {
+  return typeof otp === 'string' && /^\d{6}$/.test(otp);
 }
 
 export function isNonEmptyString(value, max = 200) {

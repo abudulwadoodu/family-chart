@@ -177,7 +177,7 @@ This repository now includes a local self-hosted full-stack app:
 
 - Frontend (Vite): `http://localhost:8080`
 - Backend (Express + SQLite): `http://localhost:3001`
-- Auth: session cookie (`httpOnly`) with local credentials
+- Auth: passwordless email OTP login, JWT access/refresh tokens in `httpOnly` cookies
 
 ### Setup
 
@@ -192,16 +192,19 @@ This repository now includes a local self-hosted full-stack app:
 
 ### Test Users (Seeded)
 
-- owner@example.com / OwnerPass123!
-- editor@example.com / EditorPass123!
-- viewer@example.com / ViewerPass123!
+- owner@example.com
+- editor@example.com
+- viewer@example.com
+
+There are no passwords — log in with the email OTP flow. In dev, `EMAIL_PROVIDER` defaults to `console`, so the 6-digit code is printed to the backend terminal instead of being emailed.
 
 ### API Summary
 
-Auth:
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
+Auth (passwordless email OTP):
+- `POST /api/auth/request-otp` — body `{ email }`, sends a 6-digit code valid for 5 minutes
+- `POST /api/auth/verify-otp` — body `{ email, otp }`, creates the user on first login, returns `{ user }` and sets access/refresh token cookies
+- `POST /api/auth/refresh` — rotates the refresh token, returns a new access token cookie
+- `POST /api/auth/logout` — revokes the refresh token and clears cookies
 - `GET /api/auth/me`
 
 Trees:
@@ -215,6 +218,13 @@ Membership:
 - `POST /api/trees/:id/request-access`
 - `GET /api/trees/:id/members` (owner only)
 - `PATCH /api/memberships/:id` (owner only)
+
+### OTP Login Details
+
+- Codes are 6 digits, expire after 5 minutes, and are hashed (never stored in plain text).
+- Max 5 verification attempts per code; requesting a new code invalidates any pending one.
+- `/api/auth/request-otp` and `/api/auth/verify-otp` are rate-limited per IP (see `.env.example`).
+- Email delivery is provider-agnostic (`EMAIL_PROVIDER=console|ses|memory`); set `EMAIL_FROM`/`AWS_REGION` for SES.
 
 ### Authorization Rules
 

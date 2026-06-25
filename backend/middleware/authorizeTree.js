@@ -3,7 +3,7 @@ import { getMembershipByUserAndTree } from '../models/membershipModel.js';
 export function requireTreeRole(allowedRoles = []) {
   return (req, res, next) => {
     const treeId = Number(req.params.id || req.params.treeId);
-    const userId = req.session?.userId;
+    const userId = req.user?.id;
 
     if (!treeId || !userId) {
       return res.status(400).json({ error: 'Invalid tree or user context' });
