@@ -12,7 +12,12 @@ import {
   fetchAuthSession,
   resetPassword,
   confirmResetPassword,
+  setUpTOTP,
+  verifyTOTPSetup,
+  updateMFAPreference,
+  fetchMFAPreference,
 } from 'aws-amplify/auth';
+import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
 import { showConfirmDialog, showToast } from './ui.js';
@@ -48,6 +53,27 @@ const state = {
   authStep: 'signIn',
   authEmail: '',
   totpSetup: null,
+  dashboardView: 'trees',
+  mfa: {
+    status: 'unknown', // 'unknown' | 'enabled' | 'disabled'
+    loading: false,
+    error: '',
+    success: '',
+    enrollment: null, // { secret, uri, qrDataUrl }
+  },
+};
+
+const AUTH_ERROR_MESSAGES = {
+  CodeMismatchException: 'That code is incorrect. Check your authenticator app and try again.',
+  ExpiredCodeException: 'That code expired. Generate a new one and try again.',
+  NotAuthorizedException: 'Incorrect email or password, or your session has expired. Please try again.',
+  LimitExceededException: 'Too many attempts. Please wait a few minutes and try again.',
+  TooManyRequestsException: 'Too many requests. Please wait a moment and try again.',
+  EnableSoftwareTokenMFAException: 'Could not set up the authenticator app. Please try again.',
+  SoftwareTokenMFANotFoundException: 'No authenticator app is registered yet. Start setup again.',
+  UserNotFoundException: 'No account found with that email.',
+  UsernameExistsException: 'An account with that email already exists.',
+  InvalidPasswordException: 'Password does not meet the requirements.',
 };
 
 async function getAuthHeader() {
@@ -176,9 +202,9 @@ function renderConfirmSignUpStep() {
 function renderMfaStep() {
   const setupBlock = state.totpSetup
     ? `
-      <p class="muted">Scan this in your authenticator app, or enter the secret manually, then enter the 6-digit code it generates.</p>
-      <p class="totp-secret">${escapeHtml(state.totpSetup.uri)}</p>
-      <p class="totp-secret">Secret: ${escapeHtml(state.totpSetup.secret)}</p>
+      <p class="muted">Scan this QR code with your authenticator app, or enter the setup key manually, then enter the 6-digit code it generates.</p>
+      <div class="qr-code-wrap"><img src="${state.totpSetup.qrDataUrl}" alt="TOTP QR code" width="180" height="180" /></div>
+      <p class="totp-secret">Setup key: ${escapeHtml(state.totpSetup.secret)}</p>
     `
     : `<p class="muted">Enter the 6-digit code from your authenticator app.</p>`;
 
@@ -247,14 +273,21 @@ function renderResetPasswordStep() {
 }
 
 function renderDashboard() {
+  const isSecurityView = state.dashboardView === 'security';
+
   app.innerHTML = `
     <main class="dashboard">
       <aside class="sidebar card">
         <div class="row">
-          <h2>Your Trees</h2>
+          <h2>${isSecurityView ? 'Security Settings' : 'Your Trees'}</h2>
           <button id="logout-btn" class="secondary">Logout</button>
         </div>
         <p class="muted">${state.user.email}</p>
+        <div class="row nav-tabs">
+          <button type="button" id="nav-trees-btn" class="secondary" ${isSecurityView ? '' : 'disabled'}>My Trees</button>
+          <button type="button" id="nav-security-btn" class="secondary" ${isSecurityView ? 'disabled' : ''}>Security Settings</button>
+        </div>
+        ${isSecurityView ? '' : `
         <form id="create-tree-form" class="row">
           <input name="name" placeholder="New tree name" maxlength="120" required />
           <button type="submit">Create</button>
@@ -274,8 +307,10 @@ function renderDashboard() {
           </p>
         </form>
         <ul id="tree-list" class="tree-list"></ul>
+        `}
       </aside>
       <section class="content card">
+        ${isSecurityView ? renderSecuritySettingsMarkup() : `
         <div class="row">
           <h2 id="tree-title">Select a tree</h2>
           <div class="row">
@@ -286,11 +321,27 @@ function renderDashboard() {
         <div id="view-mode-toggle" class="row"></div>
         <div id="status" class="muted"></div>
         <div id="FamilyChart" class="f3 chart-container"></div>
+        `}
       </section>
     </main>
   `;
 
   document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
+  document.querySelector('#nav-trees-btn').addEventListener('click', () => {
+    state.dashboardView = 'trees';
+    render();
+  });
+  document.querySelector('#nav-security-btn').addEventListener('click', () => {
+    state.dashboardView = 'security';
+    render();
+    loadMfaStatus();
+  });
+
+  if (isSecurityView) {
+    attachSecuritySettingsListeners();
+    return;
+  }
+
   document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
   document.querySelector('#import-csv-form').addEventListener('submit', handleImportCsv);
   document.querySelector('#download-csv-template-btn').addEventListener('click', handleDownloadCsvTemplate);
@@ -499,7 +550,7 @@ function setupViewModeToggle() {
 }
 
 function authErrorMessage(error) {
-  return error?.message || 'Something went wrong. Please try again.';
+  return AUTH_ERROR_MESSAGES[error?.name] || error?.message || 'Something went wrong. Please try again.';
 }
 
 async function handleAuthNextStep(nextStep) {
@@ -521,7 +572,8 @@ async function handleAuthNextStep(nextStep) {
   if (nextStep.signInStep === 'CONTINUE_SIGN_IN_WITH_TOTP_SETUP') {
     const { totpSetupDetails } = nextStep;
     const setupUri = totpSetupDetails.getSetupUri('FamilyChart', state.authEmail);
-    state.totpSetup = { secret: totpSetupDetails.sharedSecret, uri: setupUri.toString() };
+    const qrDataUrl = await QRCode.toDataURL(setupUri.toString());
+    state.totpSetup = { secret: totpSetupDetails.sharedSecret, uri: setupUri.toString(), qrDataUrl };
     state.authStep = 'mfaCode';
     render();
     return;
@@ -656,6 +708,167 @@ async function handleMfaSubmit(event) {
   }
 }
 
+function renderSecuritySettingsMarkup() {
+  const mfa = state.mfa;
+  const errorHtml = mfa.error ? `<p class="error">${escapeHtml(mfa.error)}</p>` : '';
+  const successHtml = mfa.success ? `<p class="success">${escapeHtml(mfa.success)}</p>` : '';
+
+  if (mfa.enrollment) {
+    return `
+      <h2>Set up an authenticator app</h2>
+      <p class="muted">Scan the QR code below with your authenticator app, or enter the setup key manually. Then enter the 6-digit code it generates to finish enabling MFA.</p>
+      <div class="qr-code-wrap"><img src="${mfa.enrollment.qrDataUrl}" alt="TOTP QR code" width="200" height="200" /></div>
+      <p class="totp-secret">Setup key: ${escapeHtml(mfa.enrollment.secret)}</p>
+      <form id="mfa-verify-form" class="stack">
+        <label>6-digit code
+          <input type="text" name="code" class="otp-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required />
+        </label>
+        <div class="row otp-actions">
+          <button type="submit" id="mfa-verify-btn">Verify and enable</button>
+          <button type="button" id="mfa-cancel-btn" class="secondary">Cancel</button>
+        </div>
+      </form>
+      ${errorHtml}${successHtml}
+    `;
+  }
+
+  const statusBadge =
+    mfa.status === 'enabled'
+      ? `<span class="mfa-status-badge mfa-status-enabled">MFA Enabled</span>`
+      : mfa.status === 'disabled'
+        ? `<span class="mfa-status-badge mfa-status-disabled">MFA Disabled</span>`
+        : `<span class="mfa-status-badge">Checking status...</span>`;
+
+  const actions =
+    mfa.status === 'enabled'
+      ? `
+        <div class="row otp-actions">
+          <button type="button" id="mfa-reconfigure-btn" ${mfa.loading ? 'disabled' : ''}>Reconfigure (new device)</button>
+          <button type="button" id="mfa-disable-btn" class="secondary" ${mfa.loading ? 'disabled' : ''}>Disable MFA</button>
+        </div>
+      `
+      : `<button type="button" id="mfa-enable-btn" ${mfa.loading || mfa.status === 'unknown' ? 'disabled' : ''}>Enable MFA</button>`;
+
+  return `
+    <h2>Multi-factor authentication</h2>
+    <p>${statusBadge}</p>
+    <p class="muted">Protect your account with a time-based one-time password (TOTP) from an authenticator app.</p>
+    <p class="muted">Recommended authenticator apps:</p>
+    <ul class="authenticator-app-list muted">
+      <li>Google Authenticator</li>
+      <li>Microsoft Authenticator</li>
+      <li>Authy</li>
+    </ul>
+    ${actions}
+    ${errorHtml}${successHtml}
+    ${mfa.loading ? '<p class="muted">Working...</p>' : ''}
+  `;
+}
+
+function attachSecuritySettingsListeners() {
+  if (state.mfa.enrollment) {
+    document.querySelector('#mfa-verify-form').addEventListener('submit', handleVerifyMfaSetup);
+    document.querySelector('#mfa-cancel-btn').addEventListener('click', () => {
+      state.mfa.enrollment = null;
+      state.mfa.error = '';
+      render();
+    });
+    return;
+  }
+
+  document.querySelector('#mfa-enable-btn')?.addEventListener('click', handleStartMfaSetup);
+  document.querySelector('#mfa-reconfigure-btn')?.addEventListener('click', handleStartMfaSetup);
+  document.querySelector('#mfa-disable-btn')?.addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Disable MFA',
+      message: 'Are you sure you want to disable multi-factor authentication? This will make your account less secure.',
+      confirmLabel: 'Disable',
+      onConfirm: handleDisableMfa,
+    });
+  });
+}
+
+async function loadMfaStatus() {
+  state.mfa.loading = true;
+  state.mfa.error = '';
+  render();
+  try {
+    const preference = await fetchMFAPreference();
+    state.mfa.status = preference.enabled?.includes('TOTP') ? 'enabled' : 'disabled';
+  } catch (error) {
+    state.mfa.status = 'disabled';
+    state.mfa.error = authErrorMessage(error);
+  } finally {
+    state.mfa.loading = false;
+    render();
+  }
+}
+
+async function handleStartMfaSetup() {
+  state.mfa.loading = true;
+  state.mfa.error = '';
+  state.mfa.success = '';
+  render();
+  try {
+    const totpSetupDetails = await setUpTOTP();
+    const setupUri = totpSetupDetails.getSetupUri('FamilyChart', state.user.email);
+    const qrDataUrl = await QRCode.toDataURL(setupUri.toString());
+    state.mfa.enrollment = {
+      secret: totpSetupDetails.sharedSecret,
+      uri: setupUri.toString(),
+      qrDataUrl,
+    };
+  } catch (error) {
+    state.mfa.error = authErrorMessage(error);
+  } finally {
+    state.mfa.loading = false;
+    render();
+  }
+}
+
+async function handleVerifyMfaSetup(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const code = String(form.get('code') || '').trim();
+  const submitBtn = document.querySelector('#mfa-verify-btn');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Verifying...';
+
+  try {
+    await verifyTOTPSetup({ code });
+    await updateMFAPreference({ totp: 'PREFERRED' });
+    state.mfa.enrollment = null;
+    state.mfa.status = 'enabled';
+    state.mfa.error = '';
+    state.mfa.success = 'Authenticator app enabled. You will be asked for a code on your next sign-in.';
+    showToast('MFA enabled successfully.');
+    render();
+  } catch (error) {
+    state.mfa.error = authErrorMessage(error);
+    render();
+    const retryBtn = document.querySelector('#mfa-verify-btn');
+    if (retryBtn) {
+      retryBtn.disabled = false;
+      retryBtn.textContent = 'Verify and enable';
+    }
+  }
+}
+
+async function handleDisableMfa() {
+  try {
+    await updateMFAPreference({ totp: 'DISABLED' });
+    state.mfa.status = 'disabled';
+    state.mfa.error = '';
+    state.mfa.success = 'MFA disabled. You can re-enable it anytime.';
+    render();
+    showToast('MFA disabled.');
+  } catch (error) {
+    state.mfa.error = authErrorMessage(error);
+    render();
+    throw error;
+  }
+}
+
 async function handleForgotPasswordRequest(event) {
   event.preventDefault();
   const form = new FormData(event.target);
@@ -711,6 +924,8 @@ async function handleSignOut() {
   state.authStep = 'signIn';
   state.authEmail = '';
   state.totpSetup = null;
+  state.dashboardView = 'trees';
+  state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
   render();
 }
 
