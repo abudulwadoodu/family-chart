@@ -20,7 +20,23 @@ import {
 import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
-import { showConfirmDialog, showToast } from './ui.js';
+import { showConfirmDialog, showToast, showModal } from './ui.js';
+import { escapeHtml, downloadJson, downloadBlob, slugifyFilename } from './utils.js';
+import {
+  renderSidebarNav,
+  renderMobileTopbar,
+  renderPageHeader,
+  renderCreateTreeCard,
+  renderTreesToolbarRow,
+  renderTreeCard,
+  renderEmptyState,
+  renderSkeletonGrid,
+  renderTreeViewerHeader,
+  renderViewModeToggle,
+  renderShareModalBody,
+  renderRenameModalBody,
+} from './components.js';
+
 const app = document.querySelector('#app');
 
 Amplify.configure({
@@ -42,8 +58,15 @@ function apiUrl(path) {
 const state = {
   user: null,
   trees: [],
+  treesLoading: false,
+  treesLoaded: false,
+  treeSearch: '',
+  treeSort: 'updated',
+  renamingTreeId: null,
+  sidebarOpen: false,
   selectedTreeId: null,
   selectedTreeRole: null,
+  selectedTreeName: '',
   selectedTreeData: [],
   chart: null,
   editor: null,
@@ -75,6 +98,13 @@ const AUTH_ERROR_MESSAGES = {
   UsernameExistsException: 'An account with that email already exists.',
   InvalidPasswordException: 'Password does not meet the requirements.',
 };
+
+// Dropdown menus are closed by default on every render, so a single delegated
+// listener registered once is enough to close whichever one is open.
+document.addEventListener('click', (event) => {
+  if (event.target.closest('.dropdown-menu') || event.target.closest('[data-menu-trigger]')) return;
+  document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+});
 
 async function getAuthHeader() {
   try {
@@ -272,122 +302,396 @@ function renderResetPasswordStep() {
   document.querySelector('#reset-password-form').addEventListener('submit', handleResetPasswordConfirm);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard shell
+// ---------------------------------------------------------------------------
+
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
+  const isViewerView = !isSecurityView && Boolean(state.selectedTreeId);
 
   app.innerHTML = `
-    <main class="dashboard">
-      <aside class="sidebar card">
-        <div class="row">
-          <h2>${isSecurityView ? 'Security Settings' : 'Your Trees'}</h2>
-          <button id="logout-btn" class="secondary">Logout</button>
-        </div>
-        <p class="muted">${state.user.email}</p>
-        <div class="row nav-tabs">
-          <button type="button" id="nav-trees-btn" class="secondary" ${isSecurityView ? '' : 'disabled'}>My Trees</button>
-          <button type="button" id="nav-security-btn" class="secondary" ${isSecurityView ? 'disabled' : ''}>Security Settings</button>
-        </div>
-        ${isSecurityView ? '' : `
-        <form id="create-tree-form" class="row">
-          <input name="name" placeholder="New tree name" maxlength="120" required />
-          <button type="submit">Create</button>
-        </form>
-        <form id="import-csv-form" class="stack import-stack">
-          <label class="muted">Import CSV
-            <input type="file" id="csv-file-input" accept=".csv,text/csv" />
-          </label>
-          <div class="row import-actions">
-            <button type="submit" id="import-csv-btn" class="secondary">Import CSV</button>
-            <button type="button" id="download-csv-template-btn" class="secondary">Download Template</button>
-          </div>
-          <p class="import-help">
-            Required: <code>id</code>, <code>first_name</code><br/>
-            Relations: <code>father_id</code>, <code>mother_id</code>, <code>spouse_ids</code>, <code>child_ids</code><br/>
-            Use <code>;</code> to separate multiple IDs in <code>spouse_ids</code> and <code>child_ids</code>.
-          </p>
-        </form>
-        <ul id="tree-list" class="tree-list"></ul>
-        `}
-      </aside>
-      <section class="content card">
-        ${isSecurityView ? renderSecuritySettingsMarkup() : `
-        <div class="row">
-          <h2 id="tree-title">Select a tree</h2>
-          <div class="row">
-            <span id="tree-role" class="badge"></span>
-            <button id="save-btn" disabled>Save</button>
-          </div>
-        </div>
-        <div id="view-mode-toggle" class="row"></div>
-        <div id="status" class="muted"></div>
-        <div id="FamilyChart" class="f3 chart-container"></div>
-        `}
-      </section>
-    </main>
+    <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
+      ${renderSidebarNav({ email: state.user.email, activeView: state.dashboardView })}
+      <div class="main-area">
+        ${renderMobileTopbar()}
+        <main class="content">
+          ${isSecurityView ? renderSecuritySettingsMarkup() : isViewerView ? renderTreeViewerMarkup() : renderTreesLandingMarkup()}
+        </main>
+      </div>
+    </div>
   `;
 
-  document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
-  document.querySelector('#nav-trees-btn').addEventListener('click', () => {
-    state.dashboardView = 'trees';
-    render();
-  });
-  document.querySelector('#nav-security-btn').addEventListener('click', () => {
-    state.dashboardView = 'security';
-    render();
-    loadMfaStatus();
-  });
+  attachShellListeners();
 
   if (isSecurityView) {
     attachSecuritySettingsListeners();
     return;
   }
 
-  document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
-  document.querySelector('#import-csv-form').addEventListener('submit', handleImportCsv);
-  document.querySelector('#download-csv-template-btn').addEventListener('click', handleDownloadCsvTemplate);
-  document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
-  renderTreeList();
-}
-
-function renderTreeList() {
-  const treeList = document.querySelector('#tree-list');
-  treeList.innerHTML = '';
-
-  for (const tree of state.trees) {
-    const li = document.createElement('li');
-    li.className = 'tree-item';
-    const deleteButton =
-      tree.role === 'owner'
-        ? `<button type="button" data-tree-id="${tree.id}" data-tree-name="${escapeHtml(tree.name)}" class="tree-delete-btn secondary" aria-label="Delete ${escapeHtml(tree.name)}">Delete</button>`
-        : '';
-    li.innerHTML = `
-      <div class="tree-item-main">
-        <button data-tree-id="${tree.id}" class="tree-link">${escapeHtml(tree.name)}</button>
-        <small class="muted">${escapeHtml(tree.role)}</small>
-      </div>
-      ${deleteButton}`;
-    treeList.appendChild(li);
+  if (isViewerView) {
+    attachTreeViewerListeners();
+    renderChart();
+    return;
   }
 
-  treeList.querySelectorAll('.tree-link').forEach((button) => {
-    button.addEventListener('click', () => loadTree(Number(button.dataset.treeId)));
-  });
+  attachTreesLandingListeners();
+  renderTreeGrid();
+}
 
-  treeList.querySelectorAll('.tree-delete-btn').forEach((button) => {
-    button.addEventListener('click', (event) => {
+function attachShellListeners() {
+  document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
+  document.querySelector('#nav-trees-btn').addEventListener('click', () => {
+    state.dashboardView = 'trees';
+    clearSelectedTreeView();
+    setSidebarOpen(false);
+    render();
+  });
+  document.querySelector('#nav-security-btn').addEventListener('click', () => {
+    state.dashboardView = 'security';
+    setSidebarOpen(false);
+    render();
+    loadMfaStatus();
+  });
+  document.querySelector('#sidebar-open-btn')?.addEventListener('click', () => setSidebarOpen(true));
+  document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
+  document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
+}
+
+function setSidebarOpen(open) {
+  state.sidebarOpen = open;
+  document.querySelector('.app-shell')?.classList.toggle('sidebar-open', open);
+}
+
+function bindDropdownTriggers(scopeEl) {
+  if (!scopeEl) return;
+  scopeEl.querySelectorAll('[data-menu-trigger]').forEach((trigger) => {
+    trigger.addEventListener('click', (event) => {
       event.stopPropagation();
-      promptDeleteTree(Number(button.dataset.treeId), button.dataset.treeName, button);
+      const menuId = trigger.dataset.menuTrigger;
+      const menu = scopeEl.querySelector(`[data-menu-id="${menuId}"]`);
+      if (!menu) return;
+      const isOpen = menu.classList.contains('open');
+      document.querySelectorAll('.dropdown-menu.open').forEach((m) => m.classList.remove('open'));
+      if (!isOpen) menu.classList.add('open');
     });
   });
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+// ---------------------------------------------------------------------------
+// Trees landing (dashboard home)
+// ---------------------------------------------------------------------------
+
+function renderTreesLandingMarkup() {
+  return `
+    ${renderPageHeader({
+      title: 'Family Trees',
+      subtitle: 'Create, manage, and collaborate on your family trees.',
+      primaryActionId: 'new-tree-cta',
+      primaryActionLabel: 'New Tree',
+    })}
+    ${renderCreateTreeCard()}
+    ${renderTreesToolbarRow({ search: state.treeSearch, sort: state.treeSort })}
+    <div id="tree-grid" class="tree-grid"></div>
+  `;
+}
+
+function attachTreesLandingListeners() {
+  document.querySelector('#new-tree-cta').addEventListener('click', () => {
+    const input = document.querySelector('#create-tree-name-input');
+    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input?.focus();
+  });
+  document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
+  document.querySelector('#tree-search-input').addEventListener('input', (event) => {
+    state.treeSearch = event.target.value;
+    renderTreeGrid();
+  });
+  document.querySelector('#tree-sort-select').addEventListener('change', (event) => {
+    state.treeSort = event.target.value;
+    renderTreeGrid();
+  });
+}
+
+function sortTrees(list, sort) {
+  const copy = [...list];
+  if (sort === 'alpha') copy.sort((a, b) => a.name.localeCompare(b.name));
+  else if (sort === 'created') copy.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  else copy.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return copy;
+}
+
+function renderTreeGrid() {
+  const container = document.querySelector('#tree-grid');
+  if (!container) return;
+
+  if (state.treesLoading && !state.treesLoaded) {
+    container.innerHTML = renderSkeletonGrid(6);
+    return;
+  }
+
+  const term = state.treeSearch.trim().toLowerCase();
+  const filtered = term ? state.trees.filter((tree) => tree.name.toLowerCase().includes(term)) : state.trees;
+  const sorted = sortTrees(filtered, state.treeSort);
+
+  if (sorted.length === 0) {
+    container.innerHTML = renderEmptyState({ mode: state.trees.length === 0 ? 'no-trees' : 'no-results' });
+    document.querySelector('#empty-create-btn')?.addEventListener('click', () => {
+      document.querySelector('#create-tree-name-input')?.focus();
+    });
+    document.querySelector('#empty-clear-search-btn')?.addEventListener('click', () => {
+      state.treeSearch = '';
+      const searchInput = document.querySelector('#tree-search-input');
+      if (searchInput) searchInput.value = '';
+      renderTreeGrid();
+    });
+    return;
+  }
+
+  container.innerHTML = sorted
+    .map((tree) => renderTreeCard(tree, { renaming: state.renamingTreeId === tree.id }))
+    .join('');
+  bindTreeGridListeners(container);
+}
+
+function bindTreeGridListeners(container) {
+  container.querySelectorAll('.tree-open-btn, .tree-card-title').forEach((el) => {
+    el.addEventListener('click', () => loadTree(Number(el.dataset.treeId)));
+  });
+
+  bindDropdownTriggers(container);
+
+  container.querySelectorAll('.dropdown-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const wrap = btn.closest('[data-menu-id]');
+      const treeId = Number(wrap.dataset.menuId.replace('tree-', ''));
+      handleTreeCardAction(btn.dataset.action, treeId);
+    });
+  });
+
+  container.querySelectorAll('.tree-rename-form').forEach((form) => {
+    form.addEventListener('submit', (event) => handleRenameSubmit(event, Number(form.dataset.treeId)));
+  });
+
+  container.querySelectorAll('.rename-cancel-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.renamingTreeId = null;
+      renderTreeGrid();
+    });
+  });
+}
+
+function handleTreeCardAction(action, treeId) {
+  if (action === 'export') return handleExportTreeById(treeId);
+  if (action === 'rename') {
+    state.renamingTreeId = treeId;
+    renderTreeGrid();
+    return;
+  }
+  if (action === 'delete') {
+    const tree = state.trees.find((t) => t.id === treeId);
+    promptDeleteTree(treeId, tree?.name || 'this tree');
+  }
+}
+
+async function handleRenameSubmit(event, treeId) {
+  event.preventDefault();
+  const name = String(new FormData(event.target).get('name') || '').trim();
+  if (!name) return;
+
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    state.renamingTreeId = null;
+    if (state.selectedTreeId === treeId) state.selectedTreeName = name;
+    await loadTrees();
+    showToast('Tree renamed successfully.');
+  } catch (error) {
+    showToast(error.message || 'Rename failed.', { type: 'error' });
+    submitBtn.disabled = false;
+  }
+}
+
+function promptDeleteTree(treeId, treeName) {
+  showConfirmDialog({
+    message: `Are you sure you want to delete "${treeName}"? This action cannot be undone.`,
+    onConfirm: () => handleDeleteTree(treeId, treeName),
+  });
+}
+
+async function handleDeleteTree(treeId, treeName) {
+  try {
+    await api(`/api/trees/${treeId}`, { method: 'DELETE' });
+    state.trees = state.trees.filter((tree) => tree.id !== treeId);
+
+    if (state.selectedTreeId === treeId) {
+      clearSelectedTreeView();
+      render();
+    } else {
+      renderTreeGrid();
+    }
+
+    showToast('Family tree deleted successfully.');
+  } catch (error) {
+    showToast(error.message || 'Delete failed.', { type: 'error' });
+    throw error;
+  }
+}
+
+async function handleExportTreeById(treeId) {
+  try {
+    const tree = state.trees.find((t) => t.id === treeId);
+    const payload = await api(`/api/trees/${treeId}`);
+    downloadJson(`${slugifyFilename(tree?.name || payload.tree.name)}.json`, payload.data);
+    showToast('Tree exported successfully.');
+  } catch (error) {
+    showToast(error.message || 'Export failed.', { type: 'error' });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tree viewer
+// ---------------------------------------------------------------------------
+
+function renderTreeViewerMarkup() {
+  return `
+    ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
+    <div id="view-mode-toggle"></div>
+    <div id="FamilyChart" class="f3 chart-container"></div>
+  `;
+}
+
+function attachTreeViewerListeners() {
+  document.querySelector('#breadcrumb-trees-btn').addEventListener('click', () => {
+    clearSelectedTreeView();
+    render();
+  });
+  document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
+  document.querySelector('#export-tree-btn').addEventListener('click', handleExportCurrentTree);
+  document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
+  document.querySelector('#import-tree-csv-btn')?.addEventListener('click', () => {
+    document.querySelector('#import-tree-csv-input')?.click();
+  });
+  document.querySelector('#import-tree-csv-input')?.addEventListener('change', handleImportCsv);
+
+  const header = document.querySelector('.viewer-header');
+  bindDropdownTriggers(header);
+  header?.querySelectorAll('.dropdown-item').forEach((btn) => {
+    btn.addEventListener('click', () => handleViewerSettingsAction(btn.dataset.action));
+  });
+}
+
+function handleViewerSettingsAction(action) {
+  if (action === 'rename') return openRenameTreeModal();
+  if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
+  if (action === 'download-template') return handleDownloadCsvTemplate();
+}
+
+function openRenameTreeModal() {
+  const treeId = state.selectedTreeId;
+  const modal = showModal({ bodyHtml: renderRenameModalBody({ name: state.selectedTreeName }) });
+
+  modal.root.querySelector('#rename-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#rename-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#rename-tree-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = String(new FormData(event.target).get('name') || '').trim();
+    if (!name) return;
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+      state.selectedTreeName = name;
+      document.querySelector('.viewer-title').textContent = name;
+      document.querySelector('.breadcrumb-current').textContent = name;
+      modal.close();
+      loadTrees();
+      showToast('Tree renamed successfully.');
+    } catch (error) {
+      showToast(error.message || 'Rename failed.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+async function handleSaveTree() {
+  if (state.viewMode === 'all-nodes') return;
+  const saveBtn = document.querySelector('#save-btn');
+  const label = saveBtn.querySelector('span');
+  saveBtn.disabled = true;
+  if (label) label.textContent = 'Saving...';
+
+  try {
+    const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
+    await api(`/api/trees/${state.selectedTreeId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ json_data: dataToSave }),
+    });
+    showToast('Tree saved successfully.');
+  } catch (error) {
+    showToast(error.message || 'Save failed.', { type: 'error' });
+  } finally {
+    const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+    saveBtn.disabled = !canEdit || state.viewMode === 'all-nodes';
+    if (label) label.textContent = 'Save';
+  }
+}
+
+function handleExportCurrentTree() {
+  const data = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
+  downloadJson(`${slugifyFilename(state.selectedTreeName)}.json`, data);
+  showToast('Tree exported successfully.');
+}
+
+// ---------------------------------------------------------------------------
+// Share modal (built on the existing memberships API)
+// ---------------------------------------------------------------------------
+
+async function openShareModal(treeId) {
+  const treeName = state.selectedTreeName || state.trees.find((t) => t.id === treeId)?.name || '';
+  const modal = showModal({
+    bodyHtml: renderShareModalBody({ treeName, members: [], loading: true, error: '' }),
+    className: 'modal-share',
+  });
+  bindShareModalClose(modal);
+
+  await refreshShareModal(modal, treeId, treeName);
+}
+
+function bindShareModalClose(modal) {
+  modal.root.querySelector('#share-modal-close-btn')?.addEventListener('click', modal.close);
+}
+
+async function refreshShareModal(modal, treeId, treeName) {
+  try {
+    const payload = await api(`/api/trees/${treeId}/members`);
+    modal.setBody(renderShareModalBody({ treeName, members: payload.members, loading: false, error: '' }));
+    bindShareModalClose(modal);
+    bindShareModalActions(modal, treeId, treeName);
+  } catch (error) {
+    modal.setBody(
+      renderShareModalBody({ treeName, members: [], loading: false, error: error.message || 'Failed to load members.' })
+    );
+    bindShareModalClose(modal);
+  }
+}
+
+function bindShareModalActions(modal, treeId, treeName) {
+  modal.root.querySelectorAll('[data-member-action]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const membershipId = Number(btn.dataset.membershipId);
+      const status = btn.dataset.memberAction === 'approve' ? 'approved' : 'revoked';
+      try {
+        await api(`/api/memberships/${membershipId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+        showToast(status === 'approved' ? 'Access approved.' : 'Access revoked.');
+        await refreshShareModal(modal, treeId, treeName);
+        loadTrees();
+      } catch (error) {
+        showToast(error.message || 'Action failed.', { type: 'error' });
+      }
+    });
+  });
 }
 
 function clearSelectedTreeView() {
@@ -395,55 +699,11 @@ function clearSelectedTreeView() {
   state.selectedTreeId = null;
   state.selectedTreeRole = null;
   state.selectedTreeData = [];
+  state.selectedTreeName = '';
   state.chart = null;
   state.editor = null;
   state.viewMode = 'focused';
   state.focusedMainId = null;
-
-  const title = document.querySelector('#tree-title');
-  const roleLabel = document.querySelector('#tree-role');
-  const saveButton = document.querySelector('#save-btn');
-  const chartContainer = document.querySelector('#FamilyChart');
-  const viewModeToggle = document.querySelector('#view-mode-toggle');
-
-  if (title) title.textContent = 'Select a tree';
-  if (roleLabel) roleLabel.textContent = '';
-  if (saveButton) saveButton.disabled = true;
-  if (chartContainer) chartContainer.innerHTML = '';
-  if (viewModeToggle) viewModeToggle.innerHTML = '';
-}
-
-function promptDeleteTree(treeId, treeName, triggerButton) {
-  showConfirmDialog({
-    message: `Are you sure you want to delete "${treeName}"? This action cannot be undone.`,
-    onConfirm: () => handleDeleteTree(treeId, treeName, triggerButton),
-  });
-}
-
-async function handleDeleteTree(treeId, treeName, triggerButton) {
-  const status = document.querySelector('#status');
-  if (triggerButton) triggerButton.disabled = true;
-  if (status) status.textContent = 'Deleting...';
-
-  try {
-    /** @type {import('./ui.js').DeleteTreeResponse} */
-    await api(`/api/trees/${treeId}`, { method: 'DELETE' });
-
-    state.trees = state.trees.filter((tree) => tree.id !== treeId);
-
-    if (state.selectedTreeId === treeId) {
-      clearSelectedTreeView();
-    }
-
-    renderTreeList();
-    if (status) status.textContent = '';
-    showToast('Family tree deleted successfully.');
-  } catch (error) {
-    if (status) status.textContent = error.message || 'Delete failed.';
-    showToast(error.message || 'Delete failed.', { type: 'error' });
-    if (triggerButton) triggerButton.disabled = false;
-    throw error;
-  }
 }
 
 function renderChart() {
@@ -456,12 +716,6 @@ function renderChart() {
 
   const container = document.querySelector('#FamilyChart');
   container.innerHTML = '';
-  const saveButton = document.querySelector('#save-btn');
-  const roleLabel = document.querySelector('#tree-role');
-
-  roleLabel.textContent = state.selectedTreeRole || '';
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  saveButton.disabled = !canEdit;
 
   // Match examples/create-tree.html — same card/edit wiring as the parent demo.
   state.chart = f3
@@ -472,6 +726,7 @@ function renderChart() {
 
   const card = state.chart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
 
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
   if (canEdit) {
     state.editor = state.chart
       .editTree()
@@ -506,19 +761,12 @@ function renderChart() {
 
 function setupViewModeToggle() {
   const cont = document.querySelector('#view-mode-toggle');
-  cont.innerHTML = '';
-
-  cont.innerHTML = `
-    <div class="row">
-      <button id="focused-mode-btn" class="secondary">Focused</button>
-      <button id="all-nodes-mode-btn" class="secondary">All Nodes</button>
-    </div>
-  `;
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, canEdit });
 
   const focusedBtn = document.querySelector('#focused-mode-btn');
   const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
   const saveBtn = document.querySelector('#save-btn');
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
 
   const syncModeButtons = () => {
     focusedBtn.disabled = state.viewMode === 'focused';
@@ -713,8 +961,8 @@ function renderSecuritySettingsMarkup() {
   const errorHtml = mfa.error ? `<p class="error">${escapeHtml(mfa.error)}</p>` : '';
   const successHtml = mfa.success ? `<p class="success">${escapeHtml(mfa.success)}</p>` : '';
 
-  if (mfa.enrollment) {
-    return `
+  const body = mfa.enrollment
+    ? `
       <h2>Set up an authenticator app</h2>
       <p class="muted">Scan the QR code below with your authenticator app, or enter the setup key manually. Then enter the 6-digit code it generates to finish enabling MFA.</p>
       <div class="qr-code-wrap"><img src="${mfa.enrollment.qrDataUrl}" alt="TOTP QR code" width="200" height="200" /></div>
@@ -729,39 +977,49 @@ function renderSecuritySettingsMarkup() {
         </div>
       </form>
       ${errorHtml}${successHtml}
-    `;
-  }
+    `
+    : (() => {
+        const statusBadge =
+          mfa.status === 'enabled'
+            ? `<span class="mfa-status-badge mfa-status-enabled">MFA Enabled</span>`
+            : mfa.status === 'disabled'
+              ? `<span class="mfa-status-badge mfa-status-disabled">MFA Disabled</span>`
+              : `<span class="mfa-status-badge">Checking status...</span>`;
 
-  const statusBadge =
-    mfa.status === 'enabled'
-      ? `<span class="mfa-status-badge mfa-status-enabled">MFA Enabled</span>`
-      : mfa.status === 'disabled'
-        ? `<span class="mfa-status-badge mfa-status-disabled">MFA Disabled</span>`
-        : `<span class="mfa-status-badge">Checking status...</span>`;
+        const actions =
+          mfa.status === 'enabled'
+            ? `
+              <div class="row otp-actions">
+                <button type="button" id="mfa-reconfigure-btn" ${mfa.loading ? 'disabled' : ''}>Reconfigure (new device)</button>
+                <button type="button" id="mfa-disable-btn" class="secondary" ${mfa.loading ? 'disabled' : ''}>Disable MFA</button>
+              </div>
+            `
+            : `<button type="button" id="mfa-enable-btn" ${mfa.loading || mfa.status === 'unknown' ? 'disabled' : ''}>Enable MFA</button>`;
 
-  const actions =
-    mfa.status === 'enabled'
-      ? `
-        <div class="row otp-actions">
-          <button type="button" id="mfa-reconfigure-btn" ${mfa.loading ? 'disabled' : ''}>Reconfigure (new device)</button>
-          <button type="button" id="mfa-disable-btn" class="secondary" ${mfa.loading ? 'disabled' : ''}>Disable MFA</button>
-        </div>
-      `
-      : `<button type="button" id="mfa-enable-btn" ${mfa.loading || mfa.status === 'unknown' ? 'disabled' : ''}>Enable MFA</button>`;
+        return `
+          <h2>Multi-factor authentication</h2>
+          <p>${statusBadge}</p>
+          <p class="muted">Protect your account with a time-based one-time password (TOTP) from an authenticator app.</p>
+          <p class="muted">Recommended authenticator apps:</p>
+          <ul class="authenticator-app-list muted">
+            <li>Google Authenticator</li>
+            <li>Microsoft Authenticator</li>
+            <li>Authy</li>
+          </ul>
+          ${actions}
+          ${errorHtml}${successHtml}
+          ${mfa.loading ? '<p class="muted">Working...</p>' : ''}
+        `;
+      })();
 
   return `
-    <h2>Multi-factor authentication</h2>
-    <p>${statusBadge}</p>
-    <p class="muted">Protect your account with a time-based one-time password (TOTP) from an authenticator app.</p>
-    <p class="muted">Recommended authenticator apps:</p>
-    <ul class="authenticator-app-list muted">
-      <li>Google Authenticator</li>
-      <li>Microsoft Authenticator</li>
-      <li>Authy</li>
-    </ul>
-    ${actions}
-    ${errorHtml}${successHtml}
-    ${mfa.loading ? '<p class="muted">Working...</p>' : ''}
+    <header class="page-header">
+      <div>
+        <h1 class="page-title">Security Settings</h1>
+        <p class="page-subtitle">Manage multi-factor authentication for your account.</p>
+      </div>
+    </header>
+    <section class="security-panel">${body}</section>
   `;
 }
 
@@ -920,6 +1178,12 @@ async function handleSignOut() {
   await signOut();
   state.user = null;
   state.trees = [];
+  state.treesLoading = false;
+  state.treesLoaded = false;
+  state.treeSearch = '';
+  state.treeSort = 'updated';
+  state.renamingTreeId = null;
+  state.sidebarOpen = false;
   state.selectedTreeId = null;
   state.authStep = 'signIn';
   state.authEmail = '';
@@ -931,59 +1195,58 @@ async function handleSignOut() {
 
 async function handleCreateTree(event) {
   event.preventDefault();
-  const form = new FormData(event.target);
-  const name = String(form.get('name') || '').trim();
+  const form = event.target;
+  const name = String(new FormData(form).get('name') || '').trim();
   if (!name) return;
 
-  await api('/api/trees', {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-  });
-
-  event.target.reset();
-  await loadTrees();
-}
-
-async function handleSaveTree() {
-  if (state.viewMode === 'all-nodes') return;
-  const status = document.querySelector('#status');
-  status.textContent = 'Saving...';
-
-  const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
-  await api(`/api/trees/${state.selectedTreeId}`, {
-    method: 'PUT',
-    body: JSON.stringify({ json_data: dataToSave }),
-  });
-  status.textContent = 'Saved successfully.';
+  const submitBtn = form.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Creating...';
+  try {
+    await api('/api/trees', { method: 'POST', body: JSON.stringify({ name }) });
+    form.reset();
+    await loadTrees();
+    showToast('Family tree created successfully.');
+  } catch (error) {
+    showToast(error.message || 'Could not create tree.', { type: 'error' });
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Create';
+  }
 }
 
 async function handleImportCsv(event) {
-  event.preventDefault();
-  const status = document.querySelector('#status');
+  const fileInput = event.target;
+  const file = fileInput.files?.[0];
+  if (!file) return;
+
   if (!state.selectedTreeId) {
-    status.textContent = 'Select a tree before importing.';
+    showToast('Open a family tree before importing a CSV.', { type: 'error' });
+    fileInput.value = '';
     return;
   }
 
-  const fileInput = document.querySelector('#csv-file-input');
-  const file = fileInput?.files?.[0];
-  if (!file) {
-    status.textContent = 'Choose a CSV file to import.';
-    return;
-  }
+  const importBtn = document.querySelector('#import-tree-csv-btn');
+  const label = importBtn?.querySelector('span');
+  if (importBtn) importBtn.disabled = true;
+  if (label) label.textContent = 'Importing...';
 
   try {
-    status.textContent = 'Importing CSV...';
     const formData = new FormData();
     formData.append('file', file);
     const result = await api(`/api/trees/${state.selectedTreeId}/import-csv`, {
       method: 'POST',
       body: formData,
     });
+
     await loadTree(state.selectedTreeId);
-    status.textContent = `Imported ${result.imported_count} rows successfully.`;
+    showToast(`Imported ${result.imported_count} members successfully.`);
   } catch (error) {
-    status.textContent = error.message || 'Import failed.';
+    showToast(error.message || 'Import failed.', { type: 'error' });
+  } finally {
+    fileInput.value = '';
+    if (importBtn) importBtn.disabled = false;
+    if (label) label.textContent = 'Import CSV';
   }
 }
 
@@ -997,16 +1260,8 @@ function handleDownloadCsvTemplate() {
     'c1,Chris,Doe,2010,Chicago,, ,M,p1,p4,,',
     'c2,Emma,Doe,2012,Chicago,, ,F,p1,p4,,',
   ];
-  const csvContent = lines.join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'family-import-template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, 'family-import-template.csv');
 }
 
 async function loadSession() {
@@ -1023,9 +1278,17 @@ async function loadSession() {
 }
 
 async function loadTrees() {
-  const payload = await api('/api/trees');
-  state.trees = payload.trees;
-  if (state.user) render();
+  state.treesLoading = true;
+  try {
+    const payload = await api('/api/trees');
+    state.trees = payload.trees;
+    state.treesLoaded = true;
+  } finally {
+    state.treesLoading = false;
+  }
+  if (state.user && state.dashboardView === 'trees' && !state.selectedTreeId) {
+    renderTreeGrid();
+  }
 }
 
 async function loadTree(treeId) {
@@ -1034,11 +1297,11 @@ async function loadTree(treeId) {
   state.selectedTreeId = treeId;
   state.selectedTreeRole = payload.role;
   state.selectedTreeData = payload.data;
+  state.selectedTreeName = payload.tree.name;
   state.viewMode = 'focused';
   state.focusedMainId = payload?.data?.[0]?.id || null;
-  document.querySelector('#tree-title').textContent = payload.tree.name;
-  document.querySelector('#status').textContent = '';
-  renderChart();
+  setSidebarOpen(false);
+  render();
 }
 
 function renderAllNodesMode() {

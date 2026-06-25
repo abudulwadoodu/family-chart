@@ -18,9 +18,12 @@ treesRouter.get('/', (req, res, next) => {
     const db = getDb();
     const trees = db
       .prepare(
-        `SELECT t.id, t.name, t.owner_id, t.created_at, tm.role, tm.status
+        `SELECT t.id, t.name, t.owner_id, t.created_at, tm.role, tm.status,
+                COALESCE(fd.updated_at, t.created_at) AS updated_at,
+                COALESCE(json_array_length(fd.json_data), 0) AS member_count
          FROM trees t
          JOIN tree_memberships tm ON tm.tree_id = t.id
+         LEFT JOIN family_data fd ON fd.tree_id = t.id
          WHERE tm.user_id = ? AND tm.status = 'approved'
          ORDER BY t.created_at DESC`
       )
@@ -50,7 +53,8 @@ treesRouter.post('/', (req, res, next) => {
 
       db.prepare('INSERT INTO tree_memberships (user_id, tree_id, role, status) VALUES (?, ?, ?, ?)')
         .run(userId, treeId, 'owner', 'approved');
-      db.prepare('INSERT INTO family_data (tree_id, json_data) VALUES (?, ?)').run(treeId, initialJson);
+      db.prepare("INSERT INTO family_data (tree_id, json_data, updated_at) VALUES (?, ?, datetime('now'))")
+        .run(treeId, initialJson);
       return treeId;
     });
 
@@ -93,13 +97,30 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), (req, res, next) =
     const db = getDb();
     const result = db
       .prepare(
-        `INSERT INTO family_data (tree_id, json_data)
-         VALUES (?, ?)
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data`
+        `INSERT INTO family_data (tree_id, json_data, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
       )
       .run(treeId, normalizedJson);
 
     return res.json({ ok: true, changes: result.changes });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+treesRouter.patch('/:id', requireTreeRole(['owner']), (req, res, next) => {
+  try {
+    const { name } = req.body || {};
+    if (!isNonEmptyString(name, 120)) {
+      return res.status(400).json({ error: 'Tree name is required' });
+    }
+
+    const treeId = Number(req.params.id);
+    const db = getDb();
+    db.prepare('UPDATE trees SET name = ? WHERE id = ?').run(name.trim(), treeId);
+
+    return res.json({ ok: true, name: name.trim() });
   } catch (error) {
     return next(error);
   }
@@ -133,9 +154,9 @@ treesRouter.post(
 
       const db = getDb();
       db.prepare(
-        `INSERT INTO family_data (tree_id, json_data)
-         VALUES (?, ?)
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data`
+        `INSERT INTO family_data (tree_id, json_data, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
       ).run(treeId, JSON.stringify(importedData));
 
       return res.json({ ok: true, imported_count: importedData.length });

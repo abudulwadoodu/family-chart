@@ -28,4 +28,17 @@ export function initDb() {
   const schemaPath = path.resolve(__dirname, './schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schemaSql);
+  runMigrations(db);
+}
+
+function runMigrations(db) {
+  const columns = db.prepare('PRAGMA table_info(family_data)').all();
+  if (!columns.some((column) => column.name === 'updated_at')) {
+    db.exec("ALTER TABLE family_data ADD COLUMN updated_at TEXT");
+    db.exec(
+      `UPDATE family_data SET updated_at = (
+         SELECT created_at FROM trees WHERE trees.id = family_data.tree_id
+       ) WHERE updated_at IS NULL`
+    );
+  }
 }

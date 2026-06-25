@@ -97,6 +97,54 @@ export function showConfirmDialog({
   return controller;
 }
 
+let activeModal = null;
+
+/**
+ * @param {{ bodyHtml: string, className?: string, onMount?: (root: HTMLElement) => void, onClose?: () => void }} options
+ * @returns {{ close: () => void, setBody: (html: string) => void, root: HTMLElement }}
+ */
+export function showModal({ bodyHtml, className = '', onMount, onClose }) {
+  if (activeModal) activeModal.close();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal-dialog card ${className}" role="dialog" aria-modal="true"></div>`;
+  const dialog = overlay.querySelector('.modal-dialog');
+  dialog.innerHTML = bodyHtml;
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKeyDown);
+    overlay.remove();
+    if (activeModal?.close === close) activeModal = null;
+    onClose?.();
+  };
+
+  const onKeyDown = (event) => {
+    if (event.key === 'Escape') close();
+  };
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onKeyDown);
+
+  const setBody = (html) => {
+    dialog.innerHTML = html;
+    onMount?.(dialog);
+  };
+
+  onMount?.(dialog);
+
+  const controller = { close, setBody, root: dialog };
+  activeModal = controller;
+  return controller;
+}
+
 /**
  * @param {string} message
  * @param {{ type?: 'success' | 'error', duration?: number }} [options]

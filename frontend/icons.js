@@ -1,0 +1,57 @@
+function svg(paths, viewBox = '0 0 24 24') {
+  return `<svg class="icon" viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+export const icons = {
+  logo: svg(
+    '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="8.5" y="14" width="7" height="7" rx="1.5"></rect><path d="M6.5 10v2a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"></path><path d="M12 14v-2"></path>'
+  ),
+  trees: svg(
+    '<circle cx="6" cy="5" r="2.25"></circle><circle cx="18" cy="5" r="2.25"></circle><circle cx="12" cy="12" r="2.25"></circle><circle cx="12" cy="19.5" r="2.25"></circle><path d="M6 7.25V10a2 2 0 0 0 2 2h2.2"></path><path d="M18 7.25V10a2 2 0 0 0-2 2h-2.2"></path><path d="M12 14.25v2.8"></path>'
+  ),
+  shield: svg(
+    '<path d="M12 3.5 19 6.2v5.4c0 4.4-3 7.6-7 8.9-4-1.3-7-4.5-7-8.9V6.2L12 3.5Z"></path><path d="M9.25 12.25 11 14l3.75-4"></path>'
+  ),
+  logout: svg(
+    '<path d="M9 4.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 19.5h3"></path><path d="M15.5 16 19.5 12 15.5 8"></path><path d="M19.5 12H9.5"></path>'
+  ),
+  search: svg('<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M19.5 19.5 15.4 15.4"></path>'),
+  plus: svg('<path d="M12 5v14"></path><path d="M5 12h14"></path>'),
+  upload: svg(
+    '<path d="M12 15.5V4"></path><path d="M7.5 8.5 12 4l4.5 4.5"></path><path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"></path>'
+  ),
+  download: svg(
+    '<path d="M12 4v11.5"></path><path d="M7.5 11 12 15.5 16.5 11"></path><path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"></path>'
+  ),
+  kebab: svg('<circle cx="12" cy="5.5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="18.5" r="1.4"></circle>'),
+  pencil: svg(
+    '<path d="M16.5 4.5 19.5 7.5 8 19 4.5 19.5 5 16 16.5 4.5Z"></path>'
+  ),
+  trash: svg(
+    '<path d="M5 7h14"></path><path d="M9.5 7V5.2c0-.66.54-1.2 1.2-1.2h2.6c.66 0 1.2.54 1.2 1.2V7"></path><path d="M7 7l.8 11.2A2 2 0 0 0 9.8 20h4.4a2 2 0 0 0 2-1.8L17 7"></path><path d="M10.2 11v5"></path><path d="M13.8 11v5"></path>'
+  ),
+  share: svg(
+    '<circle cx="6" cy="12" r="2.25"></circle><circle cx="17.5" cy="6" r="2.25"></circle><circle cx="17.5" cy="18" r="2.25"></circle><path d="M8 11l7.7-3.6"></path><path d="M8 13l7.7 3.6"></path>'
+  ),
+  save: svg(
+    '<path d="M5 4.5h11l3 3V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3.5 18V6A1.5 1.5 0 0 1 5 4.5Z"></path><path d="M8 4.5V9h7V4.5"></path><path d="M8 14.5h7"></path>'
+  ),
+  settings: svg(
+    '<circle cx="12" cy="12" r="2.75"></circle><path d="M12 4.5v2"></path><path d="M12 17.5v2"></path><path d="M4.5 12h2"></path><path d="M17.5 12h2"></path><path d="M6.6 6.6l1.4 1.4"></path><path d="M16 16l1.4 1.4"></path><path d="M16 8l1.4-1.4"></path><path d="M6.6 17.4l1.4-1.4"></path>'
+  ),
+  chevronDown: svg('<path d="M6 9l6 6 6-6"></path>'),
+  close: svg('<path d="M6 6l12 12"></path><path d="M18 6 6 18"></path>'),
+  menu: svg('<path d="M4 6.5h16"></path><path d="M4 12h16"></path><path d="M4 17.5h16"></path>'),
+  folderPlus: svg(
+    '<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l2 2.2H18.5A1.5 1.5 0 0 1 20 9.7V17a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17V7.5Z"></path><path d="M12 11.5v4"></path><path d="M10 13.5h4"></path>',
+    '0 0 24 22'
+  ),
+  external: svg(
+    '<path d="M9 6H6.5A1.5 1.5 0 0 0 5 7.5v10A1.5 1.5 0 0 0 6.5 19h10a1.5 1.5 0 0 0 1.5-1.5V15"></path><path d="M13 5h6v6"></path><path d="M19 5 11 13"></path>'
+  ),
+  spinner: svg('<path d="M12 3.5v3.2"></path><path d="M12 17.3v3.2" opacity=".3"></path><path d="M5.4 5.4l2.2 2.2" opacity=".5"></path><path d="M16.4 16.4l2.2 2.2" opacity=".2"></path><path d="M3.5 12h3.2" opacity=".7"></path><path d="M17.3 12h3.2" opacity=".4"></path><path d="M5.4 18.6l2.2-2.2" opacity=".6"></path><path d="M16.4 7.6l2.2-2.2" opacity=".15"></path>'),
+};
+
+export function icon(name) {
+  return icons[name] || '';
+}
