@@ -1,4 +1,4 @@
-import { getMembershipByUserAndTree } from '../models/membershipModel.js';
+import { getPermissionByUserAndTree } from '../models/permissionModel.js';
 
 export function requireTreeRole(allowedRoles = []) {
   return (req, res, next) => {
@@ -9,17 +9,17 @@ export function requireTreeRole(allowedRoles = []) {
       return res.status(400).json({ error: 'Invalid tree or user context' });
     }
 
-    const membership = getMembershipByUserAndTree(userId, treeId);
+    const permission = getPermissionByUserAndTree(userId, treeId);
 
-    if (!membership || membership.status !== 'approved') {
+    if (!permission) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    if (allowedRoles.length && !allowedRoles.includes(membership.role)) {
+    if (allowedRoles.length && !allowedRoles.includes(permission.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    req.treeMembership = membership;
+    req.treePermission = permission;
     return next();
   };
 }

@@ -1,11 +1,11 @@
 import { getDb } from '../db/index.js';
 
-export function getMembershipByUserAndTree(userId, treeId) {
+export function getPermissionByUserAndTree(userId, treeId) {
   const db = getDb();
   return db
     .prepare(
-      `SELECT id, user_id, tree_id, role, status
-       FROM tree_memberships
+      `SELECT id, tree_id, user_id, role, created_at, updated_at
+       FROM tree_permissions
        WHERE user_id = ? AND tree_id = ?`
     )
     .get(userId, treeId);

@@ -41,4 +41,16 @@ function runMigrations(db) {
        ) WHERE updated_at IS NULL`
     );
   }
+
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
+  if (tables.includes('tree_memberships')) {
+    db.exec(
+      `INSERT INTO tree_permissions (tree_id, user_id, role, created_at, updated_at)
+       SELECT tree_id, user_id, role, created_at, created_at
+       FROM tree_memberships
+       WHERE status = 'approved'
+       ON CONFLICT(tree_id, user_id) DO NOTHING`
+    );
+    db.exec('DROP TABLE tree_memberships');
+  }
 }

@@ -1157,10 +1157,35 @@ button.secondary:active,
   margin-top: var(--sp-2);
 }
 
+.share-form {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.share-form input[type='email'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.share-form select {
+  width: auto;
+  flex-shrink: 0;
+}
+
 .member-list {
   display: grid;
   gap: var(--sp-2);
-  margin-top: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.member-role-select {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
 }
 
 .member-row {

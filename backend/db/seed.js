@@ -81,16 +81,16 @@ async function seed() {
     tree = { id: created.lastInsertRowid };
   }
 
-  const upsertMembership = db.prepare(
-    `INSERT INTO tree_memberships (user_id, tree_id, role, status)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id, tree_id)
-     DO UPDATE SET role = excluded.role, status = excluded.status`
+  const upsertPermission = db.prepare(
+    `INSERT INTO tree_permissions (tree_id, user_id, role, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(tree_id, user_id)
+     DO UPDATE SET role = excluded.role, updated_at = datetime('now')`
   );
 
-  upsertMembership.run(userIdByEmail['owner@example.com'], tree.id, 'owner', 'approved');
-  upsertMembership.run(userIdByEmail['editor@example.com'], tree.id, 'editor', 'approved');
-  upsertMembership.run(userIdByEmail['viewer@example.com'], tree.id, 'viewer', 'approved');
+  upsertPermission.run(tree.id, userIdByEmail['owner@example.com'], 'owner');
+  upsertPermission.run(tree.id, userIdByEmail['editor@example.com'], 'editor');
+  upsertPermission.run(tree.id, userIdByEmail['viewer@example.com'], 'viewer');
 
   db.prepare(
     `INSERT INTO family_data (tree_id, json_data)

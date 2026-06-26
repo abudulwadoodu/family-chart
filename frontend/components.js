@@ -260,7 +260,6 @@ export function renderViewModeToggle({ viewMode, canEdit }) {
 }
 
 const MEMBER_ROLE_LABELS = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
-const MEMBER_STATUS_LABELS = { approved: 'Approved', pending: 'Pending', revoked: 'Revoked' };
 
 function modalCloseButton(id = 'share-modal-close-btn') {
   return `<button type="button" id="${id}" class="icon-btn modal-close" aria-label="Close">${icon('close')}</button>`;
@@ -282,44 +281,43 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, members, loading, error }) {
+export function renderShareModalBody({ treeName, permissions, loading, error, formError }) {
   if (loading) {
     return `
       ${modalCloseButton()}
       <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
-      <p class="modal-message">Loading members...</p>
+      <p class="modal-message">Loading collaborators...</p>
     `;
   }
 
   const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
-  const rows = members
-    .map((member) => {
-      const isOwnerRow = member.role === 'owner';
-      const actions = [];
-      if (!isOwnerRow) {
-        if (member.status === 'pending') {
-          actions.push(`<button type="button" class="btn btn-primary btn-sm" data-member-action="approve" data-membership-id="${member.id}">Approve</button>`);
-          actions.push(`<button type="button" class="btn btn-ghost btn-sm" data-member-action="revoke" data-membership-id="${member.id}">Deny</button>`);
-        } else if (member.status === 'approved') {
-          actions.push(`<button type="button" class="btn btn-ghost btn-sm" data-member-action="revoke" data-membership-id="${member.id}">Revoke</button>`);
-        } else {
-          actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-member-action="approve" data-membership-id="${member.id}">Re-approve</button>`);
-        }
-      }
+  const formErrorHtml = formError ? `<p class="error">${escapeHtml(formError)}</p>` : '';
+
+  const rows = permissions
+    .map((permission) => {
+      const isOwnerRow = permission.role === 'owner';
+      const actions = isOwnerRow
+        ? ''
+        : `
+          <select class="member-role-select" data-user-id="${permission.user_id}" aria-label="Role for ${escapeHtml(permission.email)}">
+            <option value="editor" ${permission.role === 'editor' ? 'selected' : ''}>Editor</option>
+            <option value="viewer" ${permission.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+          </select>
+          <button type="button" class="btn btn-ghost btn-sm" data-remove-user-id="${permission.user_id}">Remove</button>
+        `;
 
       return `
         <div class="member-row">
           <div class="member-info">
-            <span class="user-avatar user-avatar-sm">${escapeHtml((member.email || '?').charAt(0).toUpperCase())}</span>
+            <span class="user-avatar user-avatar-sm">${escapeHtml((permission.email || '?').charAt(0).toUpperCase())}</span>
             <div>
-              <p class="member-email">${escapeHtml(member.email)}</p>
+              <p class="member-email">${escapeHtml(permission.email)}</p>
               <p class="member-meta">
-                <span class="badge badge-role-${member.role}">${MEMBER_ROLE_LABELS[member.role] || member.role}</span>
-                <span class="badge badge-status-${member.status}">${MEMBER_STATUS_LABELS[member.status] || member.status}</span>
+                <span class="badge badge-role-${permission.role}">${MEMBER_ROLE_LABELS[permission.role] || permission.role}</span>
               </p>
             </div>
           </div>
-          <div class="member-actions">${actions.join('')}</div>
+          <div class="member-actions">${actions}</div>
         </div>
       `;
     })
@@ -328,7 +326,16 @@ export function renderShareModalBody({ treeName, members, loading, error }) {
   return `
     ${modalCloseButton()}
     <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
-    <p class="modal-message">Manage who has access to this family tree.</p>
+    <p class="modal-message">Invite someone by email and choose what they can do.</p>
+    <form id="share-form" class="share-form">
+      <input type="email" id="share-email-input" name="email" placeholder="name@example.com" required />
+      <select id="share-role-select" name="role">
+        <option value="editor">Editor</option>
+        <option value="viewer" selected>Viewer</option>
+      </select>
+      <button type="submit" class="btn btn-primary">Share</button>
+    </form>
+    ${formErrorHtml}
     <div class="member-list">${rows || '<p class="muted">No collaborators yet.</p>'}</div>
     ${errorHtml}
   `;

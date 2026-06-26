@@ -645,13 +645,13 @@ function handleExportCurrentTree() {
 }
 
 // ---------------------------------------------------------------------------
-// Share modal (built on the existing memberships API)
+// Share modal (built on the tree_permissions API)
 // ---------------------------------------------------------------------------
 
 async function openShareModal(treeId) {
   const treeName = state.selectedTreeName || state.trees.find((t) => t.id === treeId)?.name || '';
   const modal = showModal({
-    bodyHtml: renderShareModalBody({ treeName, members: [], loading: true, error: '' }),
+    bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
   });
   bindShareModalClose(modal);
@@ -663,32 +663,75 @@ function bindShareModalClose(modal) {
   modal.root.querySelector('#share-modal-close-btn')?.addEventListener('click', modal.close);
 }
 
-async function refreshShareModal(modal, treeId, treeName) {
+async function refreshShareModal(modal, treeId, treeName, formError = '') {
   try {
-    const payload = await api(`/api/trees/${treeId}/members`);
-    modal.setBody(renderShareModalBody({ treeName, members: payload.members, loading: false, error: '' }));
+    const payload = await api(`/api/trees/${treeId}/permissions`);
+    modal.setBody(renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError }));
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
   } catch (error) {
     modal.setBody(
-      renderShareModalBody({ treeName, members: [], loading: false, error: error.message || 'Failed to load members.' })
+      renderShareModalBody({
+        treeName,
+        permissions: [],
+        loading: false,
+        error: error.message || 'Failed to load collaborators.',
+        formError: '',
+      })
     );
     bindShareModalClose(modal);
   }
 }
 
 function bindShareModalActions(modal, treeId, treeName) {
-  modal.root.querySelectorAll('[data-member-action]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const membershipId = Number(btn.dataset.membershipId);
-      const status = btn.dataset.memberAction === 'approve' ? 'approved' : 'revoked';
+  modal.root.querySelector('#share-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const email = String(new FormData(form).get('email') || '').trim();
+    const role = String(new FormData(form).get('role') || 'viewer');
+    if (!email) return;
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share`, { method: 'POST', body: JSON.stringify({ email, role }) });
+      showToast(`Shared with ${email}.`);
+      await refreshShareModal(modal, treeId, treeName);
+      loadTrees();
+    } catch (error) {
+      submitBtn.disabled = false;
+      await refreshShareModal(modal, treeId, treeName, error.message || 'Could not share this tree.');
+    }
+  });
+
+  modal.root.querySelectorAll('.member-role-select').forEach((select) => {
+    select.addEventListener('change', async () => {
+      const userId = Number(select.dataset.userId);
+      const role = select.value;
       try {
-        await api(`/api/memberships/${membershipId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-        showToast(status === 'approved' ? 'Access approved.' : 'Access revoked.');
+        await api(`/api/trees/${treeId}/share/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) });
+        showToast('Role updated.');
         await refreshShareModal(modal, treeId, treeName);
         loadTrees();
       } catch (error) {
-        showToast(error.message || 'Action failed.', { type: 'error' });
+        showToast(error.message || 'Could not update role.', { type: 'error' });
+        await refreshShareModal(modal, treeId, treeName);
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-remove-user-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = Number(btn.dataset.removeUserId);
+      btn.disabled = true;
+      try {
+        await api(`/api/trees/${treeId}/share/${userId}`, { method: 'DELETE' });
+        showToast('Access removed.');
+        await refreshShareModal(modal, treeId, treeName);
+        loadTrees();
+      } catch (error) {
+        showToast(error.message || 'Could not remove access.', { type: 'error' });
+        btn.disabled = false;
       }
     });
   });
@@ -849,7 +892,15 @@ async function handleSignIn(event) {
   submitBtn.textContent = 'Signing in...';
   try {
     state.authEmail = email;
-    const result = await signIn({ username: email, password });
+    let result;
+    try {
+      result = await signIn({ username: email, password });
+    } catch (error) {
+      if (error.name !== 'UserAlreadyAuthenticatedException') throw error;
+      // A stale session from an earlier sign-in is still cached locally; clear it and retry once.
+      await signOut();
+      result = await signIn({ username: email, password });
+    }
     if (result.isSignedIn) {
       await handleAuthNextStep({ signInStep: 'DONE' });
     } else {

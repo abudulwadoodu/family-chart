@@ -14,6 +14,13 @@ export function findUserById(userId) {
     .get(userId);
 }
 
+export function findUserByEmail(email) {
+  const db = getDb();
+  return db
+    .prepare('SELECT id, email, cognito_sub, created_at, last_login_at FROM users WHERE email = ?')
+    .get(email);
+}
+
 export function createUser(email, cognitoSub) {
   const db = getDb();
   const result = db.prepare('INSERT INTO users (email, cognito_sub) VALUES (?, ?)').run(email, cognitoSub);
