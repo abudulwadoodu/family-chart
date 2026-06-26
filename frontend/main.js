@@ -23,7 +23,7 @@ import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
-import { escapeHtml, downloadJson, downloadBlob, slugifyFilename } from './utils.js';
+import { escapeHtml, downloadJson, downloadCsv, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import {
   renderSidebarNav,
@@ -641,7 +641,8 @@ function bindTreeGridListeners(container) {
 }
 
 function handleTreeCardAction(action, treeId) {
-  if (action === 'export') return handleExportTreeById(treeId);
+  if (action === 'export-json') return handleExportTreeById(treeId, 'json');
+  if (action === 'export-csv') return handleExportTreeById(treeId, 'csv');
   if (action === 'rename') {
     state.renamingTreeId = treeId;
     renderTreeGrid();
@@ -698,11 +699,16 @@ async function handleDeleteTree(treeId, treeName) {
   }
 }
 
-async function handleExportTreeById(treeId) {
+async function handleExportTreeById(treeId, format) {
   try {
     const tree = state.trees.find((t) => t.id === treeId);
     const payload = await api(`/api/trees/${treeId}`);
-    downloadJson(`${slugifyFilename(tree?.name || payload.tree.name)}.json`, payload.data);
+    const baseName = slugifyFilename(tree?.name || payload.tree.name);
+    if (format === 'csv') {
+      downloadCsv(`${baseName}.csv`, treeDataToCsv(payload.data));
+    } else {
+      downloadJson(`${baseName}.json`, payload.data);
+    }
     showToast('Tree exported successfully.');
   } catch (error) {
     showToast(error.message || 'Export failed.', { type: 'error' });
@@ -727,12 +733,9 @@ function attachTreeViewerListeners() {
     render();
   });
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
-  document.querySelector('#export-tree-btn').addEventListener('click', handleExportCurrentTree);
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
-  document.querySelector('#import-tree-csv-btn')?.addEventListener('click', () => {
-    document.querySelector('#import-tree-csv-input')?.click();
-  });
-  document.querySelector('#import-tree-csv-input')?.addEventListener('change', handleImportCsv);
+  document.querySelector('#import-tree-csv-input')?.addEventListener('change', handleImportTree);
+  document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -744,7 +747,12 @@ function attachTreeViewerListeners() {
 function handleViewerSettingsAction(action) {
   if (action === 'rename') return openRenameTreeModal();
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
-  if (action === 'download-template') return handleDownloadCsvTemplate();
+  if (action === 'download-csv-template') return handleDownloadCsvTemplate();
+  if (action === 'download-json-template') return handleDownloadJsonTemplate();
+  if (action === 'import-csv') return document.querySelector('#import-tree-csv-input')?.click();
+  if (action === 'import-json') return document.querySelector('#import-tree-json-input')?.click();
+  if (action === 'export-json') return handleExportCurrentTree('json');
+  if (action === 'export-csv') return handleExportCurrentTree('csv');
 }
 
 function openRenameTreeModal() {
@@ -797,9 +805,14 @@ async function handleSaveTree() {
   }
 }
 
-function handleExportCurrentTree() {
+function handleExportCurrentTree(format) {
   const data = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
-  downloadJson(`${slugifyFilename(state.selectedTreeName)}.json`, data);
+  const baseName = slugifyFilename(state.selectedTreeName);
+  if (format === 'csv') {
+    downloadCsv(`${baseName}.csv`, treeDataToCsv(data));
+  } else {
+    downloadJson(`${baseName}.json`, data);
+  }
   showToast('Tree exported successfully.');
 }
 
@@ -1429,18 +1442,21 @@ async function handleCreateTree(event) {
   }
 }
 
-async function handleImportCsv(event) {
+async function handleImportTree(event) {
   const fileInput = event.target;
   const file = fileInput.files?.[0];
   if (!file) return;
 
   if (!state.selectedTreeId) {
-    showToast('Open a family tree before importing a CSV.', { type: 'error' });
+    showToast('Open a family tree before importing.', { type: 'error' });
     fileInput.value = '';
     return;
   }
 
-  const importBtn = document.querySelector('#import-tree-csv-btn');
+  const isJson = /\.json$/i.test(file.name) || file.type === 'application/json';
+  const endpoint = isJson ? 'import-json' : 'import-csv';
+
+  const importBtn = document.querySelector('#import-tree-btn');
   const label = importBtn?.querySelector('span');
   if (importBtn) importBtn.disabled = true;
   if (label) label.textContent = 'Importing...';
@@ -1448,7 +1464,7 @@ async function handleImportCsv(event) {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const result = await api(`/api/trees/${state.selectedTreeId}/import-csv`, {
+    const result = await api(`/api/trees/${state.selectedTreeId}/${endpoint}`, {
       method: 'POST',
       body: formData,
     });
@@ -1460,7 +1476,7 @@ async function handleImportCsv(event) {
   } finally {
     fileInput.value = '';
     if (importBtn) importBtn.disabled = false;
-    if (label) label.textContent = 'Import CSV';
+    if (label) label.textContent = 'Import';
   }
 }
 
@@ -1474,8 +1490,43 @@ function handleDownloadCsvTemplate() {
     'c1,Chris,Doe,2010,Chicago,, ,M,p1,p4,,',
     'c2,Emma,Doe,2012,Chicago,, ,F,p1,p4,,',
   ];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  downloadBlob(blob, 'family-import-template.csv');
+  downloadCsv('family-import-template.csv', lines.join('\n'));
+}
+
+function handleDownloadJsonTemplate() {
+  const people = [
+    {
+      id: 'p1',
+      data: { 'first name': 'John', 'last name': 'Doe', birthday: 1985, location: 'New York', notes: 'Main person note', avatar: '', gender: 'M' },
+      rels: { parents: ['p2', 'p3'], children: ['c1', 'c2'], spouses: ['p4'] },
+    },
+    {
+      id: 'p4',
+      data: { 'first name': 'Jane', 'last name': 'Doe', birthday: 1987, location: 'New York', notes: 'Spouse note', avatar: '', gender: 'F' },
+      rels: { parents: [], children: ['c1', 'c2'], spouses: ['p1'] },
+    },
+    {
+      id: 'p2',
+      data: { 'first name': 'Robert', 'last name': 'Doe', birthday: 1960, location: 'Boston', notes: '', avatar: '', gender: 'M' },
+      rels: { parents: [], children: ['p1'], spouses: ['p3'] },
+    },
+    {
+      id: 'p3',
+      data: { 'first name': 'Mary', 'last name': 'Doe', birthday: 1962, location: 'Boston', notes: '', avatar: '', gender: 'F' },
+      rels: { parents: [], children: ['p1'], spouses: ['p2'] },
+    },
+    {
+      id: 'c1',
+      data: { 'first name': 'Chris', 'last name': 'Doe', birthday: 2010, location: 'Chicago', notes: '', avatar: '', gender: 'M' },
+      rels: { parents: ['p1', 'p4'], children: [], spouses: [] },
+    },
+    {
+      id: 'c2',
+      data: { 'first name': 'Emma', 'last name': 'Doe', birthday: 2012, location: 'Chicago', notes: '', avatar: '', gender: 'F' },
+      rels: { parents: ['p1', 'p4'], children: [], spouses: [] },
+    },
+  ];
+  downloadJson('family-import-template.json', people);
 }
 
 async function loadSession() {

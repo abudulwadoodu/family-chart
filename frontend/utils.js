@@ -47,6 +47,65 @@ export function downloadJson(filename, data) {
   downloadBlob(blob, filename);
 }
 
+// Inverse of the CSV import format (id,first_name,last_name,birthday,location,notes,
+// avatar,gender,father_id,mother_id,spouse_ids,child_ids) - parents aren't labeled
+// father/mother in the underlying {id,data,rels} model, so gender is used as a
+// best-effort heuristic to split rels.parents into the two CSV columns.
+export function treeDataToCsv(people) {
+  const escapeCsvField = (value) => {
+    const str = String(value ?? '');
+    return /["\n,]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+
+  const byId = new Map(people.map((person) => [person.id, person]));
+  const header = [
+    'id',
+    'first_name',
+    'last_name',
+    'birthday',
+    'location',
+    'notes',
+    'avatar',
+    'gender',
+    'father_id',
+    'mother_id',
+    'spouse_ids',
+    'child_ids',
+  ];
+
+  const rows = people.map((person) => {
+    const data = person.data || {};
+    const rels = person.rels || {};
+    const parents = rels.parents || [];
+    const fatherId = parents.find((id) => byId.get(id)?.data?.gender === 'M') || parents[0] || '';
+    const motherId = parents.find((id) => id !== fatherId) || '';
+
+    return [
+      person.id,
+      data['first name'] || '',
+      data['last name'] || '',
+      data.birthday || '',
+      data.location || '',
+      data.notes || '',
+      data.avatar || '',
+      data.gender || '',
+      fatherId,
+      motherId,
+      (rels.spouses || []).join(';'),
+      (rels.children || []).join(';'),
+    ]
+      .map(escapeCsvField)
+      .join(',');
+  });
+
+  return [header.join(','), ...rows].join('\n');
+}
+
+export function downloadCsv(filename, csvText) {
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, filename);
+}
+
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

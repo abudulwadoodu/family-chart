@@ -116,7 +116,10 @@ function dropdownMenu({ id, items }) {
 
 export function renderTreeCard(tree, { renaming } = {}) {
   const menuId = `tree-${tree.id}`;
-  const items = [{ action: 'export', label: 'Export', icon: 'download' }];
+  const items = [
+    { action: 'export-json', label: 'Export JSON', icon: 'download' },
+    { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+  ];
   if (tree.role === 'owner') {
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
@@ -207,7 +210,8 @@ export function renderTreeViewerHeader({ treeName, role }) {
 
   const settingsItems = [];
   if (canEdit) {
-    settingsItems.push({ action: 'download-template', label: 'Download CSV Template', icon: 'download' });
+    settingsItems.push({ action: 'download-csv-template', label: 'Download CSV Template', icon: 'download' });
+    settingsItems.push({ action: 'download-json-template', label: 'Download JSON Template', icon: 'download' });
   }
   if (isOwner) {
     settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
@@ -232,10 +236,29 @@ export function renderTreeViewerHeader({ treeName, role }) {
         ${
           canEdit
             ? `<input type="file" id="import-tree-csv-input" accept=".csv,text/csv" hidden />
-               <button type="button" id="import-tree-csv-btn" class="btn btn-secondary">${icon('upload')}<span>Import CSV</span></button>`
+               <input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
+               <div class="tree-card-menu-wrap">
+                 <button type="button" id="import-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="import-options">${icon('upload')}<span>Import</span></button>
+                 ${dropdownMenu({
+                   id: 'import-options',
+                   items: [
+                     { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+                     { action: 'import-json', label: 'Import JSON', icon: 'upload' },
+                   ],
+                 })}
+               </div>`
             : ''
         }
-        <button type="button" id="export-tree-btn" class="btn btn-secondary">${icon('download')}<span>Export</span></button>
+        <div class="tree-card-menu-wrap">
+          <button type="button" id="export-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="export-options">${icon('download')}<span>Export</span></button>
+          ${dropdownMenu({
+            id: 'export-options',
+            items: [
+              { action: 'export-json', label: 'Export JSON', icon: 'download' },
+              { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+            ],
+          })}
+        </div>
         ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
         ${
           settingsItems.length

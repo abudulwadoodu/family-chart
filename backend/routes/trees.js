@@ -7,6 +7,7 @@ import { requireTreeRole } from '../middleware/authorizeTree.js';
 import { isNonEmptyString, isValidEmail } from '../utils/validation.js';
 import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
 import { parseCsvImport } from '../utils/csvImport.js';
+import { parseJsonImport } from '../utils/jsonImport.js';
 import { findUserByEmail } from '../models/userModel.js';
 
 const ASSIGNABLE_ROLES = ['editor', 'viewer'];
@@ -153,6 +154,32 @@ treesRouter.post(
       if (!req.file?.buffer) return res.status(400).json({ error: 'CSV file is required' });
       const csvText = req.file.buffer.toString('utf8');
       const importedData = parseCsvImport(csvText);
+      const treeId = Number(req.params.id);
+
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO family_data (tree_id, json_data, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
+      ).run(treeId, JSON.stringify(importedData));
+
+      return res.json({ ok: true, imported_count: importedData.length });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ error: error.message });
+      return next(error);
+    }
+  }
+);
+
+treesRouter.post(
+  '/:id/import-json',
+  requireTreeRole(['owner', 'editor']),
+  upload.single('file'),
+  (req, res, next) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'JSON file is required' });
+      const jsonText = req.file.buffer.toString('utf8');
+      const importedData = parseJsonImport(jsonText);
       const treeId = Number(req.params.id);
 
       const db = getDb();
