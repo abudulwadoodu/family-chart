@@ -24,6 +24,7 @@ import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { escapeHtml, downloadJson, downloadBlob, slugifyFilename } from './utils.js';
+import { icon } from './icons.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
@@ -190,43 +191,94 @@ function renderAuth() {
   return renderSignInStep();
 }
 
-function renderOauthLoadingStep() {
+// Shared shell for every auth screen: brand mark + contextual heading/subtitle,
+// so the dark "premium SaaS" card chrome, background photo, and entrance
+// animation stay consistent across sign-in/sign-up/MFA/reset rather than
+// duplicated in each render*Step.
+function renderAuthShell(heading, subtitleHtml, bodyHtml) {
   app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Family Chart Login</h1>
-        <p class="muted">Completing sign-in with Google&hellip;</p>
+    <main class="auth-page">
+      <section class="auth-card">
+        <div class="auth-brand">
+          <span class="auth-brand-icon">${icon('logo')}</span>
+          <h1 class="auth-brand-title">${heading}</h1>
+          <p class="auth-brand-subtitle">${subtitleHtml}</p>
+        </div>
+        ${bodyHtml}
       </section>
     </main>
   `;
 }
 
+// Toggles a submit button between its idle label and a spinner + busy label,
+// without touching any of the surrounding auth/business logic.
+function setButtonBusy(btn, busy, label) {
+  btn.disabled = busy;
+  btn.innerHTML = busy ? `<span class="icon-spin">${icon('spinner')}</span><span>${escapeHtml(label)}</span>` : `<span>${escapeHtml(label)}</span>`;
+}
+
+function handleTogglePasswordVisibility(event) {
+  const btn = event.currentTarget;
+  const input = btn.parentElement.querySelector('input');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.innerHTML = showing ? icon('eye') : icon('eyeOff');
+  btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+}
+
+function attachPasswordToggles(root) {
+  root.querySelectorAll('.input-toggle-btn').forEach((btn) => btn.addEventListener('click', handleTogglePasswordVisibility));
+}
+
+function renderOauthLoadingStep() {
+  renderAuthShell(
+    'Signing you in',
+    'Completing sign-in with Google&hellip;',
+    `<p class="muted" style="text-align:center;">Hang tight, this only takes a moment.</p>`
+  );
+}
+
 function renderSignInStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Family Chart Login</h1>
-        <button type="button" id="google-signin-btn" class="btn-google">
-          ${GOOGLE_LOGO_SVG}
-          <span>Continue with Google</span>
-        </button>
-        <div class="auth-divider"><span>OR</span></div>
-        <form id="sign-in-form" class="stack">
-          <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
-          <label>Password <input type="password" name="password" required /></label>
-          <button type="submit" id="sign-in-btn">Sign In</button>
-        </form>
-        <div class="row otp-actions">
-          <button type="button" id="go-sign-up-btn" class="secondary">Create an account</button>
-          <button type="button" id="go-forgot-password-btn" class="secondary">Forgot password?</button>
-        </div>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    'Welcome Back!',
+    'Sign in to your Family Chart account',
+    `
+      <button type="button" id="google-signin-btn" class="btn-google">
+        ${GOOGLE_LOGO_SVG}
+        <span class="btn-label">Continue with Google</span>
+      </button>
+      <div class="auth-divider"><span>OR</span></div>
+      <form id="sign-in-form" class="stack auth-form">
+        <label>Email
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('mail')}</span>
+            <input type="email" name="email" value="${escapeHtml(state.authEmail)}" placeholder="Enter your email" required />
+          </span>
+        </label>
+        <label>Password
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('lock')}</span>
+            <input type="password" name="password" class="has-trailing-icon" placeholder="Enter your password" required />
+            <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
+          </span>
+        </label>
+        <button type="submit" id="sign-in-btn" class="btn-auth"><span>Sign In</span></button>
+      </form>
+      <div class="auth-row-between">
+        <label class="auth-checkbox">
+          <input type="checkbox" />
+          <span>Remember me</span>
+        </label>
+        <button type="button" id="go-forgot-password-btn" class="auth-link-btn">Forgot password?</button>
+      </div>
+      <p class="auth-footnote">Don't have an account? <button type="button" id="go-sign-up-btn" class="auth-link-btn">Create account</button></p>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#google-signin-btn').addEventListener('click', handleGoogleSignIn);
   document.querySelector('#sign-in-form').addEventListener('submit', handleSignIn);
+  attachPasswordToggles(document.querySelector('#sign-in-form'));
   document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
     state.authStep = 'signUp';
     render();
@@ -238,25 +290,34 @@ function renderSignInStep() {
 }
 
 function renderSignUpStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Create your account</h1>
-        <p class="muted">Password must be at least 12 characters and include upper/lowercase letters, a number, and a symbol.</p>
-        <form id="sign-up-form" class="stack">
-          <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
-          <label>Password <input type="password" name="password" minlength="12" required /></label>
-          <button type="submit" id="sign-up-btn">Sign Up</button>
-        </form>
-        <div class="row otp-actions">
-          <button type="button" id="go-sign-in-btn" class="secondary">Back to sign in</button>
-        </div>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    'Create your account',
+    'Start building your Family Chart today',
+    `
+      <p class="muted">Password must be at least 12 characters and include upper/lowercase letters, a number, and a symbol.</p>
+      <form id="sign-up-form" class="stack auth-form">
+        <label>Email
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('mail')}</span>
+            <input type="email" name="email" value="${escapeHtml(state.authEmail)}" placeholder="Enter your email" required />
+          </span>
+        </label>
+        <label>Password
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('lock')}</span>
+            <input type="password" name="password" class="has-trailing-icon" placeholder="Create a password" minlength="12" required />
+            <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
+          </span>
+        </label>
+        <button type="submit" id="sign-up-btn" class="btn-auth"><span>Sign Up</span></button>
+      </form>
+      <p class="auth-footnote">Already have an account? <button type="button" id="go-sign-in-btn" class="auth-link-btn">Sign in</button></p>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#sign-up-form').addEventListener('submit', handleSignUp);
+  attachPasswordToggles(document.querySelector('#sign-up-form'));
   document.querySelector('#go-sign-in-btn').addEventListener('click', () => {
     state.authStep = 'signIn';
     render();
@@ -264,24 +325,22 @@ function renderSignUpStep() {
 }
 
 function renderConfirmSignUpStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Verify your email</h1>
-        <p class="muted">We sent a verification code to <strong>${escapeHtml(state.authEmail)}</strong>.</p>
-        <form id="confirm-sign-up-form" class="stack">
-          <label>Verification code
-            <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
-          </label>
-          <button type="submit" id="confirm-sign-up-btn">Verify</button>
-        </form>
-        <div class="row otp-actions">
-          <button type="button" id="resend-code-btn" class="secondary">Resend code</button>
-        </div>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    'Verify your email',
+    `We sent a verification code to <strong>${escapeHtml(state.authEmail)}</strong>.`,
+    `
+      <form id="confirm-sign-up-form" class="stack auth-form">
+        <label>Verification code
+          <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
+        </label>
+        <button type="submit" id="confirm-sign-up-btn" class="btn-auth"><span>Verify</span></button>
+      </form>
+      <div class="auth-links">
+        <button type="button" id="resend-code-btn" class="auth-link-btn">Resend code</button>
+      </div>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#confirm-sign-up-form').addEventListener('submit', handleConfirmSignUp);
   document.querySelector('#resend-code-btn').addEventListener('click', handleResendConfirmationCode);
@@ -294,43 +353,48 @@ function renderMfaStep() {
       <div class="qr-code-wrap"><img src="${state.totpSetup.qrDataUrl}" alt="TOTP QR code" width="180" height="180" /></div>
       <p class="totp-secret">Setup key: ${escapeHtml(state.totpSetup.secret)}</p>
     `
-    : `<p class="muted">Enter the 6-digit code from your authenticator app.</p>`;
+    : '';
 
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>${state.totpSetup ? 'Set up authenticator app' : 'Multi-factor verification'}</h1>
-        ${setupBlock}
-        <form id="mfa-form" class="stack">
-          <label>Authenticator code
-            <input type="text" name="code" class="otp-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required />
-          </label>
-          <button type="submit" id="mfa-submit-btn">Verify</button>
-        </form>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    state.totpSetup ? 'Set up authenticator app' : 'Multi-factor verification',
+    state.totpSetup
+      ? 'Scan the QR code below to finish setting up your authenticator app.'
+      : 'Enter the 6-digit code from your authenticator app.',
+    `
+      ${setupBlock}
+      <form id="mfa-form" class="stack auth-form">
+        <label>Authenticator code
+          <input type="text" name="code" class="otp-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required />
+        </label>
+        <button type="submit" id="mfa-submit-btn" class="btn-auth"><span>Verify</span></button>
+      </form>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#mfa-form').addEventListener('submit', handleMfaSubmit);
 }
 
 function renderForgotPasswordStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Reset your password</h1>
-        <form id="forgot-password-form" class="stack">
-          <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
-          <button type="submit" id="forgot-password-btn">Send reset code</button>
-        </form>
-        <div class="row otp-actions">
-          <button type="button" id="go-sign-in-btn" class="secondary">Back to sign in</button>
-        </div>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    'Reset your password',
+    "We'll email you a code to reset your password.",
+    `
+      <form id="forgot-password-form" class="stack auth-form">
+        <label>Email
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('mail')}</span>
+            <input type="email" name="email" value="${escapeHtml(state.authEmail)}" placeholder="Enter your email" required />
+          </span>
+        </label>
+        <button type="submit" id="forgot-password-btn" class="btn-auth"><span>Send reset code</span></button>
+      </form>
+      <div class="auth-links">
+        <button type="button" id="go-sign-in-btn" class="auth-link-btn">Back to sign in</button>
+      </div>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#forgot-password-form').addEventListener('submit', handleForgotPasswordRequest);
   document.querySelector('#go-sign-in-btn').addEventListener('click', () => {
@@ -340,24 +404,29 @@ function renderForgotPasswordStep() {
 }
 
 function renderResetPasswordStep() {
-  app.innerHTML = `
-    <main class="auth-layout">
-      <section class="card">
-        <h1>Enter reset code</h1>
-        <p class="muted">We sent a reset code to <strong>${escapeHtml(state.authEmail)}</strong>.</p>
-        <form id="reset-password-form" class="stack">
-          <label>Reset code
-            <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
-          </label>
-          <label>New password <input type="password" name="newPassword" minlength="12" required /></label>
-          <button type="submit" id="reset-password-btn">Reset password</button>
-        </form>
-        <p id="auth-error" class="error"></p>
-      </section>
-    </main>
-  `;
+  renderAuthShell(
+    'Enter reset code',
+    `We sent a reset code to <strong>${escapeHtml(state.authEmail)}</strong>.`,
+    `
+      <form id="reset-password-form" class="stack auth-form">
+        <label>Reset code
+          <input type="text" name="code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required />
+        </label>
+        <label>New password
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('lock')}</span>
+            <input type="password" name="newPassword" class="has-trailing-icon" placeholder="Enter a new password" minlength="12" required />
+            <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
+          </span>
+        </label>
+        <button type="submit" id="reset-password-btn" class="btn-auth"><span>Reset password</span></button>
+      </form>
+      <p id="auth-error" class="error"></p>
+    `
+  );
 
   document.querySelector('#reset-password-form').addEventListener('submit', handleResetPasswordConfirm);
+  attachPasswordToggles(document.querySelector('#reset-password-form'));
 }
 
 // ---------------------------------------------------------------------------
@@ -942,14 +1011,14 @@ async function handleGoogleSignIn() {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
   btn.disabled = true;
-  btn.querySelector('span').textContent = 'Redirecting to Google...';
+  btn.querySelector('.btn-label').textContent = 'Redirecting to Google...';
   try {
     await signInWithRedirect({ provider: 'Google' });
   } catch (error) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
     btn.disabled = false;
-    btn.querySelector('span').textContent = 'Continue with Google';
+    btn.querySelector('.btn-label').textContent = 'Continue with Google';
   }
 }
 
@@ -962,8 +1031,7 @@ async function handleSignIn(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Signing in...';
+  setButtonBusy(submitBtn, true, 'Signing in...');
   try {
     state.authEmail = email;
     let result;
@@ -984,8 +1052,7 @@ async function handleSignIn(event) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Sign In';
+    setButtonBusy(submitBtn, false, 'Sign In');
   }
 }
 
@@ -998,8 +1065,7 @@ async function handleSignUp(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Signing up...';
+  setButtonBusy(submitBtn, true, 'Signing up...');
   try {
     const result = await signUp({
       username: email,
@@ -1019,8 +1085,7 @@ async function handleSignUp(event) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Sign Up';
+    setButtonBusy(submitBtn, false, 'Sign Up');
   }
 }
 
@@ -1032,8 +1097,7 @@ async function handleConfirmSignUp(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Verifying...';
+  setButtonBusy(submitBtn, true, 'Verifying...');
   try {
     await confirmSignUp({ username: state.authEmail, confirmationCode: code });
     state.authStep = 'signIn';
@@ -1042,8 +1106,7 @@ async function handleConfirmSignUp(event) {
   } catch (error) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Verify';
+    setButtonBusy(submitBtn, false, 'Verify');
   }
 }
 
@@ -1064,8 +1127,7 @@ async function handleMfaSubmit(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Verifying...';
+  setButtonBusy(submitBtn, true, 'Verifying...');
   try {
     const result = await confirmSignIn({ challengeResponse: code });
     if (result.isSignedIn) {
@@ -1076,8 +1138,7 @@ async function handleMfaSubmit(event) {
   } catch (error) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Verify';
+    setButtonBusy(submitBtn, false, 'Verify');
   }
 }
 
@@ -1260,8 +1321,7 @@ async function handleForgotPasswordRequest(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Sending...';
+  setButtonBusy(submitBtn, true, 'Sending...');
   try {
     await resetPassword({ username: email });
     state.authEmail = email;
@@ -1270,8 +1330,7 @@ async function handleForgotPasswordRequest(event) {
   } catch (error) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Send reset code';
+    setButtonBusy(submitBtn, false, 'Send reset code');
   }
 }
 
@@ -1284,8 +1343,7 @@ async function handleResetPasswordConfirm(event) {
   const errorEl = document.querySelector('#auth-error');
   errorEl.textContent = '';
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Resetting...';
+  setButtonBusy(submitBtn, true, 'Resetting...');
   try {
     await confirmResetPassword({ username: state.authEmail, confirmationCode: code, newPassword });
     state.authStep = 'signIn';
@@ -1294,8 +1352,7 @@ async function handleResetPasswordConfirm(event) {
   } catch (error) {
     errorEl.textContent = authErrorMessage(error);
     showToast(authErrorMessage(error), { type: 'error' });
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Reset password';
+    setButtonBusy(submitBtn, false, 'Reset password');
   }
 }
 

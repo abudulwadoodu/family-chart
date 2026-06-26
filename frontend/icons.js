@@ -50,6 +50,18 @@ export const icons = {
     '<path d="M9 6H6.5A1.5 1.5 0 0 0 5 7.5v10A1.5 1.5 0 0 0 6.5 19h10a1.5 1.5 0 0 0 1.5-1.5V15"></path><path d="M13 5h6v6"></path><path d="M19 5 11 13"></path>'
   ),
   spinner: svg('<path d="M12 3.5v3.2"></path><path d="M12 17.3v3.2" opacity=".3"></path><path d="M5.4 5.4l2.2 2.2" opacity=".5"></path><path d="M16.4 16.4l2.2 2.2" opacity=".2"></path><path d="M3.5 12h3.2" opacity=".7"></path><path d="M17.3 12h3.2" opacity=".4"></path><path d="M5.4 18.6l2.2-2.2" opacity=".6"></path><path d="M16.4 7.6l2.2-2.2" opacity=".15"></path>'),
+  mail: svg(
+    '<rect x="3.5" y="5.5" width="17" height="13" rx="2"></rect><path d="M4.5 7 12 12.5 19.5 7"></path>'
+  ),
+  lock: svg(
+    '<rect x="5" y="10.5" width="14" height="9" rx="2"></rect><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"></path>'
+  ),
+  eye: svg(
+    '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"></path><circle cx="12" cy="12" r="2.5"></circle>'
+  ),
+  eyeOff: svg(
+    '<path d="M2.5 12S6 5.5 12 5.5c1.6 0 2.96.36 4.1.9M21.5 12S18 18.5 12 18.5c-1.6 0-2.96-.36-4.1-.9"></path><path d="M9.9 14.1a2.5 2.5 0 0 1 3.5-3.5"></path><path d="M3.5 3.5l17 17"></path>'
+  ),
 };
 
 export function icon(name) {
