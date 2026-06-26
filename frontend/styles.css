@@ -112,6 +112,44 @@ h1, h2, h3 {
   flex-wrap: wrap;
 }
 
+/* Google's official button look - see https://developers.google.com/identity/branding-guidelines.
+   Deliberately not using the app's pill/accent button styling below, since Google's
+   guidelines specify exact colors/shape for this button. */
+.btn-google {
+  width: 100%;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #747775;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 500;
+}
+
+.btn-google:hover {
+  background: #f8f9fa;
+}
+
+.btn-google:active {
+  background: #f1f3f4;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-default);
+}
+
 .totp-secret {
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.85rem;

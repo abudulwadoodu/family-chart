@@ -68,3 +68,21 @@ variable "refresh_token_validity_days" {
   type        = number
   default     = 30
 }
+
+variable "google_client_id" {
+  description = "Google OAuth 2.0 Web application Client ID, used to federate Google sign-in through Cognito"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth 2.0 Web application Client Secret, used to federate Google sign-in through Cognito"
+  type        = string
+  sensitive   = true
+}
+
+variable "oauth_callback_urls" {
+  description = "Allowed OAuth callback/logout URLs for the Cognito Hosted UI redirect flow. Cognito requires https:// except for http://localhost."
+  type        = list(string)
+  default     = ["http://localhost:8080/"]
+}

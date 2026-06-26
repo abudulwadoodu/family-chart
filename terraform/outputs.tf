@@ -14,6 +14,11 @@ output "cognito_jwks_url" {
   value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}/.well-known/jwks.json"
 }
 
+output "cognito_oauth_domain" {
+  description = "Cognito Hosted UI domain - set VITE_COGNITO_OAUTH_DOMAIN to this value"
+  value       = "${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
+}
+
 output "ec2_instance_id" {
   value = aws_instance.app.id
 }

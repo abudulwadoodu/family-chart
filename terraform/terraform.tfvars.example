@@ -15,3 +15,12 @@ mfa_configuration          = "OPTIONAL"
 password_minimum_length    = 12
 access_token_validity_hours = 1
 refresh_token_validity_days = 30
+
+# Google OAuth 2.0 Web application credentials (Google Cloud Console > APIs & Services > Credentials).
+# Do not put real values here - copy this file to terraform.tfvars (gitignored) and fill them in there.
+google_client_id     = "REPLACE_ME.apps.googleusercontent.com"
+google_client_secret = "REPLACE_ME"
+
+# Cognito requires https:// for non-localhost callback/logout URLs. Add your production HTTPS URL
+# here once a domain + TLS cert exist for the app; until then this stays localhost-only.
+oauth_callback_urls = ["http://localhost:8080/"]

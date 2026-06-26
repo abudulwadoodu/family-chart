@@ -23,6 +23,10 @@ resource "aws_cognito_user_pool" "main" {
     enabled = true
   }
 
+  lambda_config {
+    pre_sign_up = aws_lambda_function.pre_signup.arn
+  }
+
   account_recovery_setting {
     recovery_mechanism {
       name     = "verified_email"
@@ -72,7 +76,13 @@ resource "aws_cognito_user_pool_client" "spa" {
 
   prevent_user_existence_errors = "ENABLED"
 
-  supported_identity_providers = ["COGNITO"]
+  supported_identity_providers = ["COGNITO", aws_cognito_identity_provider.google.provider_name]
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  callback_urls                        = var.oauth_callback_urls
+  logout_urls                          = var.oauth_callback_urls
 
   access_token_validity  = var.access_token_validity_hours
   id_token_validity      = var.access_token_validity_hours
@@ -82,5 +92,31 @@ resource "aws_cognito_user_pool_client" "spa" {
     access_token  = "hours"
     id_token      = "hours"
     refresh_token = "days"
+  }
+}
+
+# Hosted UI domain - required for the OAuth redirect flow used to federate Google sign-in.
+resource "aws_cognito_user_pool_domain" "main" {
+  domain       = "${var.project_name}-${var.environment}-${data.aws_caller_identity.current.account_id}"
+  user_pool_id = aws_cognito_user_pool.main.id
+}
+
+resource "aws_cognito_identity_provider" "google" {
+  user_pool_id  = aws_cognito_user_pool.main.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    client_id        = var.google_client_id
+    client_secret    = var.google_client_secret
+    authorize_scopes = "openid email profile"
+  }
+
+  attribute_mapping = {
+    email          = "email"
+    email_verified = "email_verified"
+    username       = "sub"
+    name           = "name"
+    picture        = "picture"
   }
 }

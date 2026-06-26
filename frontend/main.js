@@ -7,6 +7,7 @@ import {
   resendSignUpCode,
   signIn,
   confirmSignIn,
+  signInWithRedirect,
   signOut,
   getCurrentUser,
   fetchAuthSession,
@@ -17,6 +18,7 @@ import {
   updateMFAPreference,
   fetchMFAPreference,
 } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
 import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
@@ -44,6 +46,15 @@ Amplify.configure({
     Cognito: {
       userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID,
       userPoolClientId: import.meta.env.VITE_COGNITO_CLIENT_ID,
+      loginWith: {
+        oauth: {
+          domain: import.meta.env.VITE_COGNITO_OAUTH_DOMAIN,
+          scopes: ['openid', 'email', 'profile'],
+          redirectSignIn: [`${window.location.origin}/`],
+          redirectSignOut: [`${window.location.origin}/`],
+          responseType: 'code',
+        },
+      },
     },
   },
 });
@@ -77,6 +88,9 @@ const state = {
   authEmail: '',
   totpSetup: null,
   dashboardView: 'trees',
+  // True right after the browser bounces back from the Cognito Hosted UI
+  // (Google redirect), before Amplify finishes exchanging the ?code= for tokens.
+  oauthInProgress: new URLSearchParams(window.location.search).has('code'),
   mfa: {
     status: 'unknown', // 'unknown' | 'enabled' | 'disabled'
     loading: false,
@@ -95,15 +109,41 @@ const AUTH_ERROR_MESSAGES = {
   EnableSoftwareTokenMFAException: 'Could not set up the authenticator app. Please try again.',
   SoftwareTokenMFANotFoundException: 'No authenticator app is registered yet. Start setup again.',
   UserNotFoundException: 'No account found with that email.',
-  UsernameExistsException: 'An account with that email already exists.',
+  UsernameExistsException:
+    'An account with that email already exists. Try signing in, or use "Continue with Google" or "Forgot password" instead.',
   InvalidPasswordException: 'Password does not meet the requirements.',
+  UserLambdaValidationException: "We couldn't sign you in with Google right now. Please try again, or sign in with email and password.",
 };
+
+// Official Google "G" logo mark, per https://developers.google.com/identity/branding-guidelines.
+const GOOGLE_LOGO_SVG = `
+  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+    <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.85 2.09-1.81 2.73v2.27h2.92c1.71-1.57 2.69-3.89 2.69-6.64z"/>
+    <path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"/>
+    <path fill="#FBBC05" d="M3.97 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.96H.96A8.997 8.997 0 0 0 0 9c0 1.45.35 2.83.96 4.04l3.01-2.34z"/>
+    <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/>
+  </svg>
+`;
 
 // Dropdown menus are closed by default on every render, so a single delegated
 // listener registered once is enough to close whichever one is open.
 document.addEventListener('click', (event) => {
   if (event.target.closest('.dropdown-menu') || event.target.closest('[data-menu-trigger]')) return;
   document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+});
+
+// Fires once Amplify finishes exchanging the Hosted UI's ?code= for tokens
+// after a Google sign-in redirect (success or failure).
+Hub.listen('auth', ({ payload }) => {
+  if (payload.event === 'signInWithRedirect') {
+    state.oauthInProgress = false;
+    loadSession();
+  } else if (payload.event === 'signInWithRedirect_failure') {
+    state.oauthInProgress = false;
+    state.user = null;
+    render();
+    showToast(authErrorMessage(payload.data?.error), { type: 'error' });
+  }
 });
 
 async function getAuthHeader() {
@@ -141,6 +181,7 @@ function render() {
 }
 
 function renderAuth() {
+  if (state.oauthInProgress) return renderOauthLoadingStep();
   if (state.authStep === 'signUp') return renderSignUpStep();
   if (state.authStep === 'confirmSignUp') return renderConfirmSignUpStep();
   if (state.authStep === 'mfaCode') return renderMfaStep();
@@ -149,11 +190,27 @@ function renderAuth() {
   return renderSignInStep();
 }
 
+function renderOauthLoadingStep() {
+  app.innerHTML = `
+    <main class="auth-layout">
+      <section class="card">
+        <h1>Family Chart Login</h1>
+        <p class="muted">Completing sign-in with Google&hellip;</p>
+      </section>
+    </main>
+  `;
+}
+
 function renderSignInStep() {
   app.innerHTML = `
     <main class="auth-layout">
       <section class="card">
         <h1>Family Chart Login</h1>
+        <button type="button" id="google-signin-btn" class="btn-google">
+          ${GOOGLE_LOGO_SVG}
+          <span>Continue with Google</span>
+        </button>
+        <div class="auth-divider"><span>OR</span></div>
         <form id="sign-in-form" class="stack">
           <label>Email <input type="email" name="email" value="${escapeHtml(state.authEmail)}" required /></label>
           <label>Password <input type="password" name="password" required /></label>
@@ -168,6 +225,7 @@ function renderSignInStep() {
     </main>
   `;
 
+  document.querySelector('#google-signin-btn').addEventListener('click', handleGoogleSignIn);
   document.querySelector('#sign-in-form').addEventListener('submit', handleSignIn);
   document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
     state.authStep = 'signUp';
@@ -877,6 +935,22 @@ async function handleAuthNextStep(nextStep) {
   }
 
   throw new Error(`Unsupported sign-in step: ${nextStep.signInStep}`);
+}
+
+async function handleGoogleSignIn() {
+  const btn = document.querySelector('#google-signin-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.querySelector('span').textContent = 'Redirecting to Google...';
+  try {
+    await signInWithRedirect({ provider: 'Google' });
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+    btn.disabled = false;
+    btn.querySelector('span').textContent = 'Continue with Google';
+  }
 }
 
 async function handleSignIn(event) {

@@ -17,3 +17,5 @@ docs/api
 terraform.tfvars
 crash.log
 crash.*.log
+terraform/lambda/pre-signup/node_modules/
+terraform/lambda/pre-signup.zip
