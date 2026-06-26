@@ -1311,6 +1311,19 @@ button.secondary:active,
   flex-wrap: wrap;
 }
 
+/* The "more" (settings) icon button sits next to the Save/Import/Export/Share
+   buttons in this row - give it the same resting background/border as those
+   .btn-secondary buttons instead of the plain transparent .icon-btn look. */
+.viewer-actions .icon-btn {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.viewer-actions .icon-btn:hover {
+  background: #232a38;
+}
+
 .view-mode-toggle {
   display: flex;
   gap: var(--sp-2);

@@ -7,3 +7,7 @@ export function isNonEmptyString(value, max = 200) {
 export function isValidEmail(email) {
   return typeof email === 'string' && email.trim().length > 0 && email.length <= 254 && EMAIL_PATTERN.test(email.trim());
 }
+
+export function capitalizeFirst(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}

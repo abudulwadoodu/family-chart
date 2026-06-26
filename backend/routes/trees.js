@@ -4,7 +4,7 @@ import multer from 'multer';
 import { getDb } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
-import { isNonEmptyString, isValidEmail } from '../utils/validation.js';
+import { isNonEmptyString, isValidEmail, capitalizeFirst } from '../utils/validation.js';
 import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
 import { parseCsvImport } from '../utils/csvImport.js';
 import { parseJsonImport } from '../utils/jsonImport.js';
@@ -48,11 +48,12 @@ treesRouter.post('/', (req, res, next) => {
 
     const db = getDb();
     const userId = req.user.id;
+    const trimmedName = capitalizeFirst(name.trim());
 
     const initialJson = getDefaultTreeDataJson();
 
     const tx = db.transaction(() => {
-      const treeResult = db.prepare('INSERT INTO trees (name, owner_id) VALUES (?, ?)').run(name.trim(), userId);
+      const treeResult = db.prepare('INSERT INTO trees (name, owner_id) VALUES (?, ?)').run(trimmedName, userId);
       const treeId = treeResult.lastInsertRowid;
 
       db.prepare("INSERT INTO tree_permissions (tree_id, user_id, role, updated_at) VALUES (?, ?, 'owner', datetime('now'))")
@@ -63,7 +64,7 @@ treesRouter.post('/', (req, res, next) => {
     });
 
     const treeId = tx();
-    return res.status(201).json({ id: treeId, name: name.trim() });
+    return res.status(201).json({ id: treeId, name: trimmedName });
   } catch (error) {
     return next(error);
   }
@@ -121,10 +122,11 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), (req, res, next) => {
     }
 
     const treeId = Number(req.params.id);
+    const trimmedName = capitalizeFirst(name.trim());
     const db = getDb();
-    db.prepare('UPDATE trees SET name = ? WHERE id = ?').run(name.trim(), treeId);
+    db.prepare('UPDATE trees SET name = ? WHERE id = ?').run(trimmedName, treeId);
 
-    return res.json({ ok: true, name: name.trim() });
+    return res.json({ ok: true, name: trimmedName });
   } catch (error) {
     return next(error);
   }

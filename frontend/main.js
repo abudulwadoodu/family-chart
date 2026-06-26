@@ -662,9 +662,9 @@ async function handleRenameSubmit(event, treeId) {
   const submitBtn = event.target.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
   try {
-    await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    const result = await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
     state.renamingTreeId = null;
-    if (state.selectedTreeId === treeId) state.selectedTreeName = name;
+    if (state.selectedTreeId === treeId) state.selectedTreeName = result.name;
     await loadTrees();
     showToast('Tree renamed successfully.');
   } catch (error) {
@@ -768,10 +768,10 @@ function openRenameTreeModal() {
     const submitBtn = event.target.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
-      await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-      state.selectedTreeName = name;
-      document.querySelector('.viewer-title').textContent = name;
-      document.querySelector('.breadcrumb-current').textContent = name;
+      const result = await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+      state.selectedTreeName = result.name;
+      document.querySelector('.viewer-title').textContent = result.name;
+      document.querySelector('.breadcrumb-current').textContent = result.name;
       modal.close();
       loadTrees();
       showToast('Tree renamed successfully.');
