@@ -435,15 +435,24 @@ function renderResetPasswordStep() {
 
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
-  const isViewerView = !isSecurityView && Boolean(state.selectedTreeId);
+  const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
+  const isViewerView = !isSecurityView && !isCreateTreeView && Boolean(state.selectedTreeId);
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: state.dashboardView })}
+      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView })}
       <div class="main-area">
         ${renderMobileTopbar()}
         <main class="content">
-          ${isSecurityView ? renderSecuritySettingsMarkup() : isViewerView ? renderTreeViewerMarkup() : renderTreesLandingMarkup()}
+          ${
+            isSecurityView
+              ? renderSecuritySettingsMarkup()
+              : isCreateTreeView
+                ? renderCreateTreePageMarkup()
+                : isViewerView
+                  ? renderTreeViewerMarkup()
+                  : renderTreesLandingMarkup()
+          }
         </main>
       </div>
     </div>
@@ -453,6 +462,11 @@ function renderDashboard() {
 
   if (isSecurityView) {
     attachSecuritySettingsListeners();
+    return;
+  }
+
+  if (isCreateTreeView) {
+    attachCreateTreePageListeners();
     return;
   }
 
@@ -517,7 +531,6 @@ function renderTreesLandingMarkup() {
       primaryActionId: 'new-tree-cta',
       primaryActionLabel: 'New Tree',
     })}
-    ${renderCreateTreeCard()}
     ${renderTreesToolbarRow({ search: state.treeSearch, sort: state.treeSort })}
     <div id="tree-grid" class="tree-grid"></div>
   `;
@@ -525,11 +538,9 @@ function renderTreesLandingMarkup() {
 
 function attachTreesLandingListeners() {
   document.querySelector('#new-tree-cta').addEventListener('click', () => {
-    const input = document.querySelector('#create-tree-name-input');
-    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    input?.focus();
+    state.dashboardView = 'createTree';
+    render();
   });
-  document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
   document.querySelector('#tree-search-input').addEventListener('input', (event) => {
     state.treeSearch = event.target.value;
     renderTreeGrid();
@@ -538,6 +549,26 @@ function attachTreesLandingListeners() {
     state.treeSort = event.target.value;
     renderTreeGrid();
   });
+}
+
+function renderCreateTreePageMarkup() {
+  return `
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" id="breadcrumb-trees-from-create-btn" class="breadcrumb-link">My Trees</button>
+      <span class="breadcrumb-sep">/</span>
+      <span class="breadcrumb-current">Create a Tree</span>
+    </nav>
+    ${renderCreateTreeCard()}
+  `;
+}
+
+function attachCreateTreePageListeners() {
+  document.querySelector('#breadcrumb-trees-from-create-btn').addEventListener('click', () => {
+    state.dashboardView = 'trees';
+    render();
+  });
+  document.querySelector('#create-tree-form').addEventListener('submit', handleCreateTree);
+  document.querySelector('#create-tree-name-input')?.focus();
 }
 
 function sortTrees(list, sort) {
@@ -564,7 +595,8 @@ function renderTreeGrid() {
   if (sorted.length === 0) {
     container.innerHTML = renderEmptyState({ mode: state.trees.length === 0 ? 'no-trees' : 'no-results' });
     document.querySelector('#empty-create-btn')?.addEventListener('click', () => {
-      document.querySelector('#create-tree-name-input')?.focus();
+      state.dashboardView = 'createTree';
+      render();
     });
     document.querySelector('#empty-clear-search-btn')?.addEventListener('click', () => {
       state.treeSearch = '';
@@ -1386,12 +1418,12 @@ async function handleCreateTree(event) {
   submitBtn.textContent = 'Creating...';
   try {
     await api('/api/trees', { method: 'POST', body: JSON.stringify({ name }) });
-    form.reset();
     await loadTrees();
+    state.dashboardView = 'trees';
+    render();
     showToast('Family tree created successfully.');
   } catch (error) {
     showToast(error.message || 'Could not create tree.', { type: 'error' });
-  } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Create';
   }
