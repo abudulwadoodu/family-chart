@@ -25,6 +25,7 @@ import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js'
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { escapeHtml, downloadJson, downloadCsv, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
+import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
@@ -36,6 +37,7 @@ import {
   renderSkeletonGrid,
   renderTreeViewerHeader,
   renderViewModeToggle,
+  renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
 } from './components.js';
@@ -84,7 +86,11 @@ const state = {
   editor: null,
   viewMode: 'focused',
   focusedMainId: null,
-  allNodesCleanup: null,
+  allNodesGraph: null,
+  memberSearchIndex: null,
+  memberSearchResults: [],
+  memberSearchActiveIndex: -1,
+  memberSearchHighlightTimer: null,
   authStep: 'signIn',
   authEmail: '',
   totpSetup: null,
@@ -131,6 +137,13 @@ const GOOGLE_LOGO_SVG = `
 document.addEventListener('click', (event) => {
   if (event.target.closest('.dropdown-menu') || event.target.closest('[data-menu-trigger]')) return;
   document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+});
+
+// Same delegated-listener approach as the dropdown menus above: registered
+// once, closes the member search results whenever a click lands outside it.
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#member-search')) return;
+  closeMemberSearchResults();
 });
 
 // Fires once Amplify finishes exchanging the Hosted UI's ?code= for tokens
@@ -722,7 +735,10 @@ async function handleExportTreeById(treeId, format) {
 function renderTreeViewerMarkup() {
   return `
     ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
-    <div id="view-mode-toggle"></div>
+    <div class="tree-toolbar-row">
+      <div id="view-mode-toggle"></div>
+      ${renderMemberSearch()}
+    </div>
     <div id="FamilyChart" class="f3 chart-container"></div>
   `;
 }
@@ -742,6 +758,175 @@ function attachTreeViewerListeners() {
   header?.querySelectorAll('.dropdown-item').forEach((btn) => {
     btn.addEventListener('click', () => handleViewerSettingsAction(btn.dataset.action));
   });
+
+  attachMemberSearchListeners();
+}
+
+// ---------------------------------------------------------------------------
+// Member search
+// ---------------------------------------------------------------------------
+
+function attachMemberSearchListeners() {
+  const input = document.querySelector('#member-search-input');
+  const resultsEl = document.querySelector('#member-search-results');
+  const clearBtn = document.querySelector('#member-search-clear-btn');
+  if (!input || !resultsEl || !clearBtn) return;
+
+  input.addEventListener('focus', () => {
+    // Build (or rebuild) the index lazily on first interaction so it always
+    // reflects the latest edits, without recomputing it on every keystroke.
+    state.memberSearchIndex = buildMemberSearchIndex(state.selectedTreeData);
+    if (input.value.trim()) runMemberSearch(input.value);
+  });
+
+  input.addEventListener('input', () => {
+    clearBtn.hidden = !input.value;
+    runMemberSearch(input.value);
+  });
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveMemberSearchActive(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveMemberSearchActive(-1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const target = state.memberSearchResults[Math.max(state.memberSearchActiveIndex, 0)];
+      if (target) selectSearchedMember(target.id);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      if (input.value) {
+        input.value = '';
+        clearBtn.hidden = true;
+        closeMemberSearchResults();
+      } else {
+        input.blur();
+      }
+    }
+  });
+
+  clearBtn.addEventListener('click', () => {
+    input.value = '';
+    clearBtn.hidden = true;
+    closeMemberSearchResults();
+    input.focus();
+  });
+}
+
+function runMemberSearch(query) {
+  if (!query.trim()) {
+    closeMemberSearchResults();
+    return;
+  }
+  state.memberSearchResults = searchMembers(state.memberSearchIndex || [], query);
+  state.memberSearchActiveIndex = state.memberSearchResults.length ? 0 : -1;
+  renderMemberSearchResults(query);
+}
+
+function renderMemberSearchResults(query) {
+  const resultsEl = document.querySelector('#member-search-results');
+  const input = document.querySelector('#member-search-input');
+  if (!resultsEl || !input) return;
+
+  resultsEl.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+
+  if (state.memberSearchResults.length === 0) {
+    resultsEl.innerHTML = `<div class="member-search-empty">No members found for "${escapeHtml(query.trim())}"</div>`;
+    return;
+  }
+
+  resultsEl.innerHTML = state.memberSearchResults
+    .map((entry, index) => `
+      <button
+        type="button"
+        class="member-search-result-item ${index === state.memberSearchActiveIndex ? 'active' : ''}"
+        role="option"
+        aria-selected="${index === state.memberSearchActiveIndex}"
+        data-id="${escapeHtml(entry.id)}"
+      >${highlightMatch(entry.label, query)}</button>
+    `)
+    .join('');
+
+  resultsEl.querySelectorAll('.member-search-result-item').forEach((btn) => {
+    btn.addEventListener('click', () => selectSearchedMember(btn.dataset.id));
+  });
+}
+
+function highlightMatch(label, query) {
+  const q = query.trim();
+  if (!q) return escapeHtml(label);
+  const at = label.toLowerCase().indexOf(q.toLowerCase());
+  if (at === -1) return escapeHtml(label);
+  return (
+    escapeHtml(label.slice(0, at)) +
+    '<strong>' + escapeHtml(label.slice(at, at + q.length)) + '</strong>' +
+    escapeHtml(label.slice(at + q.length))
+  );
+}
+
+function moveMemberSearchActive(delta) {
+  const count = state.memberSearchResults.length;
+  if (!count) return;
+  state.memberSearchActiveIndex = (state.memberSearchActiveIndex + delta + count) % count;
+  document.querySelectorAll('.member-search-result-item').forEach((el, index) => {
+    el.classList.toggle('active', index === state.memberSearchActiveIndex);
+    el.setAttribute('aria-selected', index === state.memberSearchActiveIndex);
+    if (index === state.memberSearchActiveIndex) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function closeMemberSearchResults() {
+  state.memberSearchResults = [];
+  state.memberSearchActiveIndex = -1;
+  const resultsEl = document.querySelector('#member-search-results');
+  const input = document.querySelector('#member-search-input');
+  if (resultsEl) {
+    resultsEl.hidden = true;
+    resultsEl.innerHTML = '';
+  }
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+function selectSearchedMember(id) {
+  if (!id) return;
+  const input = document.querySelector('#member-search-input');
+  closeMemberSearchResults();
+  if (input) {
+    input.value = '';
+    const clearBtn = document.querySelector('#member-search-clear-btn');
+    if (clearBtn) clearBtn.hidden = true;
+  }
+
+  if (state.viewMode === 'all-nodes') {
+    const focused = state.allNodesGraph?.focusNode(id);
+    if (focused) return;
+    // Not part of the largest connected component All Nodes mode renders -
+    // fall back to Focused mode, which can always re-root on any member.
+    state.focusedMainId = id;
+    state.viewMode = 'focused';
+    renderChart();
+    highlightFocusedCard(id);
+    return;
+  }
+
+  if (!state.chart) return;
+  state.chart.updateMainId(id);
+  state.focusedMainId = id;
+  state.chart.updateTree({ initial: false, tree_position: 'main_to_middle', transition_time: 600 });
+  highlightFocusedCard(id);
+}
+
+function highlightFocusedCard(id) {
+  const card = document.querySelector(`#FamilyChart .card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  card.classList.remove('member-search-highlight');
+  void card.offsetWidth; // restart the animation if the same card is re-highlighted
+  card.classList.add('member-search-highlight');
+  clearTimeout(state.memberSearchHighlightTimer);
+  state.memberSearchHighlightTimer = setTimeout(() => card.classList.remove('member-search-highlight'), 2500);
 }
 
 function handleViewerSettingsAction(action) {
@@ -919,6 +1104,8 @@ function clearSelectedTreeView() {
   state.editor = null;
   state.viewMode = 'focused';
   state.focusedMainId = null;
+  closeMemberSearchResults();
+  state.memberSearchIndex = null;
 }
 
 function renderChart() {
@@ -938,6 +1125,13 @@ function renderChart() {
     .setTransitionTime(1000)
     .setCardXSpacing(250)
     .setCardYSpacing(150);
+
+  // Re-root on whatever was previously focused (e.g. coming back from All
+  // Nodes mode, or a member found via search) instead of always defaulting
+  // back to the first person in the data.
+  if (state.focusedMainId && state.selectedTreeData.some((d) => d.id === state.focusedMainId)) {
+    state.chart.updateMainId(state.focusedMainId);
+  }
 
   const card = state.chart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
 
@@ -1573,13 +1767,13 @@ function renderAllNodesMode() {
   const graphData = buildAllNodesGraphData(state.selectedTreeData);
   state.chart = null;
   state.editor = null;
-  state.allNodesCleanup = renderAllNodesGraph('#FamilyChart', graphData);
+  state.allNodesGraph = renderAllNodesGraph('#FamilyChart', graphData);
 }
 
 function cleanupAllNodesGraph() {
-  if (!state.allNodesCleanup) return;
-  state.allNodesCleanup();
-  state.allNodesCleanup = null;
+  if (!state.allNodesGraph) return;
+  state.allNodesGraph.destroy();
+  state.allNodesGraph = null;
 }
 
 loadSession();

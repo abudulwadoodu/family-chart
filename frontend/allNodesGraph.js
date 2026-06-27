@@ -189,9 +189,39 @@ export function renderAllNodesGraph(selector, graph) {
     svg.transition().duration(300).call(zoomBehavior.transform, transform);
   }, 220);
 
-  return () => {
-    clearTimeout(fitTimer);
-    simulation.stop();
-    container.innerHTML = '';
+  let highlightTimer = null;
+
+  return {
+    destroy() {
+      clearTimeout(fitTimer);
+      clearTimeout(highlightTimer);
+      simulation.stop();
+      container.innerHTML = '';
+    },
+    // Pans/zooms the simulation's current node position to the center of the
+    // viewport and pulses a highlight ring on it. Returns false if the node
+    // isn't part of the rendered graph (e.g. not in the largest connected
+    // component that buildAllNodesGraphData keeps) so the caller can fall
+    // back to Focused mode instead.
+    focusNode(id) {
+      const target = graph.nodes.find((d) => d.id === id);
+      if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return false;
+
+      const currentK = d3.zoomTransform(svg.node()).k || 1;
+      const k = Math.max(currentK, 1.3);
+      const tx = width / 2 - target.x * k;
+      const ty = height / 2 - target.y * k;
+      const transform = d3.zoomIdentity.translate(tx, ty).scale(k);
+      svg.transition().duration(500).call(zoomBehavior.transform, transform);
+
+      const matched = nodes.filter((d) => d.id === id);
+      matched.classed('all-node-highlight', false);
+      void container.offsetWidth; // restart animation if already highlighted
+      matched.classed('all-node-highlight', true);
+      clearTimeout(highlightTimer);
+      highlightTimer = setTimeout(() => matched.classed('all-node-highlight', false), 2500);
+
+      return true;
+    },
   };
 }

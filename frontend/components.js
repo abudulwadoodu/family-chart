@@ -282,6 +282,28 @@ export function renderViewModeToggle({ viewMode, canEdit }) {
   `;
 }
 
+export function renderMemberSearch() {
+  return `
+    <div class="member-search" id="member-search">
+      <label class="search-box member-search-box">
+        ${icon('search')}
+        <input
+          type="text"
+          id="member-search-input"
+          placeholder="Search members..."
+          autocomplete="off"
+          aria-label="Search members"
+          aria-expanded="false"
+          aria-controls="member-search-results"
+          role="combobox"
+        />
+        <button type="button" id="member-search-clear-btn" class="member-search-clear" aria-label="Clear search" hidden>${icon('close')}</button>
+      </label>
+      <div class="member-search-results" id="member-search-results" role="listbox" hidden></div>
+    </div>
+  `;
+}
+
 const MEMBER_ROLE_LABELS = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
 
 function modalCloseButton(id = 'share-modal-close-btn') {
