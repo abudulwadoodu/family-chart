@@ -41,6 +41,8 @@ import {
   renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
+  renderContactPageMarkup,
+  renderContactSuccessMarkup,
 } from './components.js';
 
 const app = document.querySelector('#app');
@@ -97,6 +99,7 @@ const state = {
   authEmail: '',
   totpSetup: null,
   dashboardView: 'trees',
+  contactSubmitted: false,
   // True right after the browser bounces back from the Cognito Hosted UI
   // (Google redirect), before Amplify finishes exchanging the ?code= for tokens.
   oauthInProgress: new URLSearchParams(window.location.search).has('code'),
@@ -456,7 +459,8 @@ function renderResetPasswordStep() {
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
-  const isViewerView = !isSecurityView && !isCreateTreeView && Boolean(state.selectedTreeId);
+  const isContactView = !isSecurityView && !isCreateTreeView && state.dashboardView === 'contact';
+  const isViewerView = !isSecurityView && !isCreateTreeView && !isContactView && Boolean(state.selectedTreeId);
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
@@ -469,9 +473,11 @@ function renderDashboard() {
               ? renderSecuritySettingsMarkup()
               : isCreateTreeView
                 ? renderCreateTreePageMarkup()
-                : isViewerView
-                  ? renderTreeViewerMarkup()
-                  : renderTreesLandingMarkup()
+                : isContactView
+                  ? renderContactPageContent()
+                  : isViewerView
+                    ? renderTreeViewerMarkup()
+                    : renderTreesLandingMarkup()
           }
         </main>
       </div>
@@ -487,6 +493,11 @@ function renderDashboard() {
 
   if (isCreateTreeView) {
     attachCreateTreePageListeners();
+    return;
+  }
+
+  if (isContactView) {
+    attachContactPageListeners();
     return;
   }
 
@@ -513,6 +524,12 @@ function attachShellListeners() {
     setSidebarOpen(false);
     render();
     loadMfaStatus();
+  });
+  document.querySelector('#nav-contact-btn').addEventListener('click', () => {
+    state.dashboardView = 'contact';
+    state.contactSubmitted = false;
+    setSidebarOpen(false);
+    render();
   });
   document.querySelector('#sidebar-open-btn')?.addEventListener('click', () => setSidebarOpen(true));
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
@@ -1117,6 +1134,160 @@ function bindShareModalActions(modal, treeId, treeName) {
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Contact Us page
+// ---------------------------------------------------------------------------
+
+const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONTACT_MESSAGE_MIN_LENGTH = 20;
+const CONTACT_MESSAGE_MAX_LENGTH = 5000;
+const CONTACT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const CONTACT_ALLOWED_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
+const CONTACT_ALLOWED_ATTACHMENT_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.txt'];
+
+function renderContactPageContent() {
+  if (state.contactSubmitted) return renderContactSuccessMarkup();
+  return renderContactPageMarkup({ email: state.user.email });
+}
+
+function attachContactPageListeners() {
+  if (state.contactSubmitted) {
+    document.querySelector('#contact-back-btn').addEventListener('click', () => {
+      state.contactSubmitted = false;
+      state.dashboardView = 'trees';
+      render();
+    });
+    return;
+  }
+
+  document.querySelector('#contact-form').addEventListener('submit', handleContactSubmit);
+
+  const fileInput = document.querySelector('#contact-file-input');
+  document.querySelector('#contact-file-trigger-btn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => handleContactFileChange(fileInput));
+  document.querySelector('#contact-file-remove-btn').addEventListener('click', () => {
+    fileInput.value = '';
+    handleContactFileChange(fileInput);
+  });
+}
+
+function isAllowedContactAttachment(file) {
+  if (CONTACT_ALLOWED_ATTACHMENT_TYPES.includes(file.type)) return true;
+  // Some browsers/OSes report an empty mimetype for plain text files - fall
+  // back to checking the extension so those aren't rejected unnecessarily.
+  const name = file.name.toLowerCase();
+  return CONTACT_ALLOWED_ATTACHMENT_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+function setContactFieldError(field, message) {
+  const errorEl = document.querySelector(`#contact-${field}-error`);
+  const inputEl = document.querySelector(`#contact-${field}-input`);
+  if (errorEl) errorEl.textContent = message;
+  if (inputEl) inputEl.setAttribute('aria-invalid', message ? 'true' : 'false');
+  return message;
+}
+
+function handleContactFileChange(fileInput) {
+  const nameEl = document.querySelector('#contact-file-name');
+  const removeBtn = document.querySelector('#contact-file-remove-btn');
+  const file = fileInput.files?.[0];
+
+  if (!file) {
+    nameEl.textContent = 'No file selected';
+    removeBtn.hidden = true;
+    setContactFieldError('file', '');
+    return;
+  }
+
+  nameEl.textContent = `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+  removeBtn.hidden = false;
+
+  if (file.size > CONTACT_MAX_ATTACHMENT_BYTES) {
+    setContactFieldError('file', 'File must be 10 MB or smaller.');
+  } else if (!isAllowedContactAttachment(file)) {
+    setContactFieldError('file', 'Attachments must be an image, PDF, or text file.');
+  } else {
+    setContactFieldError('file', '');
+  }
+}
+
+// Fully custom validation (the form has novalidate) so every error renders
+// inline next to its field instead of relying on inconsistent native browser
+// tooltips - matches the rest of the app's hand-rolled form validation.
+function validateContactForm(form) {
+  const data = new FormData(form);
+  const name = String(data.get('name') || '').trim();
+  const email = String(data.get('email') || '').trim();
+  const subject = String(data.get('subject') || '');
+  const message = String(data.get('message') || '').trim();
+  const file = form.querySelector('#contact-file-input').files?.[0];
+
+  let firstInvalidId = null;
+  const markInvalid = (field, message_, inputId) => {
+    setContactFieldError(field, message_);
+    if (message_ && !firstInvalidId) firstInvalidId = inputId;
+  };
+
+  markInvalid('name', !name ? 'Name is required.' : name.length > 120 ? 'Name must be at most 120 characters.' : '', 'contact-name-input');
+  markInvalid(
+    'email',
+    !email ? 'Email address is required.' : !CONTACT_EMAIL_PATTERN.test(email) ? 'Enter a valid email address.' : '',
+    'contact-email-input'
+  );
+  markInvalid('subject', !subject ? 'Please choose a subject.' : '', 'contact-subject-input');
+  markInvalid(
+    'message',
+    message.length < CONTACT_MESSAGE_MIN_LENGTH
+      ? `Message must be at least ${CONTACT_MESSAGE_MIN_LENGTH} characters.`
+      : message.length > CONTACT_MESSAGE_MAX_LENGTH
+        ? `Message must be at most ${CONTACT_MESSAGE_MAX_LENGTH} characters.`
+        : '',
+    'contact-message-input'
+  );
+
+  if (file) {
+    if (file.size > CONTACT_MAX_ATTACHMENT_BYTES) {
+      markInvalid('file', 'File must be 10 MB or smaller.', 'contact-file-trigger-btn');
+    } else if (!isAllowedContactAttachment(file)) {
+      markInvalid('file', 'Attachments must be an image, PDF, or text file.', 'contact-file-trigger-btn');
+    } else {
+      setContactFieldError('file', '');
+    }
+  } else {
+    setContactFieldError('file', '');
+  }
+
+  return { valid: !firstInvalidId, firstInvalidId };
+}
+
+async function handleContactSubmit(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formErrorEl = document.querySelector('#contact-form-error');
+  formErrorEl.textContent = '';
+
+  const { valid, firstInvalidId } = validateContactForm(form);
+  if (!valid) {
+    document.querySelector(`#${firstInvalidId}`)?.focus();
+    return;
+  }
+
+  const submitBtn = document.querySelector('#contact-submit-btn');
+  setButtonBusy(submitBtn, true, 'Sending...');
+
+  try {
+    await api('/api/contact', { method: 'POST', body: new FormData(form) });
+    state.contactSubmitted = true;
+    render();
+    showToast('Message sent successfully.');
+  } catch (error) {
+    formErrorEl.textContent = error.message || 'Could not send your message. Please try again.';
+    showToast(error.message || 'Could not send your message.', { type: 'error' });
+  } finally {
+    if (document.body.contains(submitBtn)) setButtonBusy(submitBtn, false, 'Send Message');
+  }
 }
 
 function clearSelectedTreeView() {

@@ -22,6 +22,9 @@ export function renderSidebarNav({ email, activeView }) {
         <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn">
           ${icon('shield')}<span class="nav-label">Security Settings</span>
         </button>
+        <button type="button" class="nav-item ${activeView === 'contact' ? 'nav-item-active' : ''}" id="nav-contact-btn">
+          ${icon('mail')}<span class="nav-label">Contact Us</span>
+        </button>
       </nav>
       <div class="sidebar-foot">
         <div class="sidebar-user">
@@ -391,5 +394,164 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
     ${formErrorHtml}
     <div class="member-list">${rows || '<p class="muted">No collaborators yet.</p>'}</div>
     ${errorHtml}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Contact Us page
+// ---------------------------------------------------------------------------
+
+export const CONTACT_SUBJECTS = [
+  'General Question',
+  'Technical Support',
+  'Bug Report',
+  'Feature Request',
+  'Account Issue',
+  'Billing',
+  'Other',
+];
+
+const CONTACT_FAQS = [
+  {
+    question: 'How do I recover my account?',
+    answer: 'Use the Forgot Password option on the login page.',
+  },
+  {
+    question: 'How do I share a family tree?',
+    answer: 'Open a tree and click the Share button.',
+  },
+  {
+    question: 'Can I export my data?',
+    answer: 'Yes. Export options are available within each family tree.',
+  },
+];
+
+export function renderContactPageMarkup({ email }) {
+  return `
+    <div class="contact-page">
+      <section class="contact-hero">
+        <div class="contact-hero-icon">${icon('mail')}</div>
+        <h1 class="page-title">Contact Us</h1>
+        <p class="contact-hero-subtitle">We're happy to answer your questions, receive your feedback, and help you get the most out of Family Chart.</p>
+      </section>
+      <div class="contact-grid" id="contact-grid">
+        ${renderContactFormCard({ email })}
+        ${renderContactInfoCard()}
+      </div>
+      ${renderContactFaq()}
+    </div>
+  `;
+}
+
+function renderContactFormCard({ email }) {
+  const subjectOptions = CONTACT_SUBJECTS.map(
+    (subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`
+  ).join('');
+
+  return `
+    <section class="card contact-form-card">
+      <h2 class="contact-card-title">Send us a message</h2>
+      <form id="contact-form" class="contact-form" novalidate>
+        <div class="contact-form-row">
+          <label>Name
+            <input type="text" name="name" id="contact-name-input" maxlength="120" autocomplete="name" aria-required="true" />
+            <span class="field-error" id="contact-name-error" role="alert"></span>
+          </label>
+          <label>Email Address
+            <input type="email" name="email" id="contact-email-input" maxlength="254" autocomplete="email" aria-required="true" value="${escapeHtml(email || '')}" />
+            <span class="field-error" id="contact-email-error" role="alert"></span>
+          </label>
+        </div>
+        <label>Subject
+          <select name="subject" id="contact-subject-input" aria-required="true">
+            <option value="" disabled selected>Select a topic&hellip;</option>
+            ${subjectOptions}
+          </select>
+          <span class="field-error" id="contact-subject-error" role="alert"></span>
+        </label>
+        <label>Message
+          <textarea name="message" id="contact-message-input" rows="6" maxlength="5000" aria-required="true" placeholder="Tell us what's on your mind (minimum 20 characters)&hellip;"></textarea>
+          <span class="field-error" id="contact-message-error" role="alert"></span>
+        </label>
+        <label>Attachment <span class="label-optional">(optional &mdash; image, PDF, or text file, up to 10MB)</span>
+          <div class="contact-file-row">
+            <input type="file" name="file" id="contact-file-input" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,image/*,application/pdf,text/plain" hidden />
+            <button type="button" id="contact-file-trigger-btn" class="btn btn-secondary btn-sm">${icon('upload')}<span>Choose file</span></button>
+            <span class="contact-file-name" id="contact-file-name">No file selected</span>
+            <button type="button" id="contact-file-remove-btn" class="icon-btn" aria-label="Remove attachment" hidden>${icon('close')}</button>
+          </div>
+          <span class="field-error" id="contact-file-error" role="alert"></span>
+        </label>
+        <div class="contact-honeypot" aria-hidden="true">
+          <label>Company
+            <input type="text" name="website" id="contact-website-input" tabindex="-1" autocomplete="off" />
+          </label>
+        </div>
+        <p id="contact-form-error" class="error" role="alert"></p>
+        <button type="submit" id="contact-submit-btn" class="btn btn-primary contact-submit-btn"><span>Send Message</span></button>
+      </form>
+    </section>
+  `;
+}
+
+function renderContactInfoCard() {
+  const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@example.com';
+
+  return `
+    <aside class="card contact-info-card">
+      <h2 class="contact-card-title">Other ways to reach us</h2>
+      <ul class="contact-info-list">
+        <li>
+          <span class="contact-info-icon">${icon('mail')}</span>
+          <div>
+            <p class="contact-info-label">Support Email</p>
+            <a href="mailto:${escapeHtml(supportEmail)}" class="contact-info-value">${escapeHtml(supportEmail)}</a>
+          </div>
+        </li>
+        <li>
+          <span class="contact-info-icon">${icon('clock')}</span>
+          <div>
+            <p class="contact-info-label">Response Time</p>
+            <p class="contact-info-value">Typically within 24&ndash;48 hours</p>
+          </div>
+        </li>
+        <li>
+          <span class="contact-info-icon">${icon('github')}</span>
+          <div>
+            <p class="contact-info-label">GitHub Issues</p>
+            <a href="https://github.com/abudulwadoodu/family-chart/issues" target="_blank" rel="noopener noreferrer" class="contact-info-value">Report an issue ${icon('external')}</a>
+          </div>
+        </li>
+      </ul>
+    </aside>
+  `;
+}
+
+function renderContactFaq() {
+  return `
+    <section class="contact-faq">
+      <h2 class="contact-faq-title">Frequently asked questions</h2>
+      ${CONTACT_FAQS.map(
+        (faq) => `
+        <details class="faq-item">
+          <summary>${escapeHtml(faq.question)}<span class="faq-chevron">${icon('chevronDown')}</span></summary>
+          <p>${escapeHtml(faq.answer)}</p>
+        </details>
+      `
+      ).join('')}
+    </section>
+  `;
+}
+
+export function renderContactSuccessMarkup() {
+  return `
+    <div class="contact-page">
+      <section class="card contact-success-card">
+        <div class="contact-success-icon">${icon('check')}</div>
+        <h2>Thank you!</h2>
+        <p class="muted">We've received your message and will get back to you as soon as possible.</p>
+        <button type="button" id="contact-back-btn" class="btn btn-primary">Back to Dashboard</button>
+      </section>
+    </div>
   `;
 }
