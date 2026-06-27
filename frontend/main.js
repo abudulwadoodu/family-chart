@@ -153,7 +153,12 @@ document.addEventListener('click', (event) => {
 Hub.listen('auth', ({ payload }) => {
   if (payload.event === 'signInWithRedirect') {
     state.oauthInProgress = false;
-    loadSession();
+    loadSession().then(() => {
+      if (state.user && sessionStorage.getItem(PENDING_ACCOUNT_DELETION_KEY)) {
+        sessionStorage.removeItem(PENDING_ACCOUNT_DELETION_KEY);
+        resumeDeleteAccountAfterGoogleReauth();
+      }
+    });
   } else if (payload.event === 'signInWithRedirect_failure') {
     state.oauthInProgress = false;
     state.user = null;
@@ -1466,10 +1471,17 @@ function renderSecuritySettingsMarkup() {
       </div>
     </header>
     <section class="security-panel">${body}</section>
+    <section class="security-panel danger-zone">
+      <h2 class="danger-zone-title">Delete Account</h2>
+      <p class="muted">Permanently delete your account and remove your personal data. This action cannot be undone.</p>
+      <button type="button" id="delete-account-btn" class="btn-danger danger-zone-actions">Delete Account</button>
+    </section>
   `;
 }
 
 function attachSecuritySettingsListeners() {
+  document.querySelector('#delete-account-btn')?.addEventListener('click', handleOpenDeleteAccountModal);
+
   if (state.mfa.enrollment) {
     document.querySelector('#mfa-verify-form').addEventListener('submit', handleVerifyMfaSetup);
     document.querySelector('#mfa-cancel-btn').addEventListener('click', () => {
@@ -1570,6 +1582,440 @@ async function handleDisableMfa() {
     state.mfa.error = authErrorMessage(error);
     render();
     throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delete account
+//
+// Flow: type "DELETE" to confirm -> re-authenticate (password+TOTP challenge,
+// or a fresh Google sign-in) -> resolve any solely-owned family trees (transfer
+// or delete each one) -> final confirmation -> DELETE /api/account -> sign out.
+// Each step replaces the same modal body via modal.setBody(), mirroring the
+// share-modal pattern above.
+// ---------------------------------------------------------------------------
+
+const PENDING_ACCOUNT_DELETION_KEY = 'pendingAccountDeletion';
+
+function modalCloseBtnHtml() {
+  return `<button type="button" id="delete-account-modal-close-btn" class="icon-btn modal-close" aria-label="Close">${icon('close')}</button>`;
+}
+
+function bindDeleteAccountChrome(modal) {
+  modal.root.querySelector('#delete-account-modal-close-btn')?.addEventListener('click', modal.close);
+  modal.root.querySelector('#delete-account-cancel-btn')?.addEventListener('click', modal.close);
+}
+
+function renderDeleteAccountLoadingStep(message) {
+  return `
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Delete Account</h3>
+    <p class="modal-message">${escapeHtml(message)}</p>
+  `;
+}
+
+function handleOpenDeleteAccountModal() {
+  const modal = showModal({
+    bodyHtml: renderDeleteAccountStep1(),
+    className: 'modal-danger',
+    onMount: (dialog) => dialog.setAttribute('aria-labelledby', 'delete-account-modal-title'),
+  });
+  bindDeleteAccountStep1(modal);
+}
+
+function renderDeleteAccountStep1() {
+  return `
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Delete Account</h3>
+    <p class="modal-message">This action is permanent.</p>
+    <p>Deleting your account will:</p>
+    <ul class="authenticator-app-list muted">
+      <li>Remove your profile</li>
+      <li>Remove your authentication account</li>
+      <li>Remove your access to all family trees</li>
+      <li>Delete or transfer ownership of your trees (see rules below)</li>
+      <li>Sign you out immediately</li>
+    </ul>
+    <form id="delete-account-confirm-form" class="stack">
+      <label>Type <strong>DELETE</strong> to continue
+        <input type="text" name="confirmText" id="delete-account-confirm-input" autocomplete="off" required />
+      </label>
+      <p class="error" id="delete-account-error"></p>
+      <div class="modal-actions row">
+        <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+        <button type="submit" class="btn-danger" id="delete-account-confirm-btn" disabled>Delete Account</button>
+      </div>
+    </form>
+  `;
+}
+
+function bindDeleteAccountStep1(modal) {
+  bindDeleteAccountChrome(modal);
+  const input = modal.root.querySelector('#delete-account-confirm-input');
+  const confirmBtn = modal.root.querySelector('#delete-account-confirm-btn');
+
+  input.addEventListener('input', () => {
+    confirmBtn.disabled = input.value !== 'DELETE';
+  });
+  modal.root.querySelector('#delete-account-confirm-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (input.value !== 'DELETE') return;
+    runDeleteAccountReauthStep(modal);
+  });
+  input.focus();
+}
+
+// Federated (Google) sign-ins carry an `identities` claim on the ID token;
+// email/password sign-ins don't. Used to decide which re-auth step to show.
+async function isFederatedSession() {
+  const session = await fetchAuthSession();
+  return Boolean(session.tokens?.idToken?.payload?.identities);
+}
+
+async function isStillSignedIn() {
+  try {
+    await getCurrentUser();
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+// If a re-auth attempt fails after we've already had to sign the user out to
+// retry it (see handlePasswordReauthSubmit), the session may be gone for good.
+// Closes the modal and drops back to the sign-in screen instead of leaving the
+// app stuck on a dashboard backed by no session.
+async function abandonDeleteAccountFlowIfSignedOut(modal) {
+  if (await isStillSignedIn()) return false;
+  modal.close();
+  state.user = null;
+  render();
+  showToast('Your session ended. Please sign in again.', { type: 'error' });
+  return true;
+}
+
+async function runDeleteAccountReauthStep(modal) {
+  modal.setBody(renderDeleteAccountLoadingStep('Checking your sign-in method...'));
+  bindDeleteAccountChrome(modal);
+  try {
+    if (await isFederatedSession()) {
+      renderGoogleReauthStep(modal);
+    } else {
+      renderPasswordReauthStep(modal);
+    }
+  } catch (error) {
+    modal.setBody(renderDeleteAccountLoadingStep(authErrorMessage(error)));
+    bindDeleteAccountChrome(modal);
+  }
+}
+
+function renderPasswordReauthStep(modal) {
+  modal.setBody(`
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Confirm your password</h3>
+    <p class="modal-message">For your security, please re-enter your password to continue deleting your account.</p>
+    <form id="delete-account-password-form" class="stack">
+      <label>Password
+        <span class="input-icon-group">
+          <span class="input-leading-icon">${icon('lock')}</span>
+          <input type="password" name="password" class="has-trailing-icon" autocomplete="current-password" required />
+          <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
+        </span>
+      </label>
+      <p class="error" id="delete-account-error"></p>
+      <div class="modal-actions row">
+        <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+        <button type="submit" class="btn-danger" id="delete-account-reauth-btn">Confirm</button>
+      </div>
+    </form>
+  `);
+  bindDeleteAccountChrome(modal);
+  attachPasswordToggles(modal.root);
+  modal.root.querySelector('#delete-account-password-form').addEventListener('submit', (event) => {
+    handlePasswordReauthSubmit(event, modal);
+  });
+  modal.root.querySelector('input[name="password"]').focus();
+}
+
+async function handlePasswordReauthSubmit(event, modal) {
+  event.preventDefault();
+  const password = String(new FormData(event.target).get('password') || '');
+  const submitBtn = modal.root.querySelector('#delete-account-reauth-btn');
+  const errorEl = modal.root.querySelector('#delete-account-error');
+  errorEl.textContent = '';
+  setButtonBusy(submitBtn, true, 'Confirming...');
+
+  try {
+    let result;
+    try {
+      result = await signIn({ username: state.user.email, password });
+    } catch (error) {
+      if (error.name !== 'UserAlreadyAuthenticatedException') throw error;
+      // Amplify won't sign in over an existing session; re-establish it fresh
+      // (mirrors the same fallback used by handleSignIn for initial sign-in).
+      await signOut({ global: false });
+      result = await signIn({ username: state.user.email, password });
+    }
+
+    if (result.isSignedIn) {
+      await proceedPastDeleteAccountReauth(modal);
+    } else if (result.nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
+      renderTotpReauthStep(modal);
+    } else {
+      throw new Error('Unsupported sign-in step for re-authentication.');
+    }
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    setButtonBusy(submitBtn, false, 'Confirm');
+    await abandonDeleteAccountFlowIfSignedOut(modal);
+  }
+}
+
+function renderTotpReauthStep(modal) {
+  modal.setBody(`
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Enter your authentication code</h3>
+    <p class="modal-message">Enter the 6-digit code from your authenticator app to continue.</p>
+    <form id="delete-account-totp-form" class="stack">
+      <label>6-digit code
+        <input type="text" name="code" class="otp-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required />
+      </label>
+      <p class="error" id="delete-account-error"></p>
+      <div class="modal-actions row">
+        <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+        <button type="submit" class="btn-danger" id="delete-account-reauth-btn">Verify</button>
+      </div>
+    </form>
+  `);
+  bindDeleteAccountChrome(modal);
+  modal.root.querySelector('#delete-account-totp-form').addEventListener('submit', (event) => {
+    handleTotpReauthSubmit(event, modal);
+  });
+  modal.root.querySelector('.otp-input').focus();
+}
+
+async function handleTotpReauthSubmit(event, modal) {
+  event.preventDefault();
+  const code = String(new FormData(event.target).get('code') || '').trim();
+  const submitBtn = modal.root.querySelector('#delete-account-reauth-btn');
+  const errorEl = modal.root.querySelector('#delete-account-error');
+  errorEl.textContent = '';
+  setButtonBusy(submitBtn, true, 'Verifying...');
+
+  try {
+    const result = await confirmSignIn({ challengeResponse: code });
+    if (!result.isSignedIn) throw new Error('Unsupported sign-in step for re-authentication.');
+    await proceedPastDeleteAccountReauth(modal);
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    setButtonBusy(submitBtn, false, 'Verify');
+    await abandonDeleteAccountFlowIfSignedOut(modal);
+  }
+}
+
+function renderGoogleReauthStep(modal) {
+  modal.setBody(`
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Confirm with Google</h3>
+    <p class="modal-message">For your security, please sign in with Google again to continue deleting your account.</p>
+    <p class="error" id="delete-account-error"></p>
+    <div class="modal-actions row">
+      <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+      <button type="button" class="btn-danger" id="delete-account-google-reauth-btn">Continue with Google</button>
+    </div>
+  `);
+  bindDeleteAccountChrome(modal);
+  modal.root.querySelector('#delete-account-google-reauth-btn').addEventListener('click', () => handleGoogleReauthClick(modal));
+}
+
+async function handleGoogleReauthClick(modal) {
+  const btn = modal.root.querySelector('#delete-account-google-reauth-btn');
+  const errorEl = modal.root.querySelector('#delete-account-error');
+  setButtonBusy(btn, true, 'Redirecting to Google...');
+  try {
+    // signInWithRedirect leaves the page; the Hub 'auth' listener near the top of
+    // this file checks this flag on return and resumes the flow automatically.
+    sessionStorage.setItem(PENDING_ACCOUNT_DELETION_KEY, '1');
+    await signOut({ global: false });
+    await signInWithRedirect({ provider: 'Google' });
+  } catch (error) {
+    sessionStorage.removeItem(PENDING_ACCOUNT_DELETION_KEY);
+    errorEl.textContent = authErrorMessage(error);
+    setButtonBusy(btn, false, 'Continue with Google');
+    await abandonDeleteAccountFlowIfSignedOut(modal);
+  }
+}
+
+// Re-entry point after a Google re-auth redirect completes successfully.
+function resumeDeleteAccountAfterGoogleReauth() {
+  const modal = showModal({
+    bodyHtml: renderDeleteAccountLoadingStep('Checking your family trees...'),
+    className: 'modal-danger',
+    onMount: (dialog) => dialog.setAttribute('aria-labelledby', 'delete-account-modal-title'),
+  });
+  loadOwnershipResolutionStep(modal);
+}
+
+async function proceedPastDeleteAccountReauth(modal) {
+  modal.setBody(renderDeleteAccountLoadingStep('Checking your family trees...'));
+  bindDeleteAccountChrome(modal);
+  await loadOwnershipResolutionStep(modal);
+}
+
+async function loadOwnershipResolutionStep(modal) {
+  try {
+    const payload = await api('/api/account/deletion-check');
+    if (!payload.blockingTrees.length) {
+      showDeleteAccountFinalStep(modal);
+      return;
+    }
+    modal.setBody(renderOwnershipResolutionStep(payload.blockingTrees));
+    bindOwnershipResolutionStep(modal);
+  } catch (error) {
+    modal.setBody(`
+      ${modalCloseBtnHtml()}
+      <h3 id="delete-account-modal-title">Delete Account</h3>
+      <p class="error">${escapeHtml(error.message || 'Could not check your family trees. Please try again.')}</p>
+      <div class="modal-actions row">
+        <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+        <button type="button" class="btn-danger" id="delete-account-retry-btn">Retry</button>
+      </div>
+    `);
+    bindDeleteAccountChrome(modal);
+    modal.root.querySelector('#delete-account-retry-btn').addEventListener('click', () => loadOwnershipResolutionStep(modal));
+  }
+}
+
+function renderOwnershipResolutionStep(blockingTrees) {
+  const rows = blockingTrees
+    .map((tree) => {
+      const candidates = [
+        ...tree.editors.map((member) => ({ ...member, roleLabel: 'Editor' })),
+        ...tree.viewers.map((member) => ({ ...member, roleLabel: 'Viewer' })),
+      ];
+      const options = candidates
+        .map((member) => `<option value="${member.userId}">${escapeHtml(member.email)} (${member.roleLabel})</option>`)
+        .join('');
+
+      return `
+        <div class="member-row ownership-row">
+          <div class="member-info">
+            <div>
+              <p class="member-email">${escapeHtml(tree.name)}</p>
+              <p class="member-meta muted">
+                ${candidates.length ? 'No other owner — transfer or delete this tree to continue.' : 'You are the only member — delete this tree to continue.'}
+              </p>
+            </div>
+          </div>
+          <div class="member-actions">
+            ${
+              candidates.length
+                ? `
+                  <select class="transfer-target-select" data-tree-id="${tree.id}" aria-label="Transfer ${escapeHtml(tree.name)} to">
+                    ${options}
+                  </select>
+                  <button type="button" class="secondary btn-sm" data-transfer-tree-id="${tree.id}">Transfer ownership</button>
+                `
+                : ''
+            }
+            <button type="button" class="btn-danger btn-sm" data-delete-tree-id="${tree.id}" data-tree-name="${escapeHtml(tree.name)}">Delete tree</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Resolve tree ownership</h3>
+    <p class="modal-message">You currently own family trees that have no other owner. Transfer ownership or delete each tree below to continue.</p>
+    <div class="member-list">${rows}</div>
+    <p class="error" id="delete-account-error"></p>
+    <div class="modal-actions row">
+      <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+    </div>
+  `;
+}
+
+function bindOwnershipResolutionStep(modal) {
+  bindDeleteAccountChrome(modal);
+
+  modal.root.querySelectorAll('[data-transfer-tree-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const treeId = Number(btn.dataset.transferTreeId);
+      const select = modal.root.querySelector(`.transfer-target-select[data-tree-id="${treeId}"]`);
+      const toUserId = Number(select.value);
+      if (!toUserId) return;
+
+      btn.disabled = true;
+      try {
+        await api(`/api/account/trees/${treeId}/transfer-ownership`, {
+          method: 'POST',
+          body: JSON.stringify({ toUserId }),
+        });
+        showToast('Ownership transferred.');
+        await loadTrees();
+        await loadOwnershipResolutionStep(modal);
+      } catch (error) {
+        modal.root.querySelector('#delete-account-error').textContent = error.message || 'Could not transfer ownership.';
+        btn.disabled = false;
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-delete-tree-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const treeId = Number(btn.dataset.deleteTreeId);
+      const treeName = btn.dataset.treeName;
+      showConfirmDialog({
+        title: 'Delete Family Tree',
+        message: `Are you sure you want to delete "${treeName}"? This action cannot be undone.`,
+        onConfirm: async () => {
+          await api(`/api/trees/${treeId}`, { method: 'DELETE' });
+          showToast('Family tree deleted successfully.');
+          await loadTrees();
+          await loadOwnershipResolutionStep(modal);
+        },
+      });
+    });
+  });
+}
+
+function showDeleteAccountFinalStep(modal) {
+  modal.setBody(`
+    ${modalCloseBtnHtml()}
+    <h3 id="delete-account-modal-title">Delete Account</h3>
+    <p class="modal-message">You're verified and your family trees are all set. This is the last step — your account will be permanently deleted and you'll be signed out immediately.</p>
+    <p class="error" id="delete-account-error"></p>
+    <div class="modal-actions row">
+      <button type="button" class="secondary" id="delete-account-cancel-btn">Cancel</button>
+      <button type="button" class="btn-danger" id="delete-account-final-btn">Delete Account</button>
+    </div>
+  `);
+  bindDeleteAccountChrome(modal);
+  modal.root.querySelector('#delete-account-final-btn').addEventListener('click', () => handleConfirmAccountDeletion(modal));
+}
+
+async function handleConfirmAccountDeletion(modal) {
+  const btn = modal.root.querySelector('#delete-account-final-btn');
+  const errorEl = modal.root.querySelector('#delete-account-error');
+  errorEl.textContent = '';
+  setButtonBusy(btn, true, 'Deleting...');
+
+  try {
+    await api('/api/account', { method: 'DELETE' });
+    modal.close();
+    await handleSignOut();
+    showToast('Your account has been permanently deleted.');
+  } catch (error) {
+    if (error.status === 409) {
+      errorEl.textContent = 'You still own a family tree with no other owner. Please resolve it first.';
+      setButtonBusy(btn, false, 'Delete Account');
+      await loadOwnershipResolutionStep(modal);
+      return;
+    }
+    errorEl.textContent = error.message || 'Could not delete your account right now. Please try again.';
+    setButtonBusy(btn, false, 'Delete Account');
   }
 }
 

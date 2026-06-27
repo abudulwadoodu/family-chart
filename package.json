@@ -59,6 +59,7 @@
   },
   "sideEffects": false,
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.700.0",
     "aws-amplify": "^6.6.0",
     "aws-jwt-verify": "^4.0.1",
     "better-sqlite3": "^12.8.0",
@@ -70,7 +71,6 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@aws-sdk/client-cognito-identity-provider": "^3.700.0",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^12.1.4",
     "@types/d3": "^7.4.3",

@@ -1498,6 +1498,24 @@ button.secondary:active,
   margin-bottom: var(--sp-2);
 }
 
+.danger-zone {
+  margin-top: var(--sp-6);
+  border-color: rgba(241, 91, 91, 0.35);
+}
+
+.danger-zone h2 {
+  color: var(--danger);
+}
+
+.danger-zone-title {
+  font-weight: 600;
+  margin: 0 0 var(--sp-1);
+}
+
+.danger-zone-actions {
+  margin-top: var(--sp-3);
+}
+
 .muted {
   color: var(--text-secondary);
 }
@@ -1579,7 +1597,8 @@ button.secondary:active,
   overflow-y: auto;
 }
 
-.modal-dialog.modal-share {
+.modal-dialog.modal-share,
+.modal-dialog.modal-danger {
   width: min(100%, 520px);
 }
 
@@ -1670,6 +1689,23 @@ button.secondary:active,
   display: flex;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.ownership-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ownership-row .member-actions {
+  width: 100%;
+  flex-wrap: wrap;
+  flex-shrink: 1;
+}
+
+.transfer-target-select {
+  flex: 1 1 160px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ------------------------------------------------------------------ */
