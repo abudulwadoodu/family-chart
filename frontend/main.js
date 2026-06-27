@@ -37,6 +37,7 @@ import {
   renderSkeletonGrid,
   renderTreeViewerHeader,
   renderViewModeToggle,
+  renderResetViewButton,
   renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
@@ -86,6 +87,7 @@ const state = {
   editor: null,
   viewMode: 'focused',
   focusedMainId: null,
+  defaultMainId: null,
   allNodesGraph: null,
   memberSearchIndex: null,
   memberSearchResults: [],
@@ -736,7 +738,10 @@ function renderTreeViewerMarkup() {
   return `
     ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
     <div class="tree-toolbar-row">
-      <div id="view-mode-toggle"></div>
+      <div class="tree-toolbar-left">
+        <div id="view-mode-toggle"></div>
+        ${renderResetViewButton()}
+      </div>
       ${renderMemberSearch()}
     </div>
     <div id="FamilyChart" class="f3 chart-container"></div>
@@ -752,6 +757,7 @@ function attachTreeViewerListeners() {
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
   document.querySelector('#import-tree-csv-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
+  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -929,6 +935,20 @@ function highlightFocusedCard(id) {
   state.memberSearchHighlightTimer = setTimeout(() => card.classList.remove('member-search-highlight'), 2500);
 }
 
+// Returns the tree to how it looked when first opened - same person re-rooted
+// and the whole subtree fitted to view (All Nodes mode has no "main" person,
+// so it just re-fits the connected graph it's already showing).
+function handleResetView() {
+  if (state.viewMode === 'all-nodes') {
+    state.allNodesGraph?.resetView();
+    return;
+  }
+  if (!state.chart || !state.defaultMainId) return;
+  state.chart.updateMainId(state.defaultMainId);
+  state.focusedMainId = state.defaultMainId;
+  state.chart.updateTree({ initial: false, tree_position: 'fit', transition_time: 600 });
+}
+
 function handleViewerSettingsAction(action) {
   if (action === 'rename') return openRenameTreeModal();
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
@@ -1104,6 +1124,7 @@ function clearSelectedTreeView() {
   state.editor = null;
   state.viewMode = 'focused';
   state.focusedMainId = null;
+  state.defaultMainId = null;
   closeMemberSearchResults();
   state.memberSearchIndex = null;
 }
@@ -1759,6 +1780,7 @@ async function loadTree(treeId) {
   state.selectedTreeName = payload.tree.name;
   state.viewMode = 'focused';
   state.focusedMainId = payload?.data?.[0]?.id || null;
+  state.defaultMainId = state.focusedMainId;
   setSidebarOpen(false);
   render();
 }

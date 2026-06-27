@@ -170,7 +170,7 @@ export function renderAllNodesGraph(selector, graph) {
     nodes.attr('transform', (d) => `translate(${d.x},${d.y})`);
   });
 
-  const fitTimer = setTimeout(() => {
+  function fitToView(transition_duration) {
     const placed = graph.nodes.filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
     if (placed.length === 0) return;
 
@@ -186,8 +186,10 @@ export function renderAllNodesGraph(selector, graph) {
     const ty = height / 2 - ((minY + maxY) / 2) * scale;
     const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
 
-    svg.transition().duration(300).call(zoomBehavior.transform, transform);
-  }, 220);
+    svg.transition().duration(transition_duration).call(zoomBehavior.transform, transform);
+  }
+
+  const fitTimer = setTimeout(() => fitToView(300), 220);
 
   let highlightTimer = null;
 
@@ -197,6 +199,12 @@ export function renderAllNodesGraph(selector, graph) {
       clearTimeout(highlightTimer);
       simulation.stop();
       container.innerHTML = '';
+    },
+    // Re-fits the whole connected-component graph to the viewport - the
+    // "back to default view" action for All Nodes mode, where there's no
+    // single main person to re-root on.
+    resetView() {
+      fitToView(400);
     },
     // Pans/zooms the simulation's current node position to the center of the
     // viewport and pulses a highlight ring on it. Returns false if the node

@@ -282,6 +282,14 @@ export function renderViewModeToggle({ viewMode, canEdit }) {
   `;
 }
 
+export function renderResetViewButton() {
+  return `
+    <button type="button" id="reset-view-btn" class="chip reset-view-btn" title="Reset to the tree's default view">
+      ${icon('home')}<span>Reset View</span>
+    </button>
+  `;
+}
+
 export function renderMemberSearch() {
   return `
     <div class="member-search" id="member-search">

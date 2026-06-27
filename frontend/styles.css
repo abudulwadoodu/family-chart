@@ -1333,9 +1333,25 @@ button.secondary:active,
   flex-wrap: wrap;
 }
 
+.tree-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
 .view-mode-toggle {
   display: flex;
   gap: var(--sp-2);
+}
+
+.reset-view-btn {
+  gap: var(--sp-1);
+}
+
+.reset-view-btn .icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* ------------------------------------------------------------------ */

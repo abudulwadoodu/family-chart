@@ -40,6 +40,9 @@ export const icons = {
     '<circle cx="12" cy="12" r="2.75"></circle><path d="M12 4.5v2"></path><path d="M12 17.5v2"></path><path d="M4.5 12h2"></path><path d="M17.5 12h2"></path><path d="M6.6 6.6l1.4 1.4"></path><path d="M16 16l1.4 1.4"></path><path d="M16 8l1.4-1.4"></path><path d="M6.6 17.4l1.4-1.4"></path>'
   ),
   chevronDown: svg('<path d="M6 9l6 6 6-6"></path>'),
+  home: svg(
+    '<path d="M4 11.5 12 4l8 7.5"></path><path d="M6 10v8a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-8"></path>'
+  ),
   close: svg('<path d="M6 6l12 12"></path><path d="M18 6 6 18"></path>'),
   menu: svg('<path d="M4 6.5h16"></path><path d="M4 12h16"></path><path d="M4 17.5h16"></path>'),
   folderPlus: svg(
