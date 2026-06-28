@@ -822,6 +822,12 @@ button.secondary:active,
   margin-bottom: var(--sp-8);
 }
 
+.page-header-actions {
+  display: flex;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+
 .page-title {
   font-size: 1.7rem;
   font-weight: 700;
@@ -2146,7 +2152,12 @@ a.contact-info-value:hover {
     align-items: stretch;
   }
 
-  .page-header .btn-primary {
+  .page-header-actions {
+    flex-direction: column;
+  }
+
+  .page-header .btn-primary,
+  .page-header .btn-secondary {
     width: 100%;
   }
 
@@ -2186,5 +2197,161 @@ a.contact-info-value:hover {
 
   .contact-submit-btn {
     justify-self: stretch;
+  }
+}
+
+/* GEDCOM import wizard & export options */
+
+.modal-dialog.modal-gedcom-wizard,
+.modal-dialog.modal-gedcom-export {
+  width: min(100%, 560px);
+}
+
+.wizard-step-label {
+  margin: 0 0 var(--sp-2);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.gedcom-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: center;
+}
+
+.gedcom-dropzone:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.wizard-spinner {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-6) 0;
+}
+
+.wizard-spinner .icon {
+  width: 32px;
+  height: 32px;
+  animation: wizard-spin 1s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wizard-issue-group {
+  margin-bottom: var(--sp-4);
+}
+
+.wizard-issue-title {
+  margin: 0 0 var(--sp-1);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.wizard-tone-danger {
+  color: var(--danger);
+}
+
+.wizard-tone-warning {
+  color: var(--warning);
+}
+
+.wizard-issue-list {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: grid;
+  gap: var(--sp-1);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.wizard-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.wizard-summary-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  text-align: center;
+}
+
+.wizard-summary-card strong {
+  font-size: 1.4rem;
+}
+
+.wizard-summary-card span {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.wizard-preview-list {
+  margin: 0 0 var(--sp-4);
+  padding-left: var(--sp-5);
+  display: grid;
+  gap: var(--sp-1);
+  font-size: 0.88rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.wizard-preview-more {
+  color: var(--text-secondary);
+}
+
+.wizard-option-group {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.wizard-radio-row,
+.wizard-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.9rem;
+}
+
+.wizard-radio-row small,
+.wizard-checkbox-row small {
+  color: var(--text-secondary);
+}
+
+#wizard-new-tree-name,
+#wizard-target-tree-select {
+  margin: 0 0 var(--sp-2) var(--sp-5);
+}
+
+@media (max-width: 700px) {
+  .wizard-summary-grid {
+    grid-template-columns: 1fr;
   }
 }

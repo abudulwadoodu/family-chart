@@ -9,6 +9,7 @@ import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
 import { parseCsvImport } from '../utils/csvImport.js';
 import { parseJsonImport } from '../utils/jsonImport.js';
 import { findUserByEmail } from '../models/userModel.js';
+import { parseGedcom, validateGedcom, gedcomToDomain, writeGedcom } from '../utils/gedcom/index.js';
 
 const ASSIGNABLE_ROLES = ['editor', 'viewer'];
 
@@ -66,6 +67,33 @@ treesRouter.post('/', (req, res, next) => {
     const treeId = tx();
     return res.status(201).json({ id: treeId, name: trimmedName });
   } catch (error) {
+    return next(error);
+  }
+});
+
+// Parses, validates, and maps a GEDCOM file without persisting anything -
+// the "Validation" and "Preview" steps of the import wizard both read off
+// this response. Not scoped to a tree id because at this point the user
+// may not have picked (or created) a target tree yet.
+treesRouter.post('/gedcom/preview', upload.single('file'), (req, res, next) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: 'GEDCOM file is required' });
+
+    const gedcomText = req.file.buffer.toString('utf8');
+    const { records } = parseGedcom(gedcomText);
+    const validation = validateGedcom(records);
+    const { people, summary, warnings: mapperWarnings } = gedcomToDomain(records, {});
+    const warnings = [...validation.warnings, ...mapperWarnings];
+
+    return res.json({
+      ok: validation.errors.length === 0,
+      errors: validation.errors,
+      warnings,
+      summary: { ...summary, warningCount: warnings.length, errorCount: validation.errors.length },
+      people,
+    });
+  } catch (error) {
+    if (error instanceof Error) return res.status(400).json({ error: error.message });
     return next(error);
   }
 });
@@ -198,6 +226,79 @@ treesRouter.post(
     }
   }
 );
+
+// Commit step of the GEDCOM import wizard: re-accepts the file (rather than
+// trusting a client-submitted domain blob) and re-runs parse+map server-side.
+// Matches the existing import-csv/import-json behavior: the GEDCOM file's
+// people become the tree's entire contents, whether the target is a freshly
+// created tree or one that already has data in it. "Create new tree" is
+// handled by the frontend calling POST / first and then this route against
+// the freshly created tree id.
+treesRouter.post(
+  '/:id/import-gedcom',
+  requireTreeRole(['owner', 'editor']),
+  upload.single('file'),
+  (req, res, next) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'GEDCOM file is required' });
+
+      let options = {};
+      if (req.body?.options) {
+        try {
+          options = JSON.parse(req.body.options);
+        } catch (_error) {
+          return res.status(400).json({ error: 'options must be valid JSON' });
+        }
+      }
+
+      const gedcomText = req.file.buffer.toString('utf8');
+      const { records } = parseGedcom(gedcomText);
+      const { people: importedPeople, warnings } = gedcomToDomain(records, options);
+      const treeId = Number(req.params.id);
+
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO family_data (tree_id, json_data, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
+      ).run(treeId, JSON.stringify(importedPeople));
+
+      return res.json({ ok: true, imported_count: importedPeople.length, skipped_count: 0, added_ids: importedPeople.map((p) => p.id), warnings });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ error: error.message });
+      return next(error);
+    }
+  }
+);
+
+// GEDCOM generation (FAM synthesis, CONC/CONT folding, export filters) lives
+// once in utils/gedcom rather than being duplicated in frontend JS, so unlike
+// CSV/JSON export this round-trips through the backend. Returns the GEDCOM
+// text as JSON (not a raw file response) so the frontend can keep using its
+// existing JSON-only `api()` helper and build the download blob itself.
+treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const db = getDb();
+    const tree = db.prepare('SELECT id FROM trees WHERE id = ?').get(treeId);
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    const familyData = db.prepare('SELECT json_data FROM family_data WHERE tree_id = ?').get(treeId);
+    const people = familyData ? JSON.parse(familyData.json_data) : [];
+
+    const options = {
+      includeNotes: req.query.includeNotes !== 'false',
+      includePrivate: req.query.includePrivate !== 'false',
+      includeDeceased: req.query.includeDeceased !== 'false',
+      includeLiving: req.query.includeLiving !== 'false',
+    };
+
+    const gedcom = writeGedcom(people, options);
+    return res.json({ ok: true, gedcom });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 treesRouter.get('/:id/permissions', requireTreeRole(['owner']), (req, res, next) => {
   try {

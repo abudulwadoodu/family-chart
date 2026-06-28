@@ -49,18 +49,32 @@ export function renderMobileTopbar() {
   `;
 }
 
-export function renderPageHeader({ title, subtitle, primaryActionId, primaryActionLabel }) {
+export function renderPageHeader({
+  title,
+  subtitle,
+  primaryActionId,
+  primaryActionLabel,
+  secondaryActionId,
+  secondaryActionLabel,
+}) {
   return `
     <header class="page-header">
       <div>
         <h1 class="page-title">${escapeHtml(title)}</h1>
         <p class="page-subtitle">${escapeHtml(subtitle)}</p>
       </div>
-      ${
-        primaryActionId
-          ? `<button type="button" id="${primaryActionId}" class="btn btn-primary">${icon('plus')}<span>${escapeHtml(primaryActionLabel)}</span></button>`
-          : ''
-      }
+      <div class="page-header-actions">
+        ${
+          secondaryActionId
+            ? `<button type="button" id="${secondaryActionId}" class="btn btn-secondary">${icon('upload')}<span>${escapeHtml(secondaryActionLabel)}</span></button>`
+            : ''
+        }
+        ${
+          primaryActionId
+            ? `<button type="button" id="${primaryActionId}" class="btn btn-primary">${icon('plus')}<span>${escapeHtml(primaryActionLabel)}</span></button>`
+            : ''
+        }
+      </div>
     </header>
   `;
 }
@@ -122,6 +136,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
   const items = [
     { action: 'export-json', label: 'Export JSON', icon: 'download' },
     { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+    { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
   ];
   if (tree.role === 'owner') {
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
@@ -247,6 +262,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
                    items: [
                      { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
                      { action: 'import-json', label: 'Import JSON', icon: 'upload' },
+                     { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
                    ],
                  })}
                </div>`
@@ -259,6 +275,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
             items: [
               { action: 'export-json', label: 'Export JSON', icon: 'download' },
               { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+              { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
             ],
           })}
         </div>

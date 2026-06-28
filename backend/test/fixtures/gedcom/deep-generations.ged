@@ -1,0 +1,36 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Gen1 /Ancestor/
+1 SEX M
+0 @I2@ INDI
+1 NAME Gen2 /Ancestor/
+1 SEX M
+1 FAMC @F1@
+0 @I3@ INDI
+1 NAME Gen3 /Ancestor/
+1 SEX M
+1 FAMC @F2@
+0 @I4@ INDI
+1 NAME Gen4 /Ancestor/
+1 SEX M
+1 FAMC @F3@
+0 @I5@ INDI
+1 NAME Gen5 /Descendant/
+1 SEX F
+1 FAMC @F4@
+0 @F1@ FAM
+1 HUSB @I1@
+1 CHIL @I2@
+0 @F2@ FAM
+1 HUSB @I2@
+1 CHIL @I3@
+0 @F3@ FAM
+1 HUSB @I3@
+1 CHIL @I4@
+0 @F4@ FAM
+1 HUSB @I4@
+1 CHIL @I5@
+0 TRLR

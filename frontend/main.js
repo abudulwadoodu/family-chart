@@ -21,11 +21,12 @@ import {
 import { Hub } from 'aws-amplify/utils';
 import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
-import { buildAllNodesGraphData, renderAllNodesGraph } from './allNodesGraph.js';
+import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
-import { escapeHtml, downloadJson, downloadCsv, treeDataToCsv, slugifyFilename } from './utils.js';
+import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { openGedcomImportWizard } from './gedcomWizard.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
@@ -567,6 +568,8 @@ function renderTreesLandingMarkup() {
       subtitle: 'Create, manage, and collaborate on your family trees.',
       primaryActionId: 'new-tree-cta',
       primaryActionLabel: 'New Tree',
+      secondaryActionId: 'import-gedcom-cta',
+      secondaryActionLabel: 'Import GEDCOM',
     })}
     ${renderTreesToolbarRow({ search: state.treeSearch, sort: state.treeSort })}
     <div id="tree-grid" class="tree-grid"></div>
@@ -578,6 +581,14 @@ function attachTreesLandingListeners() {
     state.dashboardView = 'createTree';
     render();
   });
+  document.querySelector('#import-gedcom-cta').addEventListener('click', () => {
+    openGedcomImportWizard({
+      api,
+      mode: 'create',
+      treeOptions: editableTreeOptions(),
+      onImported: handleGedcomImported,
+    });
+  });
   document.querySelector('#tree-search-input').addEventListener('input', (event) => {
     state.treeSearch = event.target.value;
     renderTreeGrid();
@@ -586,6 +597,22 @@ function attachTreesLandingListeners() {
     state.treeSort = event.target.value;
     renderTreeGrid();
   });
+}
+
+function editableTreeOptions() {
+  return state.trees.filter((t) => t.role === 'owner' || t.role === 'editor').map((t) => ({ id: t.id, name: t.name }));
+}
+
+async function handleGedcomImported(result) {
+  await loadTrees();
+  // GEDCOM import replaces the target tree's entire contents (matching
+  // CSV/JSON import), so loadTree's pickDefaultMainId already roots Focused
+  // view on the largest family group in what was just imported - no need to
+  // re-root separately here.
+  if ((result.openTree && result.treeId) || state.selectedTreeId === result.treeId) {
+    await loadTree(result.treeId);
+  }
+  showToast(`Imported ${result.imported_count} member${result.imported_count === 1 ? '' : 's'}.`);
 }
 
 function renderCreateTreePageMarkup() {
@@ -680,6 +707,10 @@ function bindTreeGridListeners(container) {
 function handleTreeCardAction(action, treeId) {
   if (action === 'export-json') return handleExportTreeById(treeId, 'json');
   if (action === 'export-csv') return handleExportTreeById(treeId, 'csv');
+  if (action === 'export-gedcom') {
+    const tree = state.trees.find((t) => t.id === treeId);
+    return openGedcomExportOptionsModal(treeId, tree?.name || 'family-tree');
+  }
   if (action === 'rename') {
     state.renamingTreeId = treeId;
     renderTreeGrid();
@@ -750,6 +781,72 @@ async function handleExportTreeById(treeId, format) {
   } catch (error) {
     showToast(error.message || 'Export failed.', { type: 'error' });
   }
+}
+
+function openGedcomExportOptionsModal(treeId, treeName) {
+  const options = { includeNotes: true, includePrivate: true, includeDeceased: true, includeLiving: true };
+  const modal = showModal({ bodyHtml: renderGedcomExportOptionsBody(options), className: 'modal-gedcom-export' });
+  bindGedcomExportOptionsListeners(modal, options, treeId, treeName);
+}
+
+function renderGedcomExportOptionsBody(options) {
+  const checkboxRow = (id, checked, label) => `
+    <label class="wizard-checkbox-row">
+      <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} />
+      <span>${label}</span>
+    </label>`;
+
+  return `
+    <button type="button" class="icon-btn modal-close" id="gedcom-export-close-btn" aria-label="Close">${icon('close')}</button>
+    <h3>Export GEDCOM</h3>
+    <p class="modal-message">Choose what to include in the exported .ged file.</p>
+    <div class="wizard-option-group">
+      ${checkboxRow('export-opt-notes', options.includeNotes, 'Include notes')}
+      ${checkboxRow('export-opt-private', options.includePrivate, 'Include private information')}
+      ${checkboxRow('export-opt-deceased', options.includeDeceased, 'Include deceased members')}
+      ${checkboxRow('export-opt-living', options.includeLiving, 'Include living members')}
+    </div>
+    <div class="modal-actions row">
+      <button type="button" class="btn-secondary" id="gedcom-export-cancel-btn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="gedcom-export-confirm-btn">${icon('download')}<span>Export</span></button>
+    </div>
+  `;
+}
+
+function bindGedcomExportOptionsListeners(modal, options, treeId, treeName) {
+  const root = modal.root;
+  root.querySelector('#gedcom-export-close-btn').addEventListener('click', modal.close);
+  root.querySelector('#gedcom-export-cancel-btn').addEventListener('click', modal.close);
+
+  const bindToggle = (id, key) => {
+    root.querySelector(`#${id}`).addEventListener('change', (event) => {
+      options[key] = event.target.checked;
+    });
+  };
+  bindToggle('export-opt-notes', 'includeNotes');
+  bindToggle('export-opt-private', 'includePrivate');
+  bindToggle('export-opt-deceased', 'includeDeceased');
+  bindToggle('export-opt-living', 'includeLiving');
+
+  root.querySelector('#gedcom-export-confirm-btn').addEventListener('click', async () => {
+    const confirmBtn = root.querySelector('#gedcom-export-confirm-btn');
+    confirmBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({
+        includeNotes: String(options.includeNotes),
+        includePrivate: String(options.includePrivate),
+        includeDeceased: String(options.includeDeceased),
+        includeLiving: String(options.includeLiving),
+      });
+      const result = await api(`/api/trees/${treeId}/export-gedcom?${params.toString()}`);
+      downloadBlob(new Blob([result.gedcom], { type: 'text/plain;charset=utf-8' }), `${slugifyFilename(treeName)}.ged`);
+      modal.close();
+      showToast('Tree exported successfully.');
+    } catch (error) {
+      showToast(error.message || 'Export failed.', { type: 'error' });
+      confirmBtn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -978,8 +1075,19 @@ function handleViewerSettingsAction(action) {
   if (action === 'download-json-template') return handleDownloadJsonTemplate();
   if (action === 'import-csv') return document.querySelector('#import-tree-csv-input')?.click();
   if (action === 'import-json') return document.querySelector('#import-tree-json-input')?.click();
+  if (action === 'import-gedcom') {
+    return openGedcomImportWizard({
+      api,
+      mode: 'existing',
+      treeId: state.selectedTreeId,
+      treeName: state.selectedTreeName,
+      treeOptions: editableTreeOptions(),
+      onImported: handleGedcomImported,
+    });
+  }
   if (action === 'export-json') return handleExportCurrentTree('json');
   if (action === 'export-csv') return handleExportCurrentTree('csv');
+  if (action === 'export-gedcom') return openGedcomExportOptionsModal(state.selectedTreeId, state.selectedTreeName);
 }
 
 function openRenameTreeModal() {
@@ -2396,7 +2504,7 @@ async function loadTree(treeId) {
   state.selectedTreeData = payload.data;
   state.selectedTreeName = payload.tree.name;
   state.viewMode = 'focused';
-  state.focusedMainId = payload?.data?.[0]?.id || null;
+  state.focusedMainId = pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
   setSidebarOpen(false);
   render();

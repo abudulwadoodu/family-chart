@@ -1,0 +1,34 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Sam /Smith/
+1 SEX M
+1 FAMS @F1@
+1 FAMS @F2@
+0 @I2@ INDI
+1 NAME First /Wife/
+1 SEX F
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Second /Wife/
+1 SEX F
+1 FAMS @F2@
+0 @I4@ INDI
+1 NAME Child /OfFirst/
+1 SEX F
+1 FAMC @F1@
+0 @I5@ INDI
+1 NAME Child /OfSecond/
+1 SEX M
+1 FAMC @F2@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I4@
+0 @F2@ FAM
+1 HUSB @I1@
+1 WIFE @I3@
+1 CHIL @I5@
+0 TRLR

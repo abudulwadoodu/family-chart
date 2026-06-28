@@ -1,0 +1,13 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME No /Dates/
+0 @I2@ INDI
+1 NAME Unknown /Gender/
+1 SEX X
+0 @I3@ INDI
+1 NAME Blank /Gender/
+1 SEX
+0 TRLR
