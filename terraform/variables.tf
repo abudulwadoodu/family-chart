@@ -86,3 +86,8 @@ variable "oauth_callback_urls" {
   type        = list(string)
   default     = ["http://localhost:8080/"]
 }
+
+variable "ses_sender_email" {
+  description = "Verified SES identity the Contact Us feature is allowed to send email as"
+  type        = string
+}

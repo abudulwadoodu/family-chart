@@ -42,6 +42,32 @@ resource "aws_iam_role_policy" "ec2_ssm_read" {
   policy = data.aws_iam_policy_document.ec2_ssm_read.json
 }
 
+# Least-privilege: only allow sending email as the Contact Us feature's
+# configured sender address, nothing else SES can do (no identity management,
+# no sending as arbitrary addresses).
+data "aws_iam_policy_document" "ec2_ses_send" {
+  statement {
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail",
+    ]
+
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = [var.ses_sender_email]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_ses_send" {
+  name   = "${var.project_name}-${var.environment}-ses-send"
+  role   = aws_iam_role.ec2_app.id
+  policy = data.aws_iam_policy_document.ec2_ses_send.json
+}
+
 resource "aws_iam_instance_profile" "ec2_app" {
   name = "${var.project_name}-${var.environment}-ec2-profile"
   role = aws_iam_role.ec2_app.name

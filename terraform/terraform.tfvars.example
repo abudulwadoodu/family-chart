@@ -24,3 +24,7 @@ google_client_secret = "REPLACE_ME"
 # Cognito requires https:// for non-localhost callback/logout URLs. Add your production HTTPS URL
 # here once a domain + TLS cert exist for the app; until then this stays localhost-only.
 oauth_callback_urls = ["http://localhost:8080/"]
+
+# Must be a verified SES identity (or domain) in your AWS account - the Contact Us
+# feature is only permitted to send email as this address.
+ses_sender_email = "REPLACE_ME@example.com"
