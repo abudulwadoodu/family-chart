@@ -3,6 +3,10 @@ import { escapeHtml, formatRelativeTime } from './utils.js';
 
 const ROLE_LABELS = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
 
+// Shared across the Contact Us page and the legal pages/footer, so the
+// support address only needs to be configured in one env var.
+export const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'support@example.com';
+
 export function renderSidebarNav({ email, activeView, isAdmin }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
   const isTicketsActive = activeView === 'myTickets' || activeView === 'ticketDetail';
@@ -518,8 +522,6 @@ function renderContactFormCard({ email }) {
 }
 
 function renderContactInfoCard() {
-  const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@example.com';
-
   return `
     <aside class="card contact-info-card">
       <h2 class="contact-card-title">Other ways to reach us</h2>
@@ -528,7 +530,7 @@ function renderContactInfoCard() {
           <span class="contact-info-icon">${icon('mail')}</span>
           <div>
             <p class="contact-info-label">Support Email</p>
-            <a href="mailto:${escapeHtml(supportEmail)}" class="contact-info-value">${escapeHtml(supportEmail)}</a>
+            <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" class="contact-info-value">${escapeHtml(SUPPORT_EMAIL)}</a>
           </div>
         </li>
         <li>
@@ -563,5 +565,42 @@ function renderContactFaq() {
       `
       ).join('')}
     </section>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Application footer
+// ---------------------------------------------------------------------------
+
+// Legal/info pages routed via the `data-internal-link` SPA navigation handler
+// in main.js. Add future pages (Help Center, About, Security, Cookie Policy,
+// etc.) here so they appear in the footer everywhere automatically.
+const FOOTER_LINKS = [
+  { label: 'Terms & Conditions', path: '/terms' },
+  { label: 'Privacy Policy', path: '/privacy' },
+];
+
+// `showLinks: false` is for auth screens (sign in/up, forgot/reset password):
+// those already carry a contextual Terms/Privacy acknowledgement right in
+// the card (see the auth-legal-disclaimer in renderAuthShell), so the footer
+// there shows only the copyright line to avoid showing the same links twice.
+export function renderFooter({ variant = 'default', showLinks = true } = {}) {
+  const year = new Date().getFullYear();
+  const nav = showLinks
+    ? `
+      <nav class="app-footer-links" aria-label="Legal and support">
+        ${FOOTER_LINKS.map((link) => `<a href="${link.path}" data-internal-link="${link.path}" class="app-footer-link">${escapeHtml(link.label)}</a>`).join('')}
+        <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" data-contact-link class="app-footer-link">Contact Us</a>
+      </nav>
+    `
+    : '';
+
+  return `
+    <footer class="app-footer app-footer-${variant}">
+      <div class="app-footer-inner">
+        <span class="app-footer-copyright">&copy; ${year} Family Chart. All rights reserved.</span>
+        ${nav}
+      </div>
+    </footer>
   `;
 }

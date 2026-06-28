@@ -44,7 +44,10 @@ import {
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
+  renderFooter,
 } from './components.js';
+import { LEGAL_DOCS } from './legal/content.js';
+import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
 import {
   renderMyTicketsPageMarkup,
   renderTicketDetailPageMarkup,
@@ -112,6 +115,10 @@ const state = {
   authEmail: '',
   totpSetup: null,
   dashboardView: 'trees',
+  // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
+  // /terms and /privacy regardless of sign-in state - see syncRouteFromLocation
+  // below. null means "no public route active, show the normal auth/dashboard".
+  publicView: null,
   // True right after the browser bounces back from the Cognito Hosted UI
   // (Google redirect), before Amplify finishes exchanging the ?code= for tokens.
   oauthInProgress: new URLSearchParams(window.location.search).has('code'),
@@ -202,6 +209,53 @@ document.addEventListener('click', (event) => {
   closeMemberSearchResults();
 });
 
+// Minimal SPA router for the public legal pages (no router library exists in
+// this app - see maybeOpenDeepLinkedTicket's note on the ?ticket= param).
+// Maps a URL pathname to the publicView it should activate; anything else
+// falls through to the normal auth/dashboard flow.
+const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy' };
+
+function syncRouteFromLocation() {
+  state.publicView = PUBLIC_ROUTES[window.location.pathname] || null;
+}
+
+function navigateTo(path) {
+  if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  syncRouteFromLocation();
+  render();
+}
+
+window.addEventListener('popstate', () => {
+  syncRouteFromLocation();
+  render();
+});
+
+// Delegated handler for every `data-internal-link` anchor (footer, legal page
+// cross-links, auth page legal disclaimer, etc.) so new links never need
+// their own per-render listener - they just need this attribute and a real
+// `href` for no-JS/middle-click/new-tab to keep working.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-internal-link]');
+  if (!link) return;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  navigateTo(link.getAttribute('data-internal-link'));
+});
+
+// "Contact Us" links point at `mailto:` by default (works for signed-out
+// visitors). Signed-in users get redirected to the in-app Contact Us page
+// instead, since that page can pre-fill their account email.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-contact-link]');
+  if (!link || !state.user) return;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  state.publicView = null;
+  if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
+  state.dashboardView = 'contact';
+  render();
+});
+
 // Fires once Amplify finishes exchanging the Hosted UI's ?code= for tokens
 // after a Google sign-in redirect (success or failure).
 Hub.listen('auth', ({ payload }) => {
@@ -221,9 +275,34 @@ Hub.listen('auth', ({ payload }) => {
   }
 });
 
+const DEFAULT_TITLE = 'Secure Family Chart';
+
 function render() {
-  if (!state.user) return renderAuth();
-  return renderDashboard();
+  if (state.publicView) return renderLegalPage();
+  if (document.title !== DEFAULT_TITLE) clearLegalSeo(DEFAULT_TITLE);
+  return state.user ? renderDashboard() : renderAuth();
+}
+
+function renderLegalPage() {
+  const doc = LEGAL_DOCS[state.publicView];
+
+  app.innerHTML = `
+    <div class="legal-shell">
+      <header class="legal-shell-header">
+        <a href="/" data-internal-link="/" class="legal-shell-brand">
+          <span class="legal-shell-brand-icon">${icon('logo')}</span>
+          <span>Family Chart</span>
+        </a>
+        <a href="/" data-internal-link="/" class="btn btn-secondary btn-sm">${icon('home')}<span>Back to app</span></a>
+      </header>
+      <main class="legal-shell-main">
+        ${renderLegalPageMarkup(doc)}
+      </main>
+      ${renderFooter({ variant: 'legal' })}
+    </div>
+  `;
+
+  attachLegalPageListeners(doc);
 }
 
 function renderAuth() {
@@ -250,7 +329,13 @@ function renderAuthShell(heading, subtitleHtml, bodyHtml) {
           <p class="auth-brand-subtitle">${subtitleHtml}</p>
         </div>
         ${bodyHtml}
+        <p class="auth-legal-disclaimer">
+          By continuing, you agree to our
+          <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
+          <a href="/privacy" data-internal-link="/privacy">Privacy Policy</a>.
+        </p>
       </section>
+      ${renderFooter({ variant: 'auth', showLinks: false })}
     </main>
   `;
 }
@@ -560,6 +645,7 @@ function renderDashboard() {
                           : renderTreesLandingMarkup()
           }
         </main>
+        ${renderFooter({ variant: 'dashboard' })}
       </div>
     </div>
   `;
@@ -2639,5 +2725,11 @@ function cleanupAllNodesGraph() {
   state.allNodesGraph.destroy();
   state.allNodesGraph = null;
 }
+
+// /terms and /privacy render immediately, without waiting on the auth check
+// below, since they're public. Every other route keeps the existing
+// behavior of showing nothing until loadSession() resolves.
+syncRouteFromLocation();
+if (state.publicView) render();
 
 loadSession();

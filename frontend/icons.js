@@ -75,6 +75,10 @@ export const icons = {
   paperclip: svg(
     '<path d="M8 12.5 15 5.5a3 3 0 0 1 4.2 4.2L11 18a4.5 4.5 0 0 1-6.4-6.3L13 3.5"></path>'
   ),
+  arrowUp: svg('<path d="M12 19V5"></path><path d="M6 11l6-6 6 6"></path>'),
+  list: svg(
+    '<path d="M9 6.5h10"></path><path d="M9 12h10"></path><path d="M9 17.5h10"></path><circle cx="5" cy="6.5" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="5" cy="17.5" r="1.1" fill="currentColor" stroke="none"></circle>'
+  ),
 };
 
 export function icon(name) {
