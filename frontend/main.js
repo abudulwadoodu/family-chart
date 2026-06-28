@@ -25,6 +25,7 @@ import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from '
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
+import { api } from './api.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import {
@@ -43,8 +44,26 @@ import {
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
-  renderContactSuccessMarkup,
 } from './components.js';
+import {
+  renderMyTicketsPageMarkup,
+  renderTicketDetailPageMarkup,
+  renderAdminPageMarkup,
+  renderAdminDashboardMarkup,
+  renderAdminTicketsTableMarkup,
+  renderAdminTicketDetailMarkup,
+} from './support/components.js';
+import {
+  loadMyTickets,
+  attachMyTicketsListeners,
+  loadTicketDetail,
+  attachTicketDetailListeners,
+  loadAdminSection,
+  attachAdminListeners,
+  createTicketFromContact,
+  attachmentUrlForUser,
+  attachmentUrlForAdmin,
+} from './support/logic.js';
 
 const app = document.querySelector('#app');
 
@@ -65,13 +84,6 @@ Amplify.configure({
     },
   },
 });
-
-const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
-
-function apiUrl(path) {
-  const p = path.startsWith('/') ? path : `/${path}`;
-  return API_BASE ? `${API_BASE}${p}` : p;
-}
 
 const state = {
   user: null,
@@ -100,7 +112,6 @@ const state = {
   authEmail: '',
   totpSetup: null,
   dashboardView: 'trees',
-  contactSubmitted: false,
   // True right after the browser bounces back from the Cognito Hosted UI
   // (Google redirect), before Amplify finishes exchanging the ?code= for tokens.
   oauthInProgress: new URLSearchParams(window.location.search).has('code'),
@@ -110,6 +121,45 @@ const state = {
     error: '',
     success: '',
     enrollment: null, // { secret, uri, qrDataUrl }
+  },
+  // "My Support Tickets" (user-facing) list + the shared ticket detail view.
+  support: {
+    tickets: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    search: '',
+    status: 'all',
+    priority: 'all',
+    loading: false,
+    loaded: false,
+    selectedTicketId: null,
+    selectedTicket: null,
+    selectedMessages: [],
+    selectedLoading: false,
+  },
+  // Admin Portal: only reachable when state.user.is_admin is true.
+  admin: {
+    section: 'dashboard', // 'dashboard' | 'tickets' | 'ticketDetail'
+    dashboardCounts: {},
+    dashboardLoading: false,
+    tickets: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    search: '',
+    status: 'all',
+    priority: 'all',
+    assignedTo: 'all',
+    sort: 'updated_at',
+    order: 'desc',
+    loading: false,
+    selectedTicketId: null,
+    selectedTicket: null,
+    selectedOwner: null,
+    selectedMessages: [],
+    selectedNotes: [],
+    selectedLoading: false,
   },
 };
 
@@ -170,35 +220,6 @@ Hub.listen('auth', ({ payload }) => {
     showToast(authErrorMessage(payload.data?.error), { type: 'error' });
   }
 });
-
-async function getAuthHeader() {
-  try {
-    const session = await fetchAuthSession();
-    const idToken = session.tokens?.idToken?.toString();
-    return idToken ? { Authorization: `Bearer ${idToken}` } : {};
-  } catch (_error) {
-    return {};
-  }
-}
-
-async function api(path, options = {}) {
-  const isFormData = options.body instanceof FormData;
-  const authHeader = await getAuthHeader();
-  const response = await fetch(apiUrl(path), {
-    headers: isFormData
-      ? { ...authHeader, ...(options.headers || {}) }
-      : { 'Content-Type': 'application/json', ...authHeader, ...(options.headers || {}) },
-    ...options,
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Request failed');
-    error.status = response.status;
-    throw error;
-  }
-  return payload;
-}
 
 function render() {
   if (!state.user) return renderAuth();
@@ -457,15 +478,67 @@ function renderResetPasswordStep() {
 // Dashboard shell
 // ---------------------------------------------------------------------------
 
+function renderAdminSectionContent() {
+  if (state.admin.section === 'tickets') {
+    return renderAdminTicketsTableMarkup({ ...state.admin });
+  }
+  if (state.admin.section === 'ticketDetail') {
+    if (!state.admin.selectedTicket) return '<p class="muted">Loading ticket&hellip;</p>';
+    return renderAdminTicketDetailMarkup({
+      ticket: state.admin.selectedTicket,
+      owner: state.admin.selectedOwner,
+      messages: state.admin.selectedMessages,
+      internalNotes: state.admin.selectedNotes,
+      attachmentUrlFor: attachmentUrlForAdmin(state.admin.selectedTicket.id),
+      currentAdminId: state.user.id,
+    });
+  }
+  return renderAdminDashboardMarkup({ counts: state.admin.dashboardCounts, loading: state.admin.dashboardLoading });
+}
+
+function renderAdminPageContent() {
+  return renderAdminPageMarkup({ section: state.admin.section, content: renderAdminSectionContent() });
+}
+
+function renderMyTicketsPageContent() {
+  return renderMyTicketsPageMarkup({ ...state.support });
+}
+
+function renderTicketDetailPageContent() {
+  if (!state.support.selectedTicket) return '<p class="muted">Loading ticket&hellip;</p>';
+  return renderTicketDetailPageMarkup({
+    ticket: state.support.selectedTicket,
+    messages: state.support.selectedMessages,
+    attachmentUrlFor: attachmentUrlForUser,
+  });
+}
+
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
   const isContactView = !isSecurityView && !isCreateTreeView && state.dashboardView === 'contact';
-  const isViewerView = !isSecurityView && !isCreateTreeView && !isContactView && Boolean(state.selectedTreeId);
+  const isMyTicketsView = !isSecurityView && !isCreateTreeView && !isContactView && state.dashboardView === 'myTickets';
+  const isTicketDetailView =
+    !isSecurityView && !isCreateTreeView && !isContactView && !isMyTicketsView && state.dashboardView === 'ticketDetail';
+  const isAdminView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    state.dashboardView === 'admin';
+  const isViewerView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isAdminView &&
+    Boolean(state.selectedTreeId);
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView })}
+      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin) })}
       <div class="main-area">
         ${renderMobileTopbar()}
         <main class="content">
@@ -476,9 +549,15 @@ function renderDashboard() {
                 ? renderCreateTreePageMarkup()
                 : isContactView
                   ? renderContactPageContent()
-                  : isViewerView
-                    ? renderTreeViewerMarkup()
-                    : renderTreesLandingMarkup()
+                  : isMyTicketsView
+                    ? renderMyTicketsPageContent()
+                    : isTicketDetailView
+                      ? renderTicketDetailPageContent()
+                      : isAdminView
+                        ? renderAdminPageContent()
+                        : isViewerView
+                          ? renderTreeViewerMarkup()
+                          : renderTreesLandingMarkup()
           }
         </main>
       </div>
@@ -499,6 +578,21 @@ function renderDashboard() {
 
   if (isContactView) {
     attachContactPageListeners();
+    return;
+  }
+
+  if (isMyTicketsView) {
+    attachMyTicketsListeners(state, render);
+    return;
+  }
+
+  if (isTicketDetailView) {
+    if (state.support.selectedTicket) attachTicketDetailListeners(state, render);
+    return;
+  }
+
+  if (isAdminView) {
+    attachAdminListeners(state, render);
     return;
   }
 
@@ -528,9 +622,21 @@ function attachShellListeners() {
   });
   document.querySelector('#nav-contact-btn').addEventListener('click', () => {
     state.dashboardView = 'contact';
-    state.contactSubmitted = false;
     setSidebarOpen(false);
     render();
+  });
+  document.querySelector('#nav-tickets-btn').addEventListener('click', () => {
+    state.dashboardView = 'myTickets';
+    setSidebarOpen(false);
+    render();
+    loadMyTickets(state, render);
+  });
+  document.querySelector('#nav-admin-btn')?.addEventListener('click', () => {
+    state.dashboardView = 'admin';
+    state.admin.section = 'dashboard';
+    setSidebarOpen(false);
+    render();
+    loadAdminSection(state, render);
   });
   document.querySelector('#sidebar-open-btn')?.addEventListener('click', () => setSidebarOpen(true));
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
@@ -1248,7 +1354,8 @@ function bindShareModalActions(modal, treeId, treeName) {
 // Contact Us page
 // ---------------------------------------------------------------------------
 
-const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONTACT_SUBJECT_MIN_LENGTH = 3;
+const CONTACT_SUBJECT_MAX_LENGTH = 120;
 const CONTACT_MESSAGE_MIN_LENGTH = 20;
 const CONTACT_MESSAGE_MAX_LENGTH = 5000;
 const CONTACT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -1256,20 +1363,10 @@ const CONTACT_ALLOWED_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/gif'
 const CONTACT_ALLOWED_ATTACHMENT_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.txt'];
 
 function renderContactPageContent() {
-  if (state.contactSubmitted) return renderContactSuccessMarkup();
   return renderContactPageMarkup({ email: state.user.email });
 }
 
 function attachContactPageListeners() {
-  if (state.contactSubmitted) {
-    document.querySelector('#contact-back-btn').addEventListener('click', () => {
-      state.contactSubmitted = false;
-      state.dashboardView = 'trees';
-      render();
-    });
-    return;
-  }
-
   document.querySelector('#contact-form').addEventListener('submit', handleContactSubmit);
 
   const fileInput = document.querySelector('#contact-file-input');
@@ -1326,9 +1423,8 @@ function handleContactFileChange(fileInput) {
 // tooltips - matches the rest of the app's hand-rolled form validation.
 function validateContactForm(form) {
   const data = new FormData(form);
-  const name = String(data.get('name') || '').trim();
-  const email = String(data.get('email') || '').trim();
-  const subject = String(data.get('subject') || '');
+  const subject = String(data.get('subject') || '').trim();
+  const category = String(data.get('category') || '');
   const message = String(data.get('message') || '').trim();
   const file = form.querySelector('#contact-file-input').files?.[0];
 
@@ -1338,13 +1434,14 @@ function validateContactForm(form) {
     if (message_ && !firstInvalidId) firstInvalidId = inputId;
   };
 
-  markInvalid('name', !name ? 'Name is required.' : name.length > 120 ? 'Name must be at most 120 characters.' : '', 'contact-name-input');
   markInvalid(
-    'email',
-    !email ? 'Email address is required.' : !CONTACT_EMAIL_PATTERN.test(email) ? 'Enter a valid email address.' : '',
-    'contact-email-input'
+    'subject',
+    subject.length < CONTACT_SUBJECT_MIN_LENGTH || subject.length > CONTACT_SUBJECT_MAX_LENGTH
+      ? `Subject must be between ${CONTACT_SUBJECT_MIN_LENGTH} and ${CONTACT_SUBJECT_MAX_LENGTH} characters.`
+      : '',
+    'contact-subject-input'
   );
-  markInvalid('subject', !subject ? 'Please choose a subject.' : '', 'contact-subject-input');
+  markInvalid('category', !category ? 'Please choose a category.' : '', 'contact-category-input');
   markInvalid(
     'message',
     message.length < CONTACT_MESSAGE_MIN_LENGTH
@@ -1386,14 +1483,11 @@ async function handleContactSubmit(event) {
   setButtonBusy(submitBtn, true, 'Sending...');
 
   try {
-    await api('/api/contact', { method: 'POST', body: new FormData(form) });
-    state.contactSubmitted = true;
-    render();
-    showToast('Message sent successfully.');
+    const ticket = await createTicketFromContact(state, render, new FormData(form));
+    showToast(`Ticket ${ticket.ticket_number} created. We'll be in touch soon.`);
   } catch (error) {
     formErrorEl.textContent = error.message || 'Could not send your message. Please try again.';
     showToast(error.message || 'Could not send your message.', { type: 'error' });
-  } finally {
     if (document.body.contains(submitBtn)) setButtonBusy(submitBtn, false, 'Send Message');
   }
 }
@@ -2357,6 +2451,8 @@ async function handleSignOut() {
   state.totpSetup = null;
   state.dashboardView = 'trees';
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
+  state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
+  state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
   render();
 }
 
@@ -2476,9 +2572,30 @@ async function loadSession() {
     state.user = payload.user;
     await loadTrees();
     render();
+    await maybeOpenDeepLinkedTicket();
   } catch (_error) {
     state.user = null;
     render();
+  }
+}
+
+// Support emails link back with ?ticket=<ticket_number> (no hash router exists
+// yet, so this mirrors the existing ?code= query-param check used for the
+// OAuth redirect) - jump straight to that ticket's conversation once logged in.
+async function maybeOpenDeepLinkedTicket() {
+  const ticketNumber = new URLSearchParams(window.location.search).get('ticket');
+  if (!ticketNumber) return;
+
+  try {
+    const payload = await api(`/api/support/tickets?search=${encodeURIComponent(ticketNumber)}&pageSize=1`);
+    const ticket = payload.tickets?.[0];
+    if (!ticket) return;
+    state.dashboardView = 'ticketDetail';
+    state.support.selectedTicketId = ticket.id;
+    render();
+    await loadTicketDetail(state, render, ticket.id);
+  } catch (_error) {
+    // Ignore - the user just lands on the normal dashboard view instead.
   }
 }
 

@@ -5,7 +5,8 @@ import { initDb } from './db/index.js';
 import { authRouter } from './routes/auth.js';
 import { treesRouter } from './routes/trees.js';
 import { accountRouter } from './routes/account.js';
-import { contactRouter } from './routes/contact.js';
+import { supportRouter } from './routes/support.js';
+import { adminSupportRouter } from './routes/adminSupport.js';
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
 
@@ -23,7 +24,8 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/trees', treesRouter);
 app.use('/api/account', accountRouter);
-app.use('/api/contact', contactRouter);
+app.use('/api/support', supportRouter);
+app.use('/api/admin/support', adminSupportRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

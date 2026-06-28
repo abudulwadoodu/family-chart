@@ -2,7 +2,7 @@ import { SESClient, SendRawEmailCommand } from '@aws-sdk/client-ses';
 
 let sesClient;
 
-function getSesClient() {
+export function getSesClient() {
   if (!sesClient) {
     sesClient = new SESClient({ region: process.env.SES_REGION || process.env.AWS_REGION || 'us-east-1' });
   }
@@ -11,16 +11,16 @@ function getSesClient() {
 
 // Strips CR/LF so user-controlled values (name, subject, reply-to) can't be
 // used to inject extra headers into the raw MIME message.
-function sanitizeHeaderValue(value) {
+export function sanitizeHeaderValue(value) {
   return String(value).replace(/[\r\n]+/g, ' ').trim();
 }
 
-function sanitizeFilename(value) {
+export function sanitizeFilename(value) {
   return sanitizeHeaderValue(value).replace(/"/g, "'");
 }
 
-function buildRawEmail({ from, to, replyTo, subject, bodyText, attachment }) {
-  const boundary = `----ContactForm${Date.now()}-${Math.random().toString(16).slice(2)}`;
+export function buildRawEmail({ from, to, replyTo, subject, bodyText, attachment }) {
+  const boundary = `----FamilyChart${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const headerLines = [
     `From: ${sanitizeHeaderValue(from)}`,
@@ -59,22 +59,6 @@ function buildRawEmail({ from, to, replyTo, subject, bodyText, attachment }) {
   return [...headerLines, ...bodyLines].join('\r\n');
 }
 
-export async function sendContactEmail({ name, email, subject, message, attachment }) {
-  const sender = process.env.SES_SENDER_EMAIL;
-  const recipient = process.env.SES_RECIPIENT_EMAIL;
-  if (!sender) throw new Error('SES_SENDER_EMAIL is not configured');
-  if (!recipient) throw new Error('SES_RECIPIENT_EMAIL is not configured');
-
-  const bodyText = `New contact form submission\r\n\r\nName: ${name}\r\nEmail: ${email}\r\nSubject: ${subject}\r\n\r\nMessage:\r\n${message}`;
-
-  const raw = buildRawEmail({
-    from: sender,
-    to: recipient,
-    replyTo: email,
-    subject: `[Family Chart Contact] ${subject} - ${name}`,
-    bodyText,
-    attachment,
-  });
-
+export async function sendRawEmail(raw) {
   await getSesClient().send(new SendRawEmailCommand({ RawMessage: { Data: Buffer.from(raw, 'utf8') } }));
 }

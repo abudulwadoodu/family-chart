@@ -6,4 +6,5 @@ export function setBaseTestEnv() {
   process.env.SES_REGION = 'ap-south-2';
   process.env.SES_SENDER_EMAIL = 'no-reply@familychart.app';
   process.env.SES_RECIPIENT_EMAIL = 'support@familychart.app';
+  process.env.ADMIN_EMAILS = 'admin@example.com';
 }

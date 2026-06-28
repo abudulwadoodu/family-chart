@@ -24,7 +24,7 @@ export async function requireAuth(req, res, next) {
     const payload = await getVerifier().verify(token);
     const user = findOrCreateUserByCognitoSub(payload.sub, payload.email);
     updateLastLogin(user.id);
-    req.user = { id: user.id, email: user.email };
+    req.user = { id: user.id, email: user.email, isAdmin: Boolean(user.is_admin) };
     return next();
   } catch (_error) {
     return res.status(401).json({ error: 'Authentication required' });

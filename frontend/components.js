@@ -3,8 +3,9 @@ import { escapeHtml, formatRelativeTime } from './utils.js';
 
 const ROLE_LABELS = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
 
-export function renderSidebarNav({ email, activeView }) {
+export function renderSidebarNav({ email, activeView, isAdmin }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
+  const isTicketsActive = activeView === 'myTickets' || activeView === 'ticketDetail';
 
   return `
     <aside class="sidebar" id="sidebar">
@@ -25,6 +26,16 @@ export function renderSidebarNav({ email, activeView }) {
         <button type="button" class="nav-item ${activeView === 'contact' ? 'nav-item-active' : ''}" id="nav-contact-btn">
           ${icon('mail')}<span class="nav-label">Contact Us</span>
         </button>
+        <button type="button" class="nav-item ${isTicketsActive ? 'nav-item-active' : ''}" id="nav-tickets-btn">
+          ${icon('clock')}<span class="nav-label">My Support Tickets</span>
+        </button>
+        ${
+          isAdmin
+            ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn">
+                ${icon('settings')}<span class="nav-label">Admin</span>
+              </button>`
+            : ''
+        }
       </nav>
       <div class="sidebar-foot">
         <div class="sidebar-user">
@@ -418,7 +429,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
 // Contact Us page
 // ---------------------------------------------------------------------------
 
-export const CONTACT_SUBJECTS = [
+export const SUPPORT_CATEGORIES = [
   'General Question',
   'Technical Support',
   'Bug Report',
@@ -461,30 +472,25 @@ export function renderContactPageMarkup({ email }) {
 }
 
 function renderContactFormCard({ email }) {
-  const subjectOptions = CONTACT_SUBJECTS.map(
-    (subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`
+  const categoryOptions = SUPPORT_CATEGORIES.map(
+    (category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`
   ).join('');
 
   return `
     <section class="card contact-form-card">
       <h2 class="contact-card-title">Send us a message</h2>
+      <p class="contact-form-replyto muted">Replies will be sent to <strong>${escapeHtml(email || 'your account email')}</strong>.</p>
       <form id="contact-form" class="contact-form" novalidate>
-        <div class="contact-form-row">
-          <label>Name
-            <input type="text" name="name" id="contact-name-input" maxlength="120" autocomplete="name" aria-required="true" />
-            <span class="field-error" id="contact-name-error" role="alert"></span>
-          </label>
-          <label>Email Address
-            <input type="email" name="email" id="contact-email-input" maxlength="254" autocomplete="email" aria-required="true" value="${escapeHtml(email || '')}" />
-            <span class="field-error" id="contact-email-error" role="alert"></span>
-          </label>
-        </div>
         <label>Subject
-          <select name="subject" id="contact-subject-input" aria-required="true">
-            <option value="" disabled selected>Select a topic&hellip;</option>
-            ${subjectOptions}
-          </select>
+          <input type="text" name="subject" id="contact-subject-input" maxlength="120" placeholder="A short summary of your request" aria-required="true" />
           <span class="field-error" id="contact-subject-error" role="alert"></span>
+        </label>
+        <label>Category
+          <select name="category" id="contact-category-input" aria-required="true">
+            <option value="" disabled selected>Select a topic&hellip;</option>
+            ${categoryOptions}
+          </select>
+          <span class="field-error" id="contact-category-error" role="alert"></span>
         </label>
         <label>Message
           <textarea name="message" id="contact-message-input" rows="6" maxlength="5000" aria-required="true" placeholder="Tell us what's on your mind (minimum 20 characters)&hellip;"></textarea>
@@ -557,18 +563,5 @@ function renderContactFaq() {
       `
       ).join('')}
     </section>
-  `;
-}
-
-export function renderContactSuccessMarkup() {
-  return `
-    <div class="contact-page">
-      <section class="card contact-success-card">
-        <div class="contact-success-icon">${icon('check')}</div>
-        <h2>Thank you!</h2>
-        <p class="muted">We've received your message and will get back to you as soon as possible.</p>
-        <button type="button" id="contact-back-btn" class="btn btn-primary">Back to Dashboard</button>
-      </section>
-    </div>
   `;
 }
