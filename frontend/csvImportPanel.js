@@ -6,6 +6,13 @@
 // (required/optional columns, date format, relationship ids) plus a preview
 // step before committing. Deliberately decoupled from main.js's app state,
 // like gedcomWizard.js - only depends on `api`/`showModal`/`showToast`.
+//
+// Supports two modes, mirroring gedcomWizard.js:
+// - 'existing' (default): imports into the already-open treeId.
+// - 'create': prompts for a new tree name, creates it via POST /api/trees
+//   right before the import-csv commit, then reports {treeId, treeName,
+//   openTree} back through onImported so main.js can decide whether to
+//   navigate into it - used from the My Trees home page.
 import { showModal, showToast } from './ui.js';
 import { escapeHtml, downloadCsv } from './utils.js';
 import { icon } from './icons.js';
@@ -14,9 +21,11 @@ import { buildCsvText, REQUIRED_COLUMNS, OPTIONAL_COLUMNS, SAMPLE_ROWS } from '.
 const SUMMARY_TEXT =
   'The CSV template uses unique IDs to define relationships. Parent-child relationships are created automatically using father_id and mother_id. Open the sample template in Excel or Google Sheets to prepare your family tree.';
 
-export function openCsvImportPanel({ api, treeId, onImported }) {
+export function openCsvImportPanel({ api, treeId, mode = 'existing', onImported }) {
   const state = {
     view: 'upload', // 'upload' | 'reviewing'
+    mode,
+    newTreeName: '',
     file: null,
     uploadError: '',
     validating: false,
@@ -39,10 +48,20 @@ function bodyForView(state) {
 }
 
 function renderUploadView(state) {
+  const needsTreeName = state.mode === 'create';
   return `
     <button type="button" class="icon-btn modal-close" id="csv-panel-close-btn" aria-label="Close">${icon('close')}</button>
     <h3>Import CSV</h3>
     <p class="modal-message">${escapeHtml(SUMMARY_TEXT)}</p>
+
+    ${
+      needsTreeName
+        ? `<div class="wizard-option-group">
+             <label for="csv-panel-new-tree-name">New tree name</label>
+             <input type="text" id="csv-panel-new-tree-name" placeholder="e.g. Smith Family Tree" value="${escapeHtml(state.newTreeName)}" maxlength="120" />
+           </div>`
+        : ''
+    }
 
     <div class="csv-help-section">
       <p class="csv-help-title">Required columns</p>
@@ -73,7 +92,7 @@ function renderUploadView(state) {
 
     <div class="modal-actions row">
       <button type="button" class="btn-secondary" id="csv-panel-cancel-btn">Cancel</button>
-      <button type="button" class="btn btn-primary" id="csv-panel-validate-btn" ${state.file ? '' : 'disabled'}>
+      <button type="button" class="btn btn-primary" id="csv-panel-validate-btn" ${state.file && (!needsTreeName || state.newTreeName.trim()) ? '' : 'disabled'}>
         ${state.validating ? 'Validating...' : 'Validate File'}
       </button>
     </div>
@@ -129,6 +148,10 @@ function bindListeners(modal, state, ctx) {
       downloadCsv('family-import-template-sample.csv', buildCsvText(SAMPLE_ROWS));
     });
 
+    root.querySelector('#csv-panel-new-tree-name')?.addEventListener('input', (event) => {
+      state.newTreeName = event.target.value;
+    });
+
     const fileInput = root.querySelector('#csv-panel-file-input');
     root.querySelector('.gedcom-dropzone')?.addEventListener('click', (event) => {
       event.preventDefault();
@@ -143,6 +166,10 @@ function bindListeners(modal, state, ctx) {
     root.querySelector('#csv-panel-cancel-btn')?.addEventListener('click', close);
     root.querySelector('#csv-panel-validate-btn')?.addEventListener('click', async () => {
       if (!state.file || state.validating) return;
+      if (state.mode === 'create' && !state.newTreeName.trim()) {
+        showToast('Enter a name for the new tree.', { type: 'error' });
+        return;
+      }
       state.validating = true;
       render();
       try {
@@ -168,15 +195,26 @@ function bindListeners(modal, state, ctx) {
       render();
     });
     root.querySelector('#csv-panel-confirm-btn')?.addEventListener('click', async () => {
-      if (state.importing || !state.file || !treeId) return;
+      if (state.importing || !state.file) return;
+      if (state.mode !== 'create' && !treeId) return;
       state.importing = true;
       render();
       try {
+        let targetTreeId = treeId;
+        let targetTreeName;
+        if (state.mode === 'create') {
+          const created = await api('/api/trees', { method: 'POST', body: JSON.stringify({ name: state.newTreeName.trim() }) });
+          targetTreeId = created.id;
+          targetTreeName = created.name;
+        }
+
         const formData = new FormData();
         formData.append('file', state.file);
-        const result = await api(`/api/trees/${treeId}/import-csv`, { method: 'POST', body: formData });
+        const result = await api(`/api/trees/${targetTreeId}/import-csv`, { method: 'POST', body: formData });
         close();
-        onImported?.(result);
+        onImported?.(
+          state.mode === 'create' ? { ...result, treeId: targetTreeId, treeName: targetTreeName, openTree: true } : result
+        );
       } catch (error) {
         state.importing = false;
         showToast(error.message || 'Import failed.', { type: 'error' });

@@ -763,8 +763,24 @@ function renderTreesLandingMarkup() {
       subtitle: 'Create, manage, and collaborate on your family trees.',
       primaryActionId: 'new-tree-cta',
       primaryActionLabel: 'New Tree',
-      secondaryActionId: 'import-gedcom-cta',
-      secondaryActionLabel: 'Import GEDCOM',
+      templateMenu: {
+        id: 'landing-template-options',
+        triggerId: 'download-template-btn',
+        label: 'Download Template',
+        items: [
+          { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
+          { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
+        ],
+      },
+      importMenu: {
+        id: 'landing-import-options',
+        triggerId: 'import-tree-cta',
+        label: 'Import',
+        items: [
+          { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+          { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+        ],
+      },
     })}
     ${renderTreesToolbarRow({ search: state.treeSearch, sort: state.treeSort })}
     <div id="tree-grid" class="tree-grid"></div>
@@ -776,13 +792,9 @@ function attachTreesLandingListeners() {
     state.dashboardView = 'createTree';
     render();
   });
-  document.querySelector('#import-gedcom-cta').addEventListener('click', () => {
-    openGedcomImportWizard({
-      api,
-      mode: 'create',
-      treeOptions: editableTreeOptions(),
-      onImported: handleGedcomImported,
-    });
+  bindDropdownTriggers(document.querySelector('.page-header'));
+  document.querySelectorAll('.page-header .dropdown-item').forEach((btn) => {
+    btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
   });
   document.querySelector('#tree-search-input').addEventListener('input', (event) => {
     state.treeSearch = event.target.value;
@@ -794,14 +806,41 @@ function attachTreesLandingListeners() {
   });
 }
 
+function handleTreesLandingHeaderAction(action) {
+  if (action === 'download-csv-template-blank') return handleDownloadBlankCsvTemplate();
+  if (action === 'download-csv-template-sample') return handleDownloadSampleCsvTemplate();
+  if (action === 'import-csv') {
+    return openCsvImportPanel({ api, mode: 'create', onImported: handleCsvImported });
+  }
+  if (action === 'import-gedcom') {
+    return openGedcomImportWizard({
+      api,
+      mode: 'create',
+      treeOptions: editableTreeOptions(),
+      onImported: handleGedcomImported,
+    });
+  }
+}
+
 function editableTreeOptions() {
   return state.trees.filter((t) => t.role === 'owner' || t.role === 'editor').map((t) => ({ id: t.id, name: t.name }));
 }
 
 async function handleCsvImported(result) {
-  await loadTree(state.selectedTreeId);
   const warningCount = result.warnings?.length || 0;
   const suffix = warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : '';
+
+  // Imports from within an open tree (mode: 'existing') target
+  // state.selectedTreeId directly; imports that created a new tree from the
+  // home page (mode: 'create') report treeId/openTree instead, mirroring
+  // handleGedcomImported's create-flow contract.
+  if (result.treeId) {
+    await loadTrees();
+    if (result.openTree) await loadTree(result.treeId);
+  } else if (state.selectedTreeId) {
+    await loadTree(state.selectedTreeId);
+  }
+
   showToast(`Imported ${result.imported_count} member${result.imported_count === 1 ? '' : 's'}${suffix}.`);
 }
 
@@ -1275,7 +1314,6 @@ function handleViewerSettingsAction(action) {
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
   if (action === 'download-csv-template-blank') return handleDownloadBlankCsvTemplate();
   if (action === 'download-csv-template-sample') return handleDownloadSampleCsvTemplate();
-  if (action === 'download-json-template') return handleDownloadJsonTemplate();
   if (action === 'import-csv') {
     return openCsvImportPanel({ api, treeId: state.selectedTreeId, onImported: handleCsvImported });
   }
@@ -2621,40 +2659,6 @@ function handleDownloadBlankCsvTemplate() {
 
 function handleDownloadSampleCsvTemplate() {
   downloadCsv('family-import-template-sample.csv', buildCsvText(SAMPLE_ROWS));
-}
-
-function handleDownloadJsonTemplate() {
-  const people = SAMPLE_ROWS.map((row) => {
-    const [id, first_name, middle_name, last_name, gender, birth_date, birth_place, death_date, death_place, is_living, photo_url, occupation, email, phone, notes, father_id, mother_id, spouse_ids] = row;
-    const parents = [father_id, mother_id].filter(Boolean);
-    return {
-      id,
-      data: {
-        'first name': first_name,
-        ...(middle_name ? { middleName: middle_name } : {}),
-        'last name': last_name,
-        gender,
-        birthday: birth_date,
-        location: birth_place,
-        ...(death_date ? { death: death_date } : {}),
-        ...(death_place ? { deathPlace: death_place } : {}),
-        isLiving: is_living === 'TRUE',
-        avatar: photo_url,
-        occupation,
-        email,
-        phone,
-        notes,
-        ...(father_id ? { fatherId: father_id } : {}),
-        ...(mother_id ? { motherId: mother_id } : {}),
-      },
-      rels: {
-        parents,
-        spouses: spouse_ids ? spouse_ids.split(';').filter(Boolean) : [],
-        children: SAMPLE_ROWS.filter((r) => r[15] === id || r[16] === id).map((r) => r[0]),
-      },
-    };
-  });
-  downloadJson('family-import-template.json', buildJsonExportEnvelope(people, { treeName: 'Sample Family' }));
 }
 
 async function loadSession() {

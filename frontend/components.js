@@ -71,6 +71,8 @@ export function renderPageHeader({
   primaryActionLabel,
   secondaryActionId,
   secondaryActionLabel,
+  importMenu,
+  templateMenu,
 }) {
   return `
     <header class="page-header">
@@ -80,9 +82,22 @@ export function renderPageHeader({
       </div>
       <div class="page-header-actions">
         ${
-          secondaryActionId
-            ? `<button type="button" id="${secondaryActionId}" class="btn btn-secondary">${icon('upload')}<span>${escapeHtml(secondaryActionLabel)}</span></button>`
+          templateMenu
+            ? `<div class="tree-card-menu-wrap">
+                 <button type="button" id="${templateMenu.triggerId}" class="btn btn-secondary menu-trigger" data-menu-trigger="${templateMenu.id}">${icon('download')}<span>${escapeHtml(templateMenu.label)}</span></button>
+                 ${dropdownMenu({ id: templateMenu.id, items: templateMenu.items })}
+               </div>`
             : ''
+        }
+        ${
+          importMenu
+            ? `<div class="tree-card-menu-wrap">
+                 <button type="button" id="${importMenu.triggerId}" class="btn btn-secondary menu-trigger" data-menu-trigger="${importMenu.id}">${icon('upload')}<span>${escapeHtml(importMenu.label)}</span></button>
+                 ${dropdownMenu({ id: importMenu.id, items: importMenu.items })}
+               </div>`
+            : secondaryActionId
+              ? `<button type="button" id="${secondaryActionId}" class="btn btn-secondary">${icon('upload')}<span>${escapeHtml(secondaryActionLabel)}</span></button>`
+              : ''
         }
         ${
           primaryActionId
@@ -245,7 +260,6 @@ export function renderTreeViewerHeader({ treeName, role }) {
   if (canEdit) {
     settingsItems.push({ action: 'download-csv-template-blank', label: 'Download Blank CSV Template', icon: 'download' });
     settingsItems.push({ action: 'download-csv-template-sample', label: 'Download Sample CSV Template', icon: 'download' });
-    settingsItems.push({ action: 'download-json-template', label: 'Download JSON Template', icon: 'download' });
   }
   if (isOwner) {
     settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });

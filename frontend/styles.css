@@ -2349,7 +2349,8 @@ a.contact-info-value:hover {
 }
 
 #wizard-new-tree-name,
-#wizard-target-tree-select {
+#wizard-target-tree-select,
+#csv-panel-new-tree-name {
   margin: 0 0 var(--sp-2) var(--sp-5);
 }
 
