@@ -1,0 +1,4 @@
+id,first_name,middle_name,last_name,gender,birth_date,birth_place,death_date,death_place,is_living,photo_url,occupation,email,phone,notes,father_id,mother_id,spouse_ids
+p1,John,Michael,Doe,M,1950-01-01,New York,,,TRUE,,Engineer,john@example.com,555-1234,Main person,,,p4
+p4,Jane,,Doe,F,1952-03-15,Boston,,,TRUE,,Teacher,jane@example.com,555-5678,Spouse,,,p1
+c1,Chris,,Doe,M,1980-06-10,New York,,,TRUE,,,,,Child of John and Jane,p1,p4,

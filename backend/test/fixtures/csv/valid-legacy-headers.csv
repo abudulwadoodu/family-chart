@@ -1,0 +1,4 @@
+id,first_name,last_name,birthday,location,notes,avatar,gender,father_id,mother_id,spouse_ids,child_ids
+p1,John,Doe,1950,New York,Main person,,M,,,p4,c1
+p4,Jane,Doe,1952,Boston,Spouse,,F,,,p1,c1
+c1,Chris,Doe,1980,New York,,,M,,,,

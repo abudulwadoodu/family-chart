@@ -243,7 +243,8 @@ export function renderTreeViewerHeader({ treeName, role }) {
 
   const settingsItems = [];
   if (canEdit) {
-    settingsItems.push({ action: 'download-csv-template', label: 'Download CSV Template', icon: 'download' });
+    settingsItems.push({ action: 'download-csv-template-blank', label: 'Download Blank CSV Template', icon: 'download' });
+    settingsItems.push({ action: 'download-csv-template-sample', label: 'Download Sample CSV Template', icon: 'download' });
     settingsItems.push({ action: 'download-json-template', label: 'Download JSON Template', icon: 'download' });
   }
   if (isOwner) {
@@ -268,8 +269,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
         <button type="button" id="save-btn" class="btn btn-primary" ${canEdit ? '' : 'disabled'}>${icon('save')}<span>Save</span></button>
         ${
           canEdit
-            ? `<input type="file" id="import-tree-csv-input" accept=".csv,text/csv" hidden />
-               <input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
+            ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
                <div class="tree-card-menu-wrap">
                  <button type="button" id="import-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="import-options">${icon('upload')}<span>Import</span></button>
                  ${dropdownMenu({

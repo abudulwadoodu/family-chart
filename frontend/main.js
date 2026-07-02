@@ -28,6 +28,9 @@ import { icon } from './icons.js';
 import { api } from './api.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
+import { openCsvImportPanel } from './csvImportPanel.js';
+import { buildJsonExportEnvelope } from './jsonExport.js';
+import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
@@ -795,6 +798,13 @@ function editableTreeOptions() {
   return state.trees.filter((t) => t.role === 'owner' || t.role === 'editor').map((t) => ({ id: t.id, name: t.name }));
 }
 
+async function handleCsvImported(result) {
+  await loadTree(state.selectedTreeId);
+  const warningCount = result.warnings?.length || 0;
+  const suffix = warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : '';
+  showToast(`Imported ${result.imported_count} member${result.imported_count === 1 ? '' : 's'}${suffix}.`);
+}
+
 async function handleGedcomImported(result) {
   await loadTrees();
   // GEDCOM import replaces the target tree's entire contents (matching
@@ -962,12 +972,13 @@ async function handleDeleteTree(treeId, treeName) {
 async function handleExportTreeById(treeId, format) {
   try {
     const tree = state.trees.find((t) => t.id === treeId);
-    const payload = await api(`/api/trees/${treeId}`);
-    const baseName = slugifyFilename(tree?.name || payload.tree.name);
+    const baseName = slugifyFilename(tree?.name || '');
     if (format === 'csv') {
-      downloadCsv(`${baseName}.csv`, treeDataToCsv(payload.data));
+      const payload = await api(`/api/trees/${treeId}`);
+      downloadCsv(`${slugifyFilename(tree?.name || payload.tree.name)}.csv`, treeDataToCsv(payload.data));
     } else {
-      downloadJson(`${baseName}.json`, payload.data);
+      const { envelope } = await api(`/api/trees/${treeId}/export-json`);
+      downloadJson(`${baseName || slugifyFilename(envelope.tree.name)}.json`, envelope);
     }
     showToast('Tree exported successfully.');
   } catch (error) {
@@ -1066,7 +1077,6 @@ function attachTreeViewerListeners() {
   });
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
-  document.querySelector('#import-tree-csv-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
 
@@ -1263,9 +1273,12 @@ function handleResetView() {
 function handleViewerSettingsAction(action) {
   if (action === 'rename') return openRenameTreeModal();
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
-  if (action === 'download-csv-template') return handleDownloadCsvTemplate();
+  if (action === 'download-csv-template-blank') return handleDownloadBlankCsvTemplate();
+  if (action === 'download-csv-template-sample') return handleDownloadSampleCsvTemplate();
   if (action === 'download-json-template') return handleDownloadJsonTemplate();
-  if (action === 'import-csv') return document.querySelector('#import-tree-csv-input')?.click();
+  if (action === 'import-csv') {
+    return openCsvImportPanel({ api, treeId: state.selectedTreeId, onImported: handleCsvImported });
+  }
   if (action === 'import-json') return document.querySelector('#import-tree-json-input')?.click();
   if (action === 'import-gedcom') {
     return openGedcomImportWizard({
@@ -1338,7 +1351,7 @@ function handleExportCurrentTree(format) {
   if (format === 'csv') {
     downloadCsv(`${baseName}.csv`, treeDataToCsv(data));
   } else {
-    downloadJson(`${baseName}.json`, data);
+    downloadJson(`${baseName}.json`, buildJsonExportEnvelope(data, { treeName: state.selectedTreeName }));
   }
   showToast('Tree exported successfully.');
 }
@@ -2564,6 +2577,9 @@ async function handleCreateTree(event) {
   }
 }
 
+// CSV import goes through openCsvImportPanel (see csvImportPanel.js) for its
+// guided preview/confirm flow; this handler now only serves the plain JSON
+// file input, since JSON's ask is a format change, not a UI change.
 async function handleImportTree(event) {
   const fileInput = event.target;
   const file = fileInput.files?.[0];
@@ -2575,9 +2591,6 @@ async function handleImportTree(event) {
     return;
   }
 
-  const isJson = /\.json$/i.test(file.name) || file.type === 'application/json';
-  const endpoint = isJson ? 'import-json' : 'import-csv';
-
   const importBtn = document.querySelector('#import-tree-btn');
   const label = importBtn?.querySelector('span');
   if (importBtn) importBtn.disabled = true;
@@ -2586,7 +2599,7 @@ async function handleImportTree(event) {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const result = await api(`/api/trees/${state.selectedTreeId}/${endpoint}`, {
+    const result = await api(`/api/trees/${state.selectedTreeId}/import-json`, {
       method: 'POST',
       body: formData,
     });
@@ -2602,53 +2615,46 @@ async function handleImportTree(event) {
   }
 }
 
-function handleDownloadCsvTemplate() {
-  const lines = [
-    'id,first_name,last_name,birthday,location,notes,avatar,gender,father_id,mother_id,spouse_ids,child_ids',
-    'p1,John,Doe,1985,New York,"Main person note",,M,p2,p3,p4,c1;c2',
-    'p4,Jane,Doe,1987,New York,"Spouse note",,F,,,p1,c1;c2',
-    'p2,Robert,Doe,1960,Boston,, ,M,,,p3,p1',
-    'p3,Mary,Doe,1962,Boston,, ,F,,,p2,p1',
-    'c1,Chris,Doe,2010,Chicago,, ,M,p1,p4,,',
-    'c2,Emma,Doe,2012,Chicago,, ,F,p1,p4,,',
-  ];
-  downloadCsv('family-import-template.csv', lines.join('\n'));
+function handleDownloadBlankCsvTemplate() {
+  downloadCsv('family-import-template-blank.csv', buildCsvText([]));
+}
+
+function handleDownloadSampleCsvTemplate() {
+  downloadCsv('family-import-template-sample.csv', buildCsvText(SAMPLE_ROWS));
 }
 
 function handleDownloadJsonTemplate() {
-  const people = [
-    {
-      id: 'p1',
-      data: { 'first name': 'John', 'last name': 'Doe', birthday: 1985, location: 'New York', notes: 'Main person note', avatar: '', gender: 'M' },
-      rels: { parents: ['p2', 'p3'], children: ['c1', 'c2'], spouses: ['p4'] },
-    },
-    {
-      id: 'p4',
-      data: { 'first name': 'Jane', 'last name': 'Doe', birthday: 1987, location: 'New York', notes: 'Spouse note', avatar: '', gender: 'F' },
-      rels: { parents: [], children: ['c1', 'c2'], spouses: ['p1'] },
-    },
-    {
-      id: 'p2',
-      data: { 'first name': 'Robert', 'last name': 'Doe', birthday: 1960, location: 'Boston', notes: '', avatar: '', gender: 'M' },
-      rels: { parents: [], children: ['p1'], spouses: ['p3'] },
-    },
-    {
-      id: 'p3',
-      data: { 'first name': 'Mary', 'last name': 'Doe', birthday: 1962, location: 'Boston', notes: '', avatar: '', gender: 'F' },
-      rels: { parents: [], children: ['p1'], spouses: ['p2'] },
-    },
-    {
-      id: 'c1',
-      data: { 'first name': 'Chris', 'last name': 'Doe', birthday: 2010, location: 'Chicago', notes: '', avatar: '', gender: 'M' },
-      rels: { parents: ['p1', 'p4'], children: [], spouses: [] },
-    },
-    {
-      id: 'c2',
-      data: { 'first name': 'Emma', 'last name': 'Doe', birthday: 2012, location: 'Chicago', notes: '', avatar: '', gender: 'F' },
-      rels: { parents: ['p1', 'p4'], children: [], spouses: [] },
-    },
-  ];
-  downloadJson('family-import-template.json', people);
+  const people = SAMPLE_ROWS.map((row) => {
+    const [id, first_name, middle_name, last_name, gender, birth_date, birth_place, death_date, death_place, is_living, photo_url, occupation, email, phone, notes, father_id, mother_id, spouse_ids] = row;
+    const parents = [father_id, mother_id].filter(Boolean);
+    return {
+      id,
+      data: {
+        'first name': first_name,
+        ...(middle_name ? { middleName: middle_name } : {}),
+        'last name': last_name,
+        gender,
+        birthday: birth_date,
+        location: birth_place,
+        ...(death_date ? { death: death_date } : {}),
+        ...(death_place ? { deathPlace: death_place } : {}),
+        isLiving: is_living === 'TRUE',
+        avatar: photo_url,
+        occupation,
+        email,
+        phone,
+        notes,
+        ...(father_id ? { fatherId: father_id } : {}),
+        ...(mother_id ? { motherId: mother_id } : {}),
+      },
+      rels: {
+        parents,
+        spouses: spouse_ids ? spouse_ids.split(';').filter(Boolean) : [],
+        children: SAMPLE_ROWS.filter((r) => r[15] === id || r[16] === id).map((r) => r[0]),
+      },
+    };
+  });
+  downloadJson('family-import-template.json', buildJsonExportEnvelope(people, { treeName: 'Sample Family' }));
 }
 
 async function loadSession() {

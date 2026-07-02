@@ -1,0 +1,23 @@
+{
+  "version": "2.0",
+  "application": "FamilyChart",
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "tree": {
+    "name": "Doe Family",
+    "people": [
+      {
+        "id": "p1",
+        "name": { "first": "John", "middle": "", "last": "Doe" },
+        "gender": "M",
+        "birth": { "date": "1950-01-01", "place": "New York" },
+        "death": { "date": null, "place": null, "isLiving": true },
+        "contact": { "email": "john@example.com", "phone": "" },
+        "occupation": "Engineer",
+        "photoUrl": "",
+        "notes": "Main person",
+        "relationships": { "fatherId": null, "motherId": null, "spouseIds": [], "parentIds": [], "childIds": [] },
+        "extensions": {}
+      }
+    ]
+  }
+}

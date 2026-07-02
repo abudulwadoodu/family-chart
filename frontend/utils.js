@@ -1,3 +1,5 @@
+import { buildCsvText } from './csvTemplate.js';
+
 export function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -47,58 +49,51 @@ export function downloadJson(filename, data) {
   downloadBlob(blob, filename);
 }
 
-// Inverse of the CSV import format (id,first_name,last_name,birthday,location,notes,
-// avatar,gender,father_id,mother_id,spouse_ids,child_ids) - parents aren't labeled
-// father/mother in the underlying {id,data,rels} model, so gender is used as a
-// best-effort heuristic to split rels.parents into the two CSV columns.
+// Inverse of the CSV import format (see frontend/csvTemplate.js's CSV_HEADER).
+// Prefers data.fatherId/motherId (set on import so relationships round-trip
+// exactly) and only falls back to a gender-based heuristic split of
+// rels.parents when those hints are absent - e.g. people imported via
+// GEDCOM, which never sets fatherId/motherId.
 export function treeDataToCsv(people) {
-  const escapeCsvField = (value) => {
-    const str = String(value ?? '');
-    return /["\n,]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-  };
-
   const byId = new Map(people.map((person) => [person.id, person]));
-  const header = [
-    'id',
-    'first_name',
-    'last_name',
-    'birthday',
-    'location',
-    'notes',
-    'avatar',
-    'gender',
-    'father_id',
-    'mother_id',
-    'spouse_ids',
-    'child_ids',
-  ];
 
   const rows = people.map((person) => {
     const data = person.data || {};
     const rels = person.rels || {};
     const parents = rels.parents || [];
-    const fatherId = parents.find((id) => byId.get(id)?.data?.gender === 'M') || parents[0] || '';
-    const motherId = parents.find((id) => id !== fatherId) || '';
+
+    let fatherId = data.fatherId || '';
+    let motherId = data.motherId || '';
+    if (!fatherId && !motherId && parents.length > 0) {
+      fatherId = parents.find((id) => byId.get(id)?.data?.gender === 'M') || '';
+      motherId = parents.find((id) => id !== fatherId && byId.get(id)?.data?.gender === 'F') || parents.find((id) => id !== fatherId) || '';
+    }
+
+    const isLiving = typeof data.isLiving === 'boolean' ? data.isLiving : !data.death;
 
     return [
       person.id,
       data['first name'] || '',
+      data.middleName || '',
       data['last name'] || '',
+      data.gender || '',
       data.birthday || '',
       data.location || '',
-      data.notes || '',
+      data.death && data.death !== 'Y' ? data.death : '',
+      data.deathPlace || '',
+      isLiving ? 'TRUE' : 'FALSE',
       data.avatar || '',
-      data.gender || '',
+      data.occupation || '',
+      data.email || '',
+      data.phone || '',
+      data.notes || '',
       fatherId,
       motherId,
       (rels.spouses || []).join(';'),
-      (rels.children || []).join(';'),
-    ]
-      .map(escapeCsvField)
-      .join(',');
+    ];
   });
 
-  return [header.join(','), ...rows].join('\n');
+  return buildCsvText(rows);
 }
 
 export function downloadCsv(filename, csvText) {

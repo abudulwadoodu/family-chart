@@ -6,8 +6,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
 import { isNonEmptyString, isValidEmail, capitalizeFirst } from '../utils/validation.js';
 import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
-import { parseCsvImport } from '../utils/csvImport.js';
-import { parseJsonImport } from '../utils/jsonImport.js';
+import { parseCsvText, buildRawRows, csvRowsToDomain } from '../utils/csv/index.js';
+import { parseJsonText, jsonExportToDomain, validateJsonPeople, domainToJsonExport } from '../utils/json/index.js';
 import { findUserByEmail } from '../models/userModel.js';
 import { parseGedcom, validateGedcom, gedcomToDomain, writeGedcom } from '../utils/gedcom/index.js';
 
@@ -91,6 +91,50 @@ treesRouter.post('/gedcom/preview', upload.single('file'), (req, res, next) => {
       warnings,
       summary: { ...summary, warningCount: warnings.length, errorCount: validation.errors.length },
       people,
+    });
+  } catch (error) {
+    if (error instanceof Error) return res.status(400).json({ error: error.message });
+    return next(error);
+  }
+});
+
+// Parses, validates, and maps a CSV file without persisting anything -
+// mirrors /gedcom/preview so the CSV import panel can show warnings/row
+// numbers before the user confirms the import.
+treesRouter.post('/csv/preview', upload.single('file'), (req, res, next) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: 'CSV file is required' });
+
+    const csvText = req.file.buffer.toString('utf8');
+    const parsed = parseCsvText(csvText);
+    const rawRows = buildRawRows(parsed);
+    const { people, errors, warnings, summary } = csvRowsToDomain(rawRows);
+
+    return res.json({ ok: errors.length === 0, errors, warnings, summary, people });
+  } catch (error) {
+    if (error instanceof Error) return res.status(400).json({ error: error.message });
+    return next(error);
+  }
+});
+
+// Same idea for JSON: parses (auto-detecting legacy bare-array vs versioned
+// envelope), validates, and returns the mapped people without persisting.
+treesRouter.post('/json/preview', upload.single('file'), (req, res, next) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: 'JSON file is required' });
+
+    const jsonText = req.file.buffer.toString('utf8');
+    const parsed = parseJsonText(jsonText);
+    const { people: mapped, warnings: mapWarnings } = jsonExportToDomain(parsed);
+    const { errors, warnings: validationWarnings, cleanedPeople } = validateJsonPeople(mapped);
+    const warnings = [...mapWarnings, ...validationWarnings];
+
+    return res.json({
+      ok: errors.length === 0,
+      errors,
+      warnings,
+      summary: { rowCount: mapped.length, importedCount: cleanedPeople.length, warningCount: warnings.length },
+      people: cleanedPeople,
     });
   } catch (error) {
     if (error instanceof Error) return res.status(400).json({ error: error.message });
@@ -183,17 +227,20 @@ treesRouter.post(
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'CSV file is required' });
       const csvText = req.file.buffer.toString('utf8');
-      const importedData = parseCsvImport(csvText);
-      const treeId = Number(req.params.id);
+      const parsed = parseCsvText(csvText);
+      const rawRows = buildRawRows(parsed);
+      const { people, errors, warnings } = csvRowsToDomain(rawRows);
+      if (errors.length > 0) return res.status(400).json({ error: errors[0].message, errors });
 
+      const treeId = Number(req.params.id);
       const db = getDb();
       db.prepare(
         `INSERT INTO family_data (tree_id, json_data, updated_at)
          VALUES (?, ?, datetime('now'))
          ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      ).run(treeId, JSON.stringify(importedData));
+      ).run(treeId, JSON.stringify(people));
 
-      return res.json({ ok: true, imported_count: importedData.length });
+      return res.json({ ok: true, imported_count: people.length, warnings });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ error: error.message });
       return next(error);
@@ -209,17 +256,21 @@ treesRouter.post(
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'JSON file is required' });
       const jsonText = req.file.buffer.toString('utf8');
-      const importedData = parseJsonImport(jsonText);
-      const treeId = Number(req.params.id);
+      const parsed = parseJsonText(jsonText);
+      const { people: mapped, warnings: mapWarnings } = jsonExportToDomain(parsed);
+      const { errors, warnings: validationWarnings, cleanedPeople } = validateJsonPeople(mapped);
+      if (errors.length > 0) return res.status(400).json({ error: errors[0].message, errors });
+      const warnings = [...mapWarnings, ...validationWarnings];
 
+      const treeId = Number(req.params.id);
       const db = getDb();
       db.prepare(
         `INSERT INTO family_data (tree_id, json_data, updated_at)
          VALUES (?, ?, datetime('now'))
          ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      ).run(treeId, JSON.stringify(importedData));
+      ).run(treeId, JSON.stringify(cleanedPeople));
 
-      return res.json({ ok: true, imported_count: importedData.length });
+      return res.json({ ok: true, imported_count: cleanedPeople.length, warnings });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ error: error.message });
       return next(error);
@@ -272,10 +323,10 @@ treesRouter.post(
 );
 
 // GEDCOM generation (FAM synthesis, CONC/CONT folding, export filters) lives
-// once in utils/gedcom rather than being duplicated in frontend JS, so unlike
-// CSV/JSON export this round-trips through the backend. Returns the GEDCOM
-// text as JSON (not a raw file response) so the frontend can keep using its
-// existing JSON-only `api()` helper and build the download blob itself.
+// once in utils/gedcom rather than being duplicated in frontend JS. Returns
+// the GEDCOM text as JSON (not a raw file response) so the frontend can keep
+// using its existing JSON-only `api()` helper and build the download blob
+// itself.
 treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
@@ -295,6 +346,26 @@ treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewe
 
     const gedcom = writeGedcom(people, options);
     return res.json({ ok: true, gedcom });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// The versioned JSON envelope's nested schema (birth/death/relationships/
+// contact) lives once in utils/json rather than being duplicated in
+// frontend JS, matching the export-gedcom precedent above.
+treesRouter.get('/:id/export-json', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const db = getDb();
+    const tree = db.prepare('SELECT id, name FROM trees WHERE id = ?').get(treeId);
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    const familyData = db.prepare('SELECT json_data FROM family_data WHERE tree_id = ?').get(treeId);
+    const people = familyData ? JSON.parse(familyData.json_data) : [];
+
+    const envelope = domainToJsonExport(people, { treeName: tree.name });
+    return res.json({ ok: true, envelope });
   } catch (error) {
     return next(error);
   }

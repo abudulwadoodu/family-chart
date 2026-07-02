@@ -1,0 +1,7 @@
+[
+  {
+    "id": "p1",
+    "data": { "first name": "John", "last name": "Doe", "birthday": "1950", "location": "New York", "avatar": "", "gender": "M" },
+    "rels": { "parents": [], "children": [], "spouses": [] }
+  }
+]

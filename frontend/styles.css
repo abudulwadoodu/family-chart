@@ -2359,6 +2359,49 @@ a.contact-info-value:hover {
   }
 }
 
+/* CSV import panel */
+
+.modal-dialog.modal-csv-import {
+  width: min(100%, 620px);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.csv-help-section {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.csv-help-title {
+  margin: var(--sp-2) 0 var(--sp-1);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.csv-help-title:first-child {
+  margin-top: 0;
+}
+
+.csv-help-text {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.csv-help-list {
+  margin: 0 0 var(--sp-4);
+  padding-left: var(--sp-5);
+  display: grid;
+  gap: var(--sp-1);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 /* ------------------------------------------------------------------ */
 /* Support tickets: list, filters, conversation, admin portal          */
 /* ------------------------------------------------------------------ */
