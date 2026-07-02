@@ -1511,6 +1511,182 @@ button.secondary:active,
 }
 
 /* ------------------------------------------------------------------ */
+/* Focus Mode (maximize the tree)                                     */
+/* ------------------------------------------------------------------ */
+
+.tree-focus-target {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.focus-mode-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Applied to <body> while Focus Mode is active. Everything outside the
+   focused container (sidebar, header, footer, page padding) is hidden via
+   this single ancestor class, so no other component needs to know Focus
+   Mode exists - it only ever inspects `.tree-focus-target`, which stays
+   mounted and untouched the whole time so the live chart is never rebuilt. */
+body.focus-mode-active {
+  overflow: hidden;
+}
+
+body.focus-mode-active .app-shell > .sidebar,
+body.focus-mode-active .sidebar-overlay,
+body.focus-mode-active .mobile-topbar,
+body.focus-mode-active .app-footer,
+body.focus-mode-active .viewer-header,
+body.focus-mode-active .content > *:not(.tree-focus-target) {
+  display: none !important;
+}
+
+body.focus-mode-active .content {
+  padding: 0;
+  max-width: none;
+  height: 100vh;
+}
+
+body.focus-mode-active .main-area {
+  width: 100%;
+}
+
+.focus-mode-target {
+  transition: none;
+}
+
+body.focus-mode-active .focus-mode-target {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: var(--bg-page);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+body.focus-mode-active .focus-mode-target .tree-toolbar-left {
+  display: none;
+}
+
+/* The rest of the toolbar row (view-mode toggle, reset-view, maximize) is
+   hidden in Focus Mode - only Search Person survives, repositioned as a
+   floating control so it stays reachable without the row it used to live in. */
+body.focus-mode-active .focus-mode-target .tree-toolbar-row {
+  position: fixed;
+  top: var(--sp-5);
+  left: var(--sp-5);
+  z-index: 1300;
+  width: auto;
+  margin: 0;
+  animation: focus-mode-toolbar-in 0.26s ease both;
+  animation-delay: 0.05s;
+}
+
+body.focus-mode-active .focus-mode-target .member-search {
+  min-width: 260px;
+}
+
+body.focus-mode-active .focus-mode-target .chart-container {
+  flex: 1;
+  height: 100%;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+/* Smooth entrance/exit: fade + a tiny scale, matching the auth card's
+   entrance timing (var(--transition-base)) rather than a jarring cut. */
+body.focus-mode-transitioning .focus-mode-target {
+  animation: focus-mode-fade 0.26s ease both;
+}
+
+@keyframes focus-mode-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.focus-mode-toolbar {
+  position: fixed;
+  top: var(--sp-5);
+  right: var(--sp-5);
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-lg);
+  animation: focus-mode-toolbar-in 0.26s ease both;
+  animation-delay: 0.05s;
+}
+
+@keyframes focus-mode-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.focus-mode-toolbar-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+}
+
+.focus-mode-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border-strong);
+  margin: 0 var(--sp-1);
+}
+
+@media (max-width: 700px) {
+  .focus-mode-toolbar {
+    top: auto;
+    bottom: var(--sp-4);
+    right: 50%;
+    transform: translateX(50%);
+  }
+
+  .focus-mode-toolbar-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  body.focus-mode-active .focus-mode-target .tree-toolbar-row {
+    left: var(--sp-3);
+    right: var(--sp-3);
+  }
+
+  body.focus-mode-active .focus-mode-target .member-search {
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.focus-mode-transitioning .focus-mode-target,
+  .focus-mode-toolbar {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Security settings panel                                            */
 /* ------------------------------------------------------------------ */
 

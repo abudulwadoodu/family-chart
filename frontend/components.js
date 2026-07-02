@@ -339,6 +339,14 @@ export function renderResetViewButton() {
   `;
 }
 
+export function renderFocusModeButton() {
+  return `
+    <button type="button" id="focus-mode-btn" class="chip focus-mode-btn" title="Maximize (F)" aria-label="Maximize family tree" aria-pressed="false">
+      ${icon('maximize')}<span>Maximize</span>
+    </button>
+  `;
+}
+
 export function renderMemberSearch() {
   return `
     <div class="member-search" id="member-search">

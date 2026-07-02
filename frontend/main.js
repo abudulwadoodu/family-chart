@@ -23,6 +23,7 @@ import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
+import { createFocusMode } from './focusMode.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
@@ -43,6 +44,7 @@ import {
   renderTreeViewerHeader,
   renderViewModeToggle,
   renderResetViewButton,
+  renderFocusModeButton,
   renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
@@ -1098,14 +1100,17 @@ function bindGedcomExportOptionsListeners(modal, options, treeId, treeName) {
 function renderTreeViewerMarkup() {
   return `
     ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
-    <div class="tree-toolbar-row">
-      <div class="tree-toolbar-left">
-        <div id="view-mode-toggle"></div>
-        ${renderResetViewButton()}
+    <div id="tree-focus-target" class="tree-focus-target">
+      <div class="tree-toolbar-row">
+        <div class="tree-toolbar-left">
+          <div id="view-mode-toggle"></div>
+          ${renderResetViewButton()}
+          ${renderFocusModeButton()}
+        </div>
+        ${renderMemberSearch()}
       </div>
-      ${renderMemberSearch()}
+      <div id="FamilyChart" class="f3 chart-container"></div>
     </div>
-    <div id="FamilyChart" class="f3 chart-container"></div>
   `;
 }
 
@@ -1118,6 +1123,7 @@ function attachTreeViewerListeners() {
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
+  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -1126,6 +1132,7 @@ function attachTreeViewerListeners() {
   });
 
   attachMemberSearchListeners();
+  setupFocusMode();
 }
 
 // ---------------------------------------------------------------------------
@@ -1307,6 +1314,73 @@ function handleResetView() {
   state.chart.updateMainId(state.defaultMainId);
   state.focusedMainId = state.defaultMainId;
   state.chart.updateTree({ initial: false, tree_position: 'fit', transition_time: 600 });
+}
+
+// ---------------------------------------------------------------------------
+// Focus Mode (maximize the tree)
+// ---------------------------------------------------------------------------
+
+let focusModeController = null;
+
+// Re-fits/re-centers whichever view is currently active to its (now resized)
+// container, without re-rooting or reloading any data - same zero-transition
+// idea as handleResetView, just without changing state.focusedMainId.
+function refitActiveView(transition_time = 0) {
+  if (state.viewMode === 'all-nodes') {
+    state.allNodesGraph?.resetView?.();
+    return;
+  }
+  state.chart?.updateTree?.({ initial: false, tree_position: 'fit', transition_time });
+}
+
+function focusModeZoom(amount) {
+  const svg = state.chart?.svg;
+  if (!svg) return;
+  f3.handlers.manualZoom({ amount, svg, transition_time: 200 });
+}
+
+function focusModeCenter() {
+  if (!state.chart) return;
+  state.chart.updateTree({ initial: false, tree_position: 'main_to_middle', transition_time: 400 });
+}
+
+// Zoom/Center only make sense against the live d3 chart (Focused mode) - All
+// Nodes mode has its own pan/zoom with no equivalent hooks, so disable those
+// two floating-toolbar buttons instead of leaving them as silent no-ops.
+function syncFocusModeToolbarState() {
+  const disabled = state.viewMode === 'all-nodes';
+  focusModeController?.setActionDisabled('zoom-in', disabled);
+  focusModeController?.setActionDisabled('zoom-out', disabled);
+  focusModeController?.setActionDisabled('center', disabled);
+}
+
+// Runs once the enter/exit CSS transition has finished (focusMode.js calls
+// onEnter/onExit after its own transition timer, so this never races a
+// refit against a container that's still mid-resize).
+function onFocusModeTransitionEnd(active) {
+  document.querySelector('#focus-mode-btn')?.setAttribute('aria-pressed', String(active));
+  if (active) syncFocusModeToolbarState();
+  refitActiveView(0);
+}
+
+// Built once per tree-viewer mount (attachTreeViewerListeners() runs once
+// when the viewer page is injected; renderChart() runs again on every
+// Focused/All-Nodes toggle but never touches #tree-focus-target, so the
+// controller doesn't need rebuilding then).
+function setupFocusMode() {
+  focusModeController = createFocusMode({
+    containerSelector: '#tree-focus-target',
+    actions: [
+      { id: 'exit', label: 'Exit Focus Mode (Esc)', iconName: 'minimize', onClick: () => focusModeController.exit() },
+      'separator',
+      { id: 'zoom-in', label: 'Zoom In', iconName: 'zoomIn', onClick: () => focusModeZoom(1.3) },
+      { id: 'zoom-out', label: 'Zoom Out', iconName: 'zoomOut', onClick: () => focusModeZoom(1 / 1.3) },
+      { id: 'fit', label: 'Fit Tree', iconName: 'scan', onClick: () => refitActiveView(400) },
+      { id: 'center', label: 'Center Tree', iconName: 'crosshair', onClick: () => focusModeCenter() },
+    ],
+    onEnter: () => onFocusModeTransitionEnd(true),
+    onExit: () => onFocusModeTransitionEnd(false),
+  });
 }
 
 function handleViewerSettingsAction(action) {
@@ -1630,6 +1704,8 @@ async function handleContactSubmit(event) {
 }
 
 function clearSelectedTreeView() {
+  focusModeController?.destroy();
+  focusModeController = null;
   cleanupAllNodesGraph();
   state.selectedTreeId = null;
   state.selectedTreeRole = null;
@@ -1717,6 +1793,7 @@ function setupViewModeToggle() {
     focusedBtn.disabled = state.viewMode === 'focused';
     allNodesBtn.disabled = state.viewMode === 'all-nodes';
     saveBtn.disabled = !canEdit || state.viewMode === 'all-nodes';
+    syncFocusModeToolbarState();
   };
 
   focusedBtn.addEventListener('click', () => {
