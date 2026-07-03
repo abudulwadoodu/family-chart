@@ -85,6 +85,24 @@ export const icons = {
   fileText: svg(
     '<path d="M7 3.5h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1Z"></path><path d="M14 3.5V8h4"></path><path d="M9 12.5h6"></path><path d="M9 16h6"></path>'
   ),
+  maximize: svg(
+    '<path d="M9 4.5H5.5A1 1 0 0 0 4.5 5.5V9"></path><path d="M15 4.5h3.5a1 1 0 0 1 1 1V9"></path><path d="M19.5 15v3.5a1 1 0 0 1-1 1H15"></path><path d="M4.5 15v3.5a1 1 0 0 0 1 1H9"></path>'
+  ),
+  minimize: svg(
+    '<path d="M9 9H5.5a1 1 0 0 1-1-1V4.5"></path><path d="M15 9h3.5a1 1 0 0 0 1-1V4.5"></path><path d="M19.5 19.5V16a1 1 0 0 0-1-1H15"></path><path d="M4.5 19.5V16a1 1 0 0 1 1-1H9"></path>'
+  ),
+  zoomIn: svg(
+    '<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M19.5 19.5 15.4 15.4"></path><path d="M10.5 7.5v6"></path><path d="M7.5 10.5h6"></path>'
+  ),
+  zoomOut: svg(
+    '<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M19.5 19.5 15.4 15.4"></path><path d="M7.5 10.5h6"></path>'
+  ),
+  scan: svg(
+    '<path d="M4.5 9V6.5a2 2 0 0 1 2-2H9"></path><path d="M15 4.5h2.5a2 2 0 0 1 2 2V9"></path><path d="M19.5 15v2.5a2 2 0 0 1-2 2H15"></path><path d="M9 19.5H6.5a2 2 0 0 1-2-2V15"></path><rect x="8.5" y="8.5" width="7" height="7" rx="1"></rect>'
+  ),
+  crosshair: svg(
+    '<circle cx="12" cy="12" r="7"></circle><path d="M12 3v3"></path><path d="M12 18v3"></path><path d="M3 12h3"></path><path d="M18 12h3"></path><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"></circle>'
+  ),
 };
 
 export function icon(name) {
