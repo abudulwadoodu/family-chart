@@ -247,6 +247,7 @@ Browser (Amplify Auth)                  Express backend                 AWS Cogn
 
 ### Infrastructure (Terraform)
 
+<!-- CI/CD pipeline smoke test: verifying self-hosted runner picks up this commit -->
 AWS resources (Cognito User Pool + SPA client, and the existing EC2 box this app
 runs on) are defined in `terraform/`, region `ap-south-2`.
 
