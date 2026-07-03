@@ -175,7 +175,11 @@
   --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.16);
 
   /* Auth page */
-  --auth-card-bg: rgba(255, 255, 255, 0.75);
+  /* Solid (not translucent) in light mode: the photographic background
+     showing through a light, semi-transparent card was washing out text
+     contrast. Dark mode keeps translucency since its dark tint over a dark
+     photo still reads fine. */
+  --auth-card-bg: #ffffff;
   --auth-card-border: rgba(37, 99, 235, 0.25);
   --auth-brand-icon-color: #2563eb;
   --auth-input-bg: rgba(31, 41, 55, 0.04);
@@ -280,6 +284,12 @@ h1, h2, h3 {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+.auth-card-toggle {
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-4);
 }
 
 .auth-brand {
@@ -574,6 +584,20 @@ h1, h2, h3 {
   .auth-card {
     padding: var(--sp-6) var(--sp-5) var(--sp-4);
     border-radius: var(--radius-lg);
+  }
+
+  .auth-card-toggle {
+    top: var(--sp-3);
+    right: var(--sp-3);
+  }
+
+  .auth-card-toggle .theme-toggle-option span:not(.icon) {
+    display: none;
+  }
+
+  .auth-card-toggle .theme-toggle-option {
+    padding: 0;
+    width: 28px;
   }
 
   .auth-footnote {

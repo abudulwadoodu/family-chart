@@ -343,6 +343,9 @@ function renderAuthShell(heading, subtitleHtml, bodyHtml) {
   app.innerHTML = `
     <main class="auth-page">
       <section class="auth-card">
+        <div class="auth-card-toggle">
+          ${renderThemeToggle({ activeTheme: state.theme, idPrefix: 'auth-theme-toggle' })}
+        </div>
         <div class="auth-brand">
           <span class="auth-brand-icon">${icon('logo')}</span>
           <h1 class="auth-brand-title">${heading}</h1>
@@ -358,6 +361,8 @@ function renderAuthShell(heading, subtitleHtml, bodyHtml) {
       ${renderFooter({ variant: 'auth', showLinks: false })}
     </main>
   `;
+
+  attachThemeToggleListeners();
 }
 
 // Toggles a submit button between its idle label and a spinner + busy label,
