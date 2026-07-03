@@ -36,7 +36,7 @@ export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
   `;
 }
 
-export function renderSidebarNav({ email, activeView, isAdmin, activeTheme }) {
+export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, collapsed }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
   const isTicketsActive = activeView === 'myTickets' || activeView === 'ticketDetail';
 
@@ -50,35 +50,42 @@ export function renderSidebarNav({ email, activeView, isAdmin, activeTheme }) {
         <button type="button" id="sidebar-close-btn" class="icon-btn sidebar-close" aria-label="Close navigation">${icon('close')}</button>
       </div>
       <nav class="sidebar-nav" aria-label="Primary">
-        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn">
+        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn" title="My Trees">
           ${icon('trees')}<span class="nav-label">My Trees</span>
         </button>
-        <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn">
+        <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn" title="Security Settings">
           ${icon('shield')}<span class="nav-label">Security Settings</span>
         </button>
-        <button type="button" class="nav-item ${activeView === 'contact' ? 'nav-item-active' : ''}" id="nav-contact-btn">
+        <button type="button" class="nav-item ${activeView === 'contact' ? 'nav-item-active' : ''}" id="nav-contact-btn" title="Contact Us">
           ${icon('mail')}<span class="nav-label">Contact Us</span>
         </button>
-        <button type="button" class="nav-item ${isTicketsActive ? 'nav-item-active' : ''}" id="nav-tickets-btn">
+        <button type="button" class="nav-item ${isTicketsActive ? 'nav-item-active' : ''}" id="nav-tickets-btn" title="My Support Tickets">
           ${icon('clock')}<span class="nav-label">My Support Tickets</span>
         </button>
         ${
           isAdmin
-            ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn">
+            ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn" title="Admin">
                 ${icon('settings')}<span class="nav-label">Admin</span>
               </button>`
             : ''
         }
       </nav>
       <div class="sidebar-foot">
+        <button
+          type="button"
+          id="sidebar-collapse-btn"
+          class="nav-item sidebar-collapse-btn"
+          title="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+          aria-pressed="${Boolean(collapsed)}"
+        >${icon('panelLeft')}<span class="nav-label">${collapsed ? 'Expand' : 'Collapse'}</span></button>
         <div class="sidebar-theme-toggle">
           ${renderThemeToggle({ activeTheme, idPrefix: 'sidebar-theme-toggle' })}
         </div>
-        <div class="sidebar-user">
+        <div class="sidebar-user" title="${escapeHtml(email)}">
           <span class="user-avatar">${escapeHtml(initial)}</span>
-          <span class="user-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
+          <span class="user-email">${escapeHtml(email)}</span>
         </div>
-        <button type="button" id="logout-btn" class="nav-item nav-item-logout">
+        <button type="button" id="logout-btn" class="nav-item nav-item-logout" title="Logout">
           ${icon('logout')}<span class="nav-label">Logout</span>
         </button>
       </div>

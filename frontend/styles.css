@@ -834,6 +834,68 @@ button.secondary:active,
   border-right: 1px solid var(--border-subtle);
   padding: var(--sp-5) var(--sp-4);
   gap: var(--sp-6);
+  transition: width var(--transition-base);
+}
+
+.sidebar-collapse-btn {
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn .icon {
+  transition: transform var(--transition-base);
+}
+
+/* Icon-rail collapse only applies at desktop widths (distinct from the
+   mobile drawer's open/closed state, which .sidebar-open governs below
+   1100px - see the @media (max-width: 1100px) block further down, which
+   never receives sidebar-collapsed's width/spacing rules at all, so the
+   mobile drawer can't accidentally render as a narrow rail). Hides every
+   text label and shrinks the rail to just fit the icons/avatar, leaving all
+   nav buttons in place so click targets and IDs don't change. */
+@media (min-width: 1101px) {
+  .app-shell.sidebar-collapsed .sidebar {
+    width: 72px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-head {
+    justify-content: center;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-wordmark,
+  .app-shell.sidebar-collapsed .nav-label,
+  .app-shell.sidebar-collapsed .user-email,
+  .app-shell.sidebar-collapsed .theme-toggle-option span:not(.icon) {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .nav-item,
+  .app-shell.sidebar-collapsed .sidebar-user {
+    justify-content: center;
+  }
+
+  .app-shell.sidebar-collapsed .nav-item {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-collapse-btn .icon {
+    transform: rotate(180deg);
+  }
+
+  /* The labeled two-option pill (min-width ~130px) can't fit in the 72px
+     rail, so collapse it into two stacked icon-only squares instead of
+     trying to shrink the same layout down. */
+  .app-shell.sidebar-collapsed .theme-toggle {
+    flex-direction: column;
+    width: auto;
+    padding: 3px;
+  }
+
+  .app-shell.sidebar-collapsed .theme-toggle-option {
+    flex: none;
+    width: 28px;
+    padding: 0;
+  }
 }
 
 .sidebar-head {
@@ -1028,9 +1090,7 @@ button.secondary:active,
 .content {
   flex: 1;
   padding: var(--sp-8) var(--sp-10);
-  max-width: 1280px;
   width: 100%;
-  margin: 0 auto;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1766,7 +1826,6 @@ body.focus-mode-active .content > *:not(.tree-focus-target) {
 
 body.focus-mode-active .content {
   padding: 0;
-  max-width: none;
   height: 100vh;
 }
 
@@ -2510,6 +2569,14 @@ a.contact-info-value:hover {
 
   .sidebar-close {
     display: inline-flex;
+  }
+
+  /* Collapse is a desktop-only affordance (its width/spacing rules only
+     apply at min-width: 1101px), so the mobile drawer is always full-width
+     here regardless of sidebar-collapsed. Just hide the button itself,
+     since collapsing doesn't make sense in an overlay drawer. */
+  .sidebar-collapse-btn {
+    display: none;
   }
 
   .app-shell.sidebar-open .sidebar {

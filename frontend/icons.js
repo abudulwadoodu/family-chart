@@ -103,6 +103,9 @@ export const icons = {
   moon: svg(
     '<path d="M20 13.7A8.5 8.5 0 1 1 10.3 4a6.6 6.6 0 0 0 9.7 9.7Z"></path>'
   ),
+  panelLeft: svg(
+    '<rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M9.5 4.5v15"></path><path d="M14.5 9.5l-2.5 2.5 2.5 2.5" transform="translate(-1.5,0)"></path>'
+  ),
 };
 
 export function icon(name) {

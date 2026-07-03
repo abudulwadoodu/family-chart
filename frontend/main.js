@@ -95,6 +95,16 @@ Amplify.configure({
   },
 });
 
+const SIDEBAR_COLLAPSED_KEY = 'family-chart-sidebar-collapsed';
+
+function getStoredSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch (_error) {
+    return false;
+  }
+}
+
 const state = {
   user: null,
   trees: [],
@@ -104,6 +114,7 @@ const state = {
   treeSort: 'updated',
   renamingTreeId: null,
   sidebarOpen: false,
+  sidebarCollapsed: getStoredSidebarCollapsed(),
   theme: getPreferredTheme(),
   selectedTreeId: null,
   selectedTreeRole: null,
@@ -630,8 +641,8 @@ function renderDashboard() {
     Boolean(state.selectedTreeId);
 
   app.innerHTML = `
-    <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme })}
+    <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
+      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme, collapsed: state.sidebarCollapsed })}
       <div class="main-area">
         ${renderMobileTopbar()}
         <main class="content">
@@ -735,6 +746,7 @@ function attachShellListeners() {
   document.querySelector('#sidebar-open-btn')?.addEventListener('click', () => setSidebarOpen(true));
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
+  document.querySelector('#sidebar-collapse-btn')?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
   attachThemeToggleListeners();
 }
 
@@ -768,6 +780,29 @@ function syncThemeToggleButtons(theme) {
 function setSidebarOpen(open) {
   state.sidebarOpen = open;
   document.querySelector('.app-shell')?.classList.toggle('sidebar-open', open);
+}
+
+// Desktop icon-rail collapse. Like setSidebarOpen, this only ever toggles a
+// CSS class - it deliberately does NOT call render(), since collapsing the
+// sidebar has nothing to do with the tree/chart and shouldn't tear it down.
+// The collapse button itself needs its label/title/aria-pressed refreshed in
+// place, since those live in the (uncollapsed) markup already on the page.
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed;
+  document.querySelector('.app-shell')?.classList.toggle('sidebar-collapsed', collapsed);
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  } catch (_error) {
+    // Ignore write failures (privacy mode, quota) - the toggle still works
+    // for this session.
+  }
+  const btn = document.querySelector('#sidebar-collapse-btn');
+  if (btn) {
+    btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    btn.setAttribute('aria-pressed', String(collapsed));
+    const label = btn.querySelector('.nav-label');
+    if (label) label.textContent = collapsed ? 'Expand' : 'Collapse';
+  }
 }
 
 function bindDropdownTriggers(scopeEl) {
