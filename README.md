@@ -246,6 +246,7 @@ Browser (Amplify Auth)                  Express backend                 AWS Cogn
   - `viewer`: read-only access
 
 ### Infrastructure (Terraform)
+<!-- pipeline-verification-ping -->
 
 AWS resources (Cognito User Pool + SPA client, and the existing EC2 box this app
 runs on) are defined in `terraform/`, region `ap-south-2`.
