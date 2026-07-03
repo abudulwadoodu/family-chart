@@ -158,6 +158,12 @@ const state = {
   authEmail: getRememberedEmail(),
   rememberMe: Boolean(getRememberedEmail()),
   totpSetup: null,
+  // Sign-in tab state, scoped to the 'signIn' authStep only. 'password' shows
+  // the existing email+password form; 'otp' shows the email-code form, which
+  // itself has two phases driven by otpSent (request email -> enter code).
+  signInMethod: 'password',
+  otpSent: false,
+  otpResendAvailableAt: 0,
   dashboardView: 'trees',
   // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
   // /terms and /privacy regardless of sign-in state - see syncRouteFromLocation
@@ -359,23 +365,47 @@ function renderAuth() {
   return renderSignInStep();
 }
 
+// Whether the auth card has already played its entrance animation this
+// "session" of being on the auth screen. app.innerHTML fully replaces the
+// .auth-card element on every step change (password -> signup -> OTP -> ...),
+// so without this guard the browser treats each step as a brand-new element
+// and replays the card's fade/scale-in every time, reading as a page-redirect
+// blink rather than a smooth in-app transition. Reset in resetAuthCardEntrance
+// whenever the user actually leaves and later returns to the auth flow (e.g.
+// after signing out), so that first appearance still gets the entrance.
+let authCardHasAppeared = false;
+
+function resetAuthCardEntrance() {
+  authCardHasAppeared = false;
+}
+
 // Shared shell for every auth screen: brand mark + contextual heading/subtitle,
 // so the dark "premium SaaS" card chrome, background photo, and entrance
 // animation stay consistent across sign-in/sign-up/MFA/reset rather than
 // duplicated in each render*Step.
 function renderAuthShell(heading, subtitleHtml, bodyHtml) {
+  // The card only plays its fade/scale entrance on the very first paint of
+  // the auth flow (see auth-card--settled below). Every later step change
+  // (password <-> signup <-> OTP <-> ...) renders with no animation at all -
+  // no card entrance, no content fade - so it's an instant swap rather than
+  // any kind of visible transition, which is what "no blink" means here.
+  const cardClass = authCardHasAppeared ? 'auth-card auth-card--settled' : 'auth-card';
+  authCardHasAppeared = true;
+
   app.innerHTML = `
     <main class="auth-page">
-      <section class="auth-card">
+      <section class="${cardClass}">
         <div class="auth-card-toggle">
           ${renderThemeToggle({ activeTheme: state.theme, idPrefix: 'auth-theme-toggle' })}
         </div>
-        <div class="auth-brand">
-          <span class="auth-brand-icon">${icon('logo')}</span>
-          <h1 class="auth-brand-title">${heading}</h1>
-          <p class="auth-brand-subtitle">${subtitleHtml}</p>
+        <div class="auth-shell-content">
+          <div class="auth-brand">
+            <span class="auth-brand-icon">${icon('logo')}</span>
+            <h1 class="auth-brand-title">${heading}</h1>
+            <p class="auth-brand-subtitle">${subtitleHtml}</p>
+          </div>
+          ${bodyHtml}
         </div>
-        ${bodyHtml}
         <p class="auth-legal-disclaimer">
           By continuing, you agree to our
           <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
@@ -417,16 +447,76 @@ function renderOauthLoadingStep() {
   );
 }
 
-function renderSignInStep() {
-  renderAuthShell(
-    'Welcome Back!',
-    'Sign in to your Family Chart account',
-    `
-      <button type="button" id="google-signin-btn" class="btn-google">
-        ${GOOGLE_LOGO_SVG}
-        <span class="btn-label">Continue with Google</span>
-      </button>
-      <div class="auth-divider"><span>OR</span></div>
+// How long a user has to wait before "Resend code" is clickable again. Kept
+// short enough not to feel punishing on a first-attempt typo, long enough to
+// discourage hammering Cognito's own OTP rate limit.
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
+
+// Cognito's EMAIL_OTP sign-in challenge sends an 8-digit numeric code (per
+// AWS's own RespondToAuthChallenge API example: "EMAIL_OTP_CODE": "12345678"),
+// unlike the 6-digit codes used for sign-up/reset-password confirmation
+// elsewhere in this app. This length isn't developer-configurable and AWS
+// doesn't document it as permanently fixed, so attachOtpBoxAutoAdvance below
+// still accepts a pasted/autofilled code that's shorter or longer than this
+// many digits rather than silently truncating or refusing it.
+const OTP_EMAIL_CODE_LENGTH = 8;
+
+function renderAuthMethodTabs() {
+  const methods = [
+    { id: 'password', label: 'Password', iconName: 'lock' },
+    { id: 'otp', label: 'Email Code', iconName: 'mail' },
+  ];
+  return `
+    <div class="auth-method-tabs" role="tablist" aria-label="Sign-in method">
+      ${methods
+        .map(
+          (m) => `
+        <button
+          type="button"
+          class="auth-method-tab"
+          role="tab"
+          id="auth-method-tab-${m.id}"
+          aria-selected="${state.signInMethod === m.id}"
+          aria-controls="auth-method-panel"
+          tabindex="${state.signInMethod === m.id ? '0' : '-1'}"
+        >
+          ${icon(m.iconName)}<span>${m.label}</span>
+        </button>
+      `
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function attachAuthMethodTabListeners() {
+  const tabs = document.querySelectorAll('.auth-method-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const method = tab.id.replace('auth-method-tab-', '');
+      if (method === state.signInMethod) return;
+      state.signInMethod = method;
+      state.otpSent = false;
+      render();
+    });
+  });
+  // Arrow-key roving tabindex between tabs, matching standard tablist keyboard behavior.
+  const tabList = document.querySelector('.auth-method-tabs');
+  tabList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const list = Array.from(tabs);
+    const currentIndex = list.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const next = list[(currentIndex + delta + list.length) % list.length];
+    next.click();
+    next.focus();
+  });
+}
+
+function renderPasswordPanel() {
+  return `
+    <div id="auth-method-panel" class="auth-method-panel" role="tabpanel" aria-labelledby="auth-method-tab-password">
       <form id="sign-in-form" class="stack auth-form">
         <label>Email
           <span class="input-icon-group">
@@ -450,25 +540,246 @@ function renderSignInStep() {
         </label>
         <button type="button" id="go-forgot-password-btn" class="auth-link-btn">Forgot password?</button>
       </div>
-      <p class="auth-footnote">Don't have an account? <button type="button" id="go-sign-up-btn" class="auth-link-btn">Create account</button></p>
       <p id="auth-error" class="error"></p>
-    `
-  );
+    </div>
+  `;
+}
 
-  document.querySelector('#google-signin-btn').addEventListener('click', handleGoogleSignIn);
+function attachPasswordPanelListeners() {
   document.querySelector('#sign-in-form').addEventListener('submit', handleSignIn);
   attachPasswordToggles(document.querySelector('#sign-in-form'));
   document.querySelector('#remember-me-checkbox').addEventListener('change', (event) => {
     state.rememberMe = event.target.checked;
   });
-  document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
-    state.authStep = 'signUp';
-    render();
-  });
   document.querySelector('#go-forgot-password-btn').addEventListener('click', () => {
     state.authStep = 'forgotPassword';
     render();
   });
+}
+
+function renderOtpRequestPanel() {
+  return `
+    <div id="auth-method-panel" class="auth-method-panel" role="tabpanel" aria-labelledby="auth-method-tab-otp">
+      <form id="otp-request-form" class="stack auth-form">
+        <label>Email
+          <span class="input-icon-group">
+            <span class="input-leading-icon">${icon('mail')}</span>
+            <input type="email" name="email" value="${escapeHtml(state.authEmail)}" placeholder="Enter your email" required autofocus />
+          </span>
+        </label>
+        <button type="submit" id="otp-request-btn" class="btn-auth"><span>Email me a sign-in code</span></button>
+      </form>
+      <p class="otp-help-text">No password needed - we'll email you a 6-digit code.</p>
+      <p id="auth-error" class="error"></p>
+    </div>
+  `;
+}
+
+function attachOtpRequestPanelListeners() {
+  document.querySelector('#otp-request-form').addEventListener('submit', handleOtpSignInRequest);
+}
+
+function renderOtpChallengePanel() {
+  const secondsLeft = Math.max(0, Math.ceil((state.otpResendAvailableAt - Date.now()) / 1000));
+  const resendReady = secondsLeft === 0;
+  return `
+    <div id="auth-method-panel" class="auth-method-panel" role="tabpanel" aria-labelledby="auth-method-tab-otp">
+      <div class="otp-success-banner">
+        ${icon('check')}
+        <span>Code sent! Check your inbox.</span>
+      </div>
+      <p class="otp-sent-target">
+        Sent a sign-in code to <strong>${escapeHtml(state.authEmail)}</strong>
+        <button type="button" id="otp-edit-email-btn" class="auth-link-btn otp-edit-email-btn">Edit</button>
+      </p>
+      <form id="otp-challenge-form" class="stack auth-form">
+        <fieldset class="otp-box-group-fieldset" style="border:none;padding:0;margin:0;">
+          <legend class="sr-only">${OTP_EMAIL_CODE_LENGTH}-digit sign-in code</legend>
+          <div class="otp-box-group" id="otp-box-group">
+            ${Array.from({ length: OTP_EMAIL_CODE_LENGTH })
+              .map(
+                (_, i) => `
+              <input
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="1"
+                class="otp-box"
+                aria-label="Digit ${i + 1} of ${OTP_EMAIL_CODE_LENGTH}"
+                autocomplete="${i === 0 ? 'one-time-code' : 'off'}"
+                data-otp-index="${i}"
+              />
+            `
+              )
+              .join('')}
+          </div>
+          <input type="hidden" name="code" id="otp-code-hidden" />
+        </fieldset>
+        <button type="submit" id="otp-challenge-btn" class="btn-auth" disabled><span>Verify &amp; sign in</span></button>
+      </form>
+      <div class="otp-resend-row">
+        <span class="muted">Didn't receive the code?</span>
+        ${
+          resendReady
+            ? `<button type="button" id="resend-otp-btn" class="auth-link-btn">Resend code</button>`
+            : `<span class="otp-resend-countdown" id="otp-resend-countdown" aria-live="polite">Resend in ${secondsLeft}s</span>`
+        }
+      </div>
+      <p id="auth-error" class="error" aria-live="assertive"></p>
+    </div>
+  `;
+}
+
+// Wires up the OTP_EMAIL_CODE_LENGTH-box grid as a single logical control:
+// typing a digit auto-advances focus to the next box, backspace on an empty
+// box moves back, and pasting/autofilling a full code fills every box at
+// once. If the pasted code is longer or shorter than the box count (Cognito's
+// length isn't contractually guaranteed - see OTP_EMAIL_CODE_LENGTH), extra
+// boxes are added or unused ones are dropped instead of truncating/rejecting
+// the code, so a length change on AWS's side degrades gracefully rather than
+// silently breaking sign-in. The value submitted is mirrored into the hidden
+// #otp-code-hidden input the form reads on submit.
+function attachOtpBoxAutoAdvance() {
+  const group = document.querySelector('#otp-box-group');
+  const hidden = document.querySelector('#otp-code-hidden');
+  const submitBtn = document.querySelector('#otp-challenge-btn');
+  let boxes = Array.from(document.querySelectorAll('.otp-box'));
+  if (!boxes.length) return;
+
+  const syncHiddenValue = () => {
+    const code = boxes.map((b) => b.value).join('');
+    hidden.value = code;
+    submitBtn.disabled = code.length !== boxes.length;
+    boxes.forEach((b) => b.classList.toggle('filled', b.value !== ''));
+  };
+
+  // Grows the box grid in place if a pasted/autofilled code is longer than
+  // the current number of boxes, so an unexpectedly long code still fits
+  // fully instead of being cut off.
+  const ensureBoxCount = (count) => {
+    if (count <= boxes.length) return;
+    for (let i = boxes.length; i < count; i += 1) {
+      const box = document.createElement('input');
+      box.type = 'text';
+      box.inputMode = 'numeric';
+      box.pattern = '[0-9]*';
+      box.maxLength = 1;
+      box.className = 'otp-box';
+      box.setAttribute('aria-label', `Digit ${i + 1} of ${count}`);
+      box.dataset.otpIndex = String(i);
+      group.appendChild(box);
+      wireBox(box, i);
+    }
+    boxes = Array.from(document.querySelectorAll('.otp-box'));
+  };
+
+  const fillFromString = (raw, startIndex) => {
+    const digits = raw.replace(/\D/g, '');
+    ensureBoxCount(startIndex + digits.length);
+    digits.split('').forEach((digit, offset) => {
+      boxes[startIndex + offset].value = digit;
+    });
+    syncHiddenValue();
+    const nextIndex = Math.min(startIndex + digits.length, boxes.length - 1);
+    boxes[nextIndex].focus();
+    boxes[nextIndex].select();
+  };
+
+  function wireBox(box, index) {
+    box.addEventListener('input', (event) => {
+      const { value } = event.target;
+      if (value.length > 1) {
+        // Mobile keyboards / autofill can drop the whole code into one box.
+        fillFromString(value, index);
+        return;
+      }
+      event.target.value = value.replace(/\D/g, '');
+      syncHiddenValue();
+      if (event.target.value && index < boxes.length - 1) {
+        boxes[index + 1].focus();
+      }
+    });
+
+    box.addEventListener('keydown', (event) => {
+      if (event.key === 'Backspace' && !box.value && index > 0) {
+        boxes[index - 1].focus();
+      }
+    });
+
+    box.addEventListener('paste', (event) => {
+      const pasted = event.clipboardData?.getData('text') || '';
+      if (!pasted) return;
+      event.preventDefault();
+      fillFromString(pasted, index);
+    });
+  }
+
+  boxes.forEach(wireBox);
+  boxes[0].focus();
+}
+
+// Ticks the visible "Resend in Ns" countdown against state.otpResendAvailableAt
+// (set by whoever just sent a code) until it elapses, then re-renders once to
+// swap the countdown text for the clickable "Resend code" link.
+function tickOtpResendCountdown() {
+  const tick = () => {
+    if (state.authStep !== 'signIn' || state.signInMethod !== 'otp' || !state.otpSent) return;
+    const secondsLeft = Math.max(0, Math.ceil((state.otpResendAvailableAt - Date.now()) / 1000));
+    const countdownEl = document.querySelector('#otp-resend-countdown');
+    if (secondsLeft === 0) {
+      render();
+      return;
+    }
+    if (countdownEl) countdownEl.textContent = `Resend in ${secondsLeft}s`;
+    setTimeout(tick, 1000);
+  };
+  setTimeout(tick, 1000);
+}
+
+function attachOtpChallengePanelListeners() {
+  document.querySelector('#otp-challenge-form').addEventListener('submit', handleOtpChallengeSubmit);
+  attachOtpBoxAutoAdvance();
+  document.querySelector('#otp-edit-email-btn').addEventListener('click', () => {
+    state.otpSent = false;
+    render();
+  });
+  document.querySelector('#resend-otp-btn')?.addEventListener('click', handleResendOtpCode);
+  if (Date.now() < state.otpResendAvailableAt) tickOtpResendCountdown();
+}
+
+function renderSignInStep() {
+  const otpPanel = state.otpSent ? renderOtpChallengePanel() : renderOtpRequestPanel();
+  const activePanel = state.signInMethod === 'password' ? renderPasswordPanel() : otpPanel;
+
+  renderAuthShell(
+    'Welcome Back!',
+    'Sign in to your Family Chart account',
+    `
+      <button type="button" id="google-signin-btn" class="btn-google">
+        ${GOOGLE_LOGO_SVG}
+        <span class="btn-label">Continue with Google</span>
+      </button>
+      <div class="auth-divider"><span>OR</span></div>
+      ${renderAuthMethodTabs()}
+      ${activePanel}
+      <p class="auth-footnote">Don't have an account? <button type="button" id="go-sign-up-btn" class="auth-link-btn">Create account</button></p>
+    `
+  );
+
+  document.querySelector('#google-signin-btn').addEventListener('click', handleGoogleSignIn);
+  attachAuthMethodTabListeners();
+  document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
+    state.authStep = 'signUp';
+    render();
+  });
+
+  if (state.signInMethod === 'password') {
+    attachPasswordPanelListeners();
+  } else if (state.otpSent) {
+    attachOtpChallengePanelListeners();
+  } else {
+    attachOtpRequestPanelListeners();
+  }
 }
 
 function renderSignUpStep() {
@@ -1940,6 +2251,8 @@ async function handleAuthNextStep(nextStep) {
     state.authStep = 'signIn';
     state.authEmail = '';
     state.totpSetup = null;
+    state.signInMethod = 'password';
+    state.otpSent = false;
     await loadSession();
     return;
   }
@@ -1947,6 +2260,13 @@ async function handleAuthNextStep(nextStep) {
   if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
     state.totpSetup = null;
     state.authStep = 'mfaCode';
+    render();
+    return;
+  }
+
+  if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_EMAIL_CODE') {
+    state.otpSent = true;
+    state.otpResendAvailableAt = Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000;
     render();
     return;
   }
@@ -2762,6 +3082,94 @@ async function handleResetPasswordConfirm(event) {
   }
 }
 
+async function requestEmailOtp(email) {
+  let result;
+  try {
+    result = await signIn({ username: email, options: { authFlowType: 'USER_AUTH', preferredChallenge: 'EMAIL_OTP' } });
+  } catch (error) {
+    if (error.name !== 'UserAlreadyAuthenticatedException') throw error;
+    // A stale session from an earlier sign-in is still cached locally; clear it and retry once.
+    await signOut();
+    result = await signIn({ username: email, options: { authFlowType: 'USER_AUTH', preferredChallenge: 'EMAIL_OTP' } });
+  }
+  if (result.isSignedIn) {
+    await handleAuthNextStep({ signInStep: 'DONE' });
+  } else {
+    await handleAuthNextStep(result.nextStep);
+  }
+}
+
+async function handleOtpSignInRequest(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const email = String(form.get('email') || '').trim();
+  const submitBtn = document.querySelector('#otp-request-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  setButtonBusy(submitBtn, true, 'Sending...');
+  try {
+    state.authEmail = email;
+    setRememberedEmail(state.rememberMe ? email : '');
+    await requestEmailOtp(email);
+  } catch (error) {
+    // Accounts with MFA enrolled aren't offered EMAIL_OTP as a first factor by
+    // Cognito, so handleAuthNextStep's fail-fast throws here instead of routing
+    // to the code-entry screen - send them back to password+MFA sign-in instead
+    // of surfacing the raw "Unsupported sign-in step" message.
+    const message =
+      typeof error?.message === 'string' && error.message.startsWith('Unsupported sign-in step')
+        ? 'This account requires your password to sign in. Use the sign-in form instead.'
+        : authErrorMessage(error);
+    errorEl.textContent = message;
+    showToast(message, { type: 'error' });
+    setButtonBusy(submitBtn, false, 'Email me a sign-in code');
+  }
+}
+
+async function handleOtpChallengeSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const code = String(form.get('code') || '').trim();
+  const submitBtn = document.querySelector('#otp-challenge-btn');
+  const errorEl = document.querySelector('#auth-error');
+  errorEl.textContent = '';
+
+  setButtonBusy(submitBtn, true, 'Verifying...');
+  try {
+    const result = await confirmSignIn({ challengeResponse: code });
+    if (result.isSignedIn) {
+      await handleAuthNextStep({ signInStep: 'DONE' });
+    } else {
+      await handleAuthNextStep(result.nextStep);
+    }
+  } catch (error) {
+    errorEl.textContent = authErrorMessage(error);
+    showToast(authErrorMessage(error), { type: 'error' });
+    setButtonBusy(submitBtn, false, 'Verify & sign in');
+    // Clear the boxes so the user isn't left staring at a code that just failed.
+    document.querySelectorAll('.otp-box').forEach((box) => {
+      box.value = '';
+      box.classList.remove('filled');
+    });
+    const hidden = document.querySelector('#otp-code-hidden');
+    if (hidden) hidden.value = '';
+    document.querySelector('.otp-box')?.focus();
+  }
+}
+
+async function handleResendOtpCode() {
+  const btn = document.querySelector('#resend-otp-btn');
+  if (btn) setButtonBusy(btn, true, 'Resending...');
+  try {
+    await requestEmailOtp(state.authEmail);
+    showToast('Code resent.');
+  } catch (error) {
+    showToast(authErrorMessage(error), { type: 'error' });
+    if (btn) setButtonBusy(btn, false, 'Resend code');
+  }
+}
+
 async function handleSignOut() {
   await signOut();
   state.user = null;
@@ -2780,6 +3188,7 @@ async function handleSignOut() {
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
   state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
   state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
+  resetAuthCardEntrance();
   render();
 }
 

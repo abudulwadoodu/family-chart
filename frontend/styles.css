@@ -275,6 +275,15 @@ h1, h2, h3 {
   animation: auth-card-in 0.32s var(--transition-base) both;
 }
 
+/* Applied on every auth-card re-render after the first (step changes within
+   the auth flow: password <-> signup <-> OTP <-> ...). Without this, the
+   0.99->1 scale + translateY pop above replays on every step change and
+   reads as a page redirect instead of an in-place transition - see
+   authCardHasAppeared in main.js. */
+.auth-card--settled {
+  animation: none;
+}
+
 @keyframes auth-card-in {
   from {
     opacity: 0;
@@ -555,6 +564,18 @@ h1, h2, h3 {
   font-weight: 700;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .otp-input {
   font-size: 1.4rem;
   letter-spacing: 0.4em;
@@ -564,6 +585,162 @@ h1, h2, h3 {
 .otp-actions {
   justify-content: space-between;
   flex-wrap: wrap;
+}
+
+/* Sign-in method selector (Password / Email Code) - a segmented control so both
+   methods read as equally first-class, instead of one being the form and the
+   other a buried text link. Built future-proof: adding a third method later is
+   just another .auth-method-tab button, no structural change. */
+.auth-method-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--sp-5);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+}
+
+.auth-method-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: 38px;
+  min-height: 38px;
+  padding: 0 var(--sp-2);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.auth-method-tab .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.auth-method-tab:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.auth-method-tab[aria-selected='true'] {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.auth-method-tab[aria-selected='true']:hover {
+  background: var(--bg-surface-raised);
+}
+
+/* "We sent a code to you@example.com [Edit]" row shown above the OTP input. */
+.otp-sent-target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.otp-sent-target strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.otp-edit-email-btn {
+  padding: 1px 4px;
+  font-size: 0.8rem;
+}
+
+.otp-help-text {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.otp-resend-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  font-size: 0.85rem;
+}
+
+.otp-resend-countdown {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.otp-success-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.otp-success-banner .icon {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  color: var(--accent-hover);
+}
+
+/* 8-box OTP entry, matching Cognito's EMAIL_OTP code length (see
+   OTP_EMAIL_CODE_LENGTH in main.js). Each box is a single-digit input; the
+   group behaves as one control for autofill/paste (see attachOtpBoxAutoAdvance). */
+.otp-box-group {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.otp-box {
+  width: 36px;
+  height: 46px;
+  padding: 0;
+  background: var(--auth-input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.otp-box:focus-visible {
+  outline: none;
+  border-color: var(--accent-hover);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.otp-box.filled {
+  border-color: var(--border-strong);
+}
+
+@media (max-width: 420px) {
+  .otp-box {
+    width: 30px;
+    height: 40px;
+    font-size: 1rem;
+  }
 }
 
 .totp-secret {
