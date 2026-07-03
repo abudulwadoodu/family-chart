@@ -914,12 +914,19 @@ function renderResetPasswordStep() {
         </label>
         <button type="submit" id="reset-password-btn" class="btn-auth"><span>Reset password</span></button>
       </form>
+      <div class="auth-links">
+        <button type="button" id="go-sign-in-btn" class="auth-link-btn">Back to sign in</button>
+      </div>
       <p id="auth-error" class="error"></p>
     `
   );
 
   document.querySelector('#reset-password-form').addEventListener('submit', handleResetPasswordConfirm);
   attachPasswordToggles(document.querySelector('#reset-password-form'));
+  document.querySelector('#go-sign-in-btn').addEventListener('click', () => {
+    state.authStep = 'signIn';
+    render();
+  });
 }
 
 // ---------------------------------------------------------------------------
