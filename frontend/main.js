@@ -476,7 +476,7 @@ function renderSignUpStep() {
     'Create your account',
     'Start building your Family Chart today',
     `
-      <p class="muted">Password must be at least 12 characters and include upper/lowercase letters, a number, and a symbol.</p>
+      <p class="muted">Password must be at least 8 characters and include upper/lowercase letters, a number, and a symbol.</p>
       <form id="sign-up-form" class="stack auth-form">
         <label>Email
           <span class="input-icon-group">
@@ -487,7 +487,7 @@ function renderSignUpStep() {
         <label>Password
           <span class="input-icon-group">
             <span class="input-leading-icon">${icon('lock')}</span>
-            <input type="password" name="password" class="has-trailing-icon" placeholder="Create a password" minlength="12" required />
+            <input type="password" name="password" class="has-trailing-icon" placeholder="Create a password" minlength="8" required />
             <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
           </span>
         </label>
@@ -597,7 +597,7 @@ function renderResetPasswordStep() {
         <label>New password
           <span class="input-icon-group">
             <span class="input-leading-icon">${icon('lock')}</span>
-            <input type="password" name="newPassword" class="has-trailing-icon" placeholder="Enter a new password" minlength="12" required />
+            <input type="password" name="newPassword" class="has-trailing-icon" placeholder="Enter a new password" minlength="8" required />
             <button type="button" class="input-toggle-btn" aria-label="Show password">${icon('eye')}</button>
           </span>
         </label>

@@ -54,7 +54,7 @@ variable "mfa_configuration" {
 variable "password_minimum_length" {
   description = "Minimum length for Cognito user passwords"
   type        = number
-  default     = 12
+  default     = 8
 }
 
 variable "access_token_validity_hours" {
