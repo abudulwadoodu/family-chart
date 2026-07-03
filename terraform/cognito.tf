@@ -23,6 +23,10 @@ resource "aws_cognito_user_pool" "main" {
     enabled = true
   }
 
+  sign_in_policy {
+    allowed_first_auth_factors = ["PASSWORD", "EMAIL_OTP"]
+  }
+
   lambda_config {
     pre_sign_up = aws_lambda_function.pre_signup.arn
   }
@@ -72,6 +76,7 @@ resource "aws_cognito_user_pool_client" "spa" {
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_AUTH",
   ]
 
   prevent_user_existence_errors = "ENABLED"
