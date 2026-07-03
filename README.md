@@ -271,6 +271,40 @@ Cognito sends its own verification/MFA/password-reset emails (`COGNITO_DEFAULT`,
 `terraform/cognito.tf` to use Amazon SES as the sending account — that requires
 verifying a domain or email identity in SES first.
 
+### Deployment (CI/CD)
+
+Pushes to `master` auto-deploy to production. There are two workflows:
+
+- `.github/workflows/ci.yml` — runs on every pull request and every push to a
+  non-`master` branch, on GitHub-hosted runners: `npm run test:backend`
+  (vitest) and `npm run build:app` (catches build breakage before it can
+  reach production). Enable branch protection on `master` requiring this
+  check to pass if you want it to gate direct pushes, not just PRs opened
+  voluntarily.
+- `.github/workflows/cd.yml` — runs on every push to `master`, on a
+  **self-hosted** GitHub Actions runner installed directly on the production
+  EC2 instance (label `family-chart-prod`). It checks out in place at
+  `/home/ubuntu/family-chart` (the same path nginx and pm2 already use), runs
+  `npm ci` → `npm run build:app` → `pm2 reload family-backend --update-env`,
+  then does an HTTP health check against `/` and `/api/`.
+
+Notes:
+- The server's `.env` (Cognito/SES config, DB path, admin emails) is never
+  touched by the pipeline — it's gitignored and untracked, and the checkout
+  step explicitly uses `clean: false` so it isn't wiped.
+- DB migrations run automatically on backend start (`initDb()` in
+  `backend/db/index.js`), so no separate migration step is needed.
+- If `build:app` fails, the job stops before the reload step, so the
+  previously-running backend process keeps serving traffic unaffected. A
+  failed deploy does leave the new (broken) commit checked out on disk,
+  though — don't manually restart pm2 until a fix has been pushed and
+  successfully redeployed.
+- Manual rollback: push a revert commit to `master` (the pipeline redeploys
+  automatically), or SSH in and run
+  `git reset --hard <good-sha> && npm ci && npm run build:app && pm2 reload family-backend`.
+- Check runner health via GitHub → Settings → Actions → Runners, or
+  `sudo systemctl status "actions.runner.*"` on the box.
+
 Cost: Cognito's free tier covers 50,000 monthly active users, so this is
 effectively $0/month for a personal app.
 
