@@ -97,6 +97,12 @@ export const icons = {
   crosshair: svg(
     '<circle cx="12" cy="12" r="7"></circle><path d="M12 3v3"></path><path d="M12 18v3"></path><path d="M3 12h3"></path><path d="M18 12h3"></path><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"></circle>'
   ),
+  sun: svg(
+    '<circle cx="12" cy="12" r="4.2"></circle><path d="M12 3v2.2"></path><path d="M12 18.8V21"></path><path d="M4.4 4.4l1.55 1.55"></path><path d="M18.05 18.05 19.6 19.6"></path><path d="M3 12h2.2"></path><path d="M18.8 12H21"></path><path d="M4.4 19.6l1.55-1.55"></path><path d="M18.05 5.95 19.6 4.4"></path>'
+  ),
+  moon: svg(
+    '<path d="M20 13.7A8.5 8.5 0 1 1 10.3 4a6.6 6.6 0 0 0 9.7 9.7Z"></path>'
+  ),
 };
 
 export function icon(name) {

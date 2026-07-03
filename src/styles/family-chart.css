@@ -1,9 +1,13 @@
 .f3 {
-  --female-color: rgb(196, 138, 146);
-  --male-color: rgb(120, 159, 172);
-  --genderless-color: lightgray;
-  --background-color: rgb(33, 33, 33);
-  --text-color: #fff;
+  /* These fall back to sensible dark-theme defaults so the library still
+     looks right when dropped into a page with no --tree-* tokens defined
+     (e.g. the standalone examples/ demos). The app shell defines --tree-*
+     per data-theme in styles.css, which these inherit from automatically. */
+  --female-color: var(--tree-female, rgb(196, 138, 146));
+  --male-color: var(--tree-male, rgb(120, 159, 172));
+  --genderless-color: var(--tree-genderless, lightgray);
+  --background-color: var(--tree-bg, rgb(33, 33, 33));
+  --text-color: var(--tree-card-text, #fff);
 
   font-family: 'Roboto', sans-serif;
 }
@@ -32,13 +36,13 @@
   fill: var(--genderless-color);
 }
 .f3 .card_add .card-body-rect {
-  fill: #3b5560;
+  fill: var(--tree-add-btn-bg, #3b5560);
   stroke-width: 4px;
-  stroke: #fff;
+  stroke: var(--tree-node-stroke, #fff);
   cursor: pointer;
 }
 .f3 g.card_add text {
-  fill: #fff;
+  fill: var(--tree-node-stroke, #fff);
 }
 .f3 .card-main-outline {
   stroke: currentColor;
@@ -96,7 +100,7 @@
   height:900px;
   max-height:70vh;
   background-color: var(--background-color);
-  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 0.7px, transparent 0.7px);
+  background-image: radial-gradient(var(--tree-dot-grid, rgba(255, 255, 255, 0.07)) 0.7px, transparent 0.7px);
   background-size: 16px 16px;
   color: var(--text-color);
 }
@@ -439,7 +443,7 @@
 
 .f3 div.card > div {
   transition: transform 0.2s ease-in-out;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--tree-card-shadow, 0 6px 14px rgba(0, 0, 0, 0.28));
 }
 
 .f3 .card-inner {
@@ -535,19 +539,32 @@
 }
 
 .f3 div.card-main .card-inner {
-  outline: 4px solid rgba(220, 220, 220, 1);
+  outline: 4px solid var(--tree-card-outline, rgba(220, 220, 220, 1));
 }
 
 .f3 div.card-inner.f3-path-to-main {
-  outline: 4px solid rgba(255, 255, 255, 1);
+  outline: 4px solid var(--tree-card-path-outline, rgba(255, 255, 255, 1));
 }
 
 .f3 .link {
-  transition: stroke-width 0.2s ease-in-out;
+  /* Overrides the "#fff" stroke set inline by view-links.ts - CSS rules take
+     priority over SVG presentation attributes, so this makes connector lines
+     theme-aware without needing to touch the compiled renderer. */
+  stroke: var(--tree-link-color, currentColor);
+  transition: stroke-width 0.2s ease-in-out, stroke 0.2s ease-in-out;
 }
 
 .f3 .link.f3-path-to-main {
   stroke-width: 4px;
+  stroke: var(--accent, var(--tree-link-color));
+}
+
+/* link-spouse-text.ts sets fill:#fff via an inline style attribute (higher
+   specificity than an external stylesheet rule), so this needs !important to
+   keep the marriage/divorce date label readable against the canvas
+   background in both themes. */
+.f3 g.link-text text {
+  fill: var(--tree-node-label-fill, #fff) !important;
 }
 
 
@@ -634,14 +651,14 @@
   background-color: var(--background-color);
   margin: 15% auto;
   padding: 20px;
-  border: 1px solid #888;
+  border: 1px solid var(--border-strong, #888);
   border-radius: 5px;
   width: 500px;
   max-width: 90%;
 }
 
 .f3-modal-close {
-  color: #aaa;
+  color: var(--text-tertiary, #aaa);
   position: absolute;
   right: 10px;
   top: 7px;
@@ -664,7 +681,7 @@
 .f3-popup-content {
   position: relative;
   background-color: var(--background-color);
-  border: 1px solid #888;
+  border: 1px solid var(--border-strong, #888);
   border-radius: 5px;
   overflow: hidden;
   width: 100%;
@@ -681,7 +698,7 @@
 }
 
 .f3-popup-close {
-  color: #aaa;
+  color: var(--text-tertiary, #aaa);
   position: absolute;
   z-index: 4;
   right: 6px;
@@ -757,7 +774,7 @@
 }
 
 .f3-autocomplete input {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.2));
   background-color: var(--background-color);
   color: var(--text-color);
   padding: 10px;
@@ -778,7 +795,7 @@
 }
 
 .f3-autocomplete-items {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.2));
   border-top: none;
   overflow-y: auto;
   max-height: 0;
@@ -794,7 +811,7 @@
   padding: 10px;
   cursor: pointer;
   background-color: var(--background-color);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid var(--border-strong, rgba(255, 255, 255, 0.2));
   transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
 }
 .f3-autocomplete-item > div:hover, .f3-autocomplete-item.f3-selected > div {
@@ -830,8 +847,8 @@
   width:100%;
   height: 100%;
   position:relative;
-  background-color:rgb(33,33,33);
-  color:#fff;
+  background-color: var(--tree-bg, rgb(33,33,33));
+  color: var(--tree-card-text, #fff);
 }
 
 .f3 .f3-kinship-info .card-kinship-self {

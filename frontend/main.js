@@ -24,6 +24,7 @@ import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { createFocusMode } from './focusMode.js';
+import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
@@ -50,6 +51,7 @@ import {
   renderRenameModalBody,
   renderContactPageMarkup,
   renderFooter,
+  renderThemeToggle,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
@@ -102,6 +104,7 @@ const state = {
   treeSort: 'updated',
   renamingTreeId: null,
   sidebarOpen: false,
+  theme: getPreferredTheme(),
   selectedTreeId: null,
   selectedTreeRole: null,
   selectedTreeName: '',
@@ -628,7 +631,7 @@ function renderDashboard() {
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin) })}
+      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme })}
       <div class="main-area">
         ${renderMobileTopbar()}
         <main class="content">
@@ -732,6 +735,34 @@ function attachShellListeners() {
   document.querySelector('#sidebar-open-btn')?.addEventListener('click', () => setSidebarOpen(true));
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
+  attachThemeToggleListeners();
+}
+
+// Wires up every theme-toggle control currently in the DOM (sidebar, and
+// potentially the floating Focus Mode toolbar). Deliberately does NOT call
+// the app's render() - switching themes is a pure CSS variable/attribute
+// change (see theme.js), so rebuilding the whole shell (and tearing down the
+// live family-chart DOM/simulation) would be wasted work for what's just a
+// color swap.
+function attachThemeToggleListeners() {
+  document.querySelectorAll('[data-theme-option]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.themeOption;
+      if (next !== 'light' && next !== 'dark') return;
+      setTheme(next);
+    });
+  });
+}
+
+// Reflects the active theme onto every theme-toggle control in the DOM
+// (there may be more than one mounted at once, e.g. sidebar + focus mode
+// toolbar) without touching anything else.
+function syncThemeToggleButtons(theme) {
+  document.querySelectorAll('[data-theme-option]').forEach((btn) => {
+    const isActive = btn.dataset.themeOption === theme;
+    btn.classList.toggle('theme-toggle-option-active', isActive);
+    btn.setAttribute('aria-checked', String(isActive));
+  });
 }
 
 function setSidebarOpen(open) {
@@ -1377,6 +1408,8 @@ function setupFocusMode() {
       { id: 'zoom-out', label: 'Zoom Out', iconName: 'zoomOut', onClick: () => focusModeZoom(1 / 1.3) },
       { id: 'fit', label: 'Fit Tree', iconName: 'scan', onClick: () => refitActiveView(400) },
       { id: 'center', label: 'Center Tree', iconName: 'crosshair', onClick: () => focusModeCenter() },
+      'separator',
+      { id: 'toggle-theme', label: 'Toggle Light/Dark Theme', iconName: 'sun', onClick: () => setTheme(state.theme === 'dark' ? 'light' : 'dark') },
     ],
     onEnter: () => onFocusModeTransitionEnd(true),
     onExit: () => onFocusModeTransitionEnd(false),
@@ -2812,6 +2845,20 @@ function cleanupAllNodesGraph() {
   state.allNodesGraph.destroy();
   state.allNodesGraph = null;
 }
+
+// The tree's own colors (family-chart.css) update live via the CSS cascade
+// when data-theme changes, so the f3 chart never needs to be told about
+// this. The All Nodes graph is the one exception - it bakes colors into SVG
+// attributes at draw time (see allNodesGraph.js), so it needs an explicit,
+// cheap redraw (same data, no reload) to pick up the new palette.
+initTheme((theme) => {
+  state.theme = theme;
+  syncThemeToggleButtons(theme);
+  if (state.viewMode === 'all-nodes' && state.allNodesGraph && state.selectedTreeData.length) {
+    cleanupAllNodesGraph();
+    renderAllNodesMode();
+  }
+});
 
 // /terms and /privacy render immediately, without waiting on the auth check
 // below, since they're public. Every other route keeps the existing

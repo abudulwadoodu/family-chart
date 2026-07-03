@@ -21,12 +21,39 @@
   --radius-xl: 20px;
   --radius-pill: 999px;
 
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  /* Applied to color/background/border/shadow properties on theme-sensitive
+     elements so switching data-theme cross-fades instead of snapping. */
+  --transition-theme: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease, fill 0.18s ease, stroke 0.18s ease;
+
+  --sidebar-width: 264px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme tokens - Dark (default) and Light                             */
+/*                                                                      */
+/* Every color used anywhere in the app should resolve to one of these */
+/* variables. To add a new theme (e.g. Sepia), copy one of these blocks */
+/* under a new [data-theme="..."] selector - no other CSS needs to     */
+/* change since all rules below only ever reference the tokens.        */
+/* ------------------------------------------------------------------ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
   /* Surfaces */
   --bg-page: #0b0d12;
   --bg-surface: #12151c;
   --bg-surface-raised: #171b24;
   --bg-surface-hover: #1c212c;
+  --bg-surface-hover-strong: #232a38;
+  --bg-surface-hover-strongest: #1a1f2a;
   --bg-inset: #0d1016;
+  --bg-overlay: rgba(5, 6, 10, 0.65);
+  --bg-overlay-light: rgba(5, 6, 10, 0.55);
   --border-subtle: #232834;
   --border-default: #2b313f;
   --border-strong: #3a4156;
@@ -35,31 +62,143 @@
   --text-primary: #f3f5f9;
   --text-secondary: #aab2c5;
   --text-tertiary: #79829a;
+  --text-on-accent: #ffffff;
+  --text-on-inverse: #0b0d12;
 
   /* Accent */
   --accent: #5b62f4;
   --accent-hover: #6f76f7;
   --accent-active: #4a4fd6;
   --accent-soft: rgba(91, 98, 244, 0.14);
+  --accent-soft-strong: rgba(91, 98, 244, 0.4);
+  --accent-on-soft: #c7caff;
   --focus-ring: #7fa4ff;
 
   /* Status */
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.14);
+  --success-border: rgba(52, 211, 153, 0.35);
   --danger: #f15b5b;
+  --danger-hover: #ff6f6f;
+  --danger-active: #d24747;
   --danger-soft: rgba(241, 91, 91, 0.14);
+  --danger-border: rgba(241, 91, 91, 0.35);
   --warning: #f5b859;
   --warning-soft: rgba(245, 184, 89, 0.14);
+  --warning-border: rgba(245, 184, 89, 0.35);
+  --info-soft: rgba(127, 164, 255, 0.14);
+  --info-border: rgba(127, 164, 255, 0.4);
+  --info-on-soft: #9db8ff;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.28);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.38);
 
-  --transition-fast: 0.15s ease;
-  --transition-base: 0.2s ease;
+  /* Auth page */
+  --auth-card-bg: rgba(12, 14, 34, 0.55);
+  --auth-card-border: rgba(124, 113, 240, 0.35);
+  --auth-brand-icon-color: #9b96ff;
+  --auth-input-bg: rgba(255, 255, 255, 0.05);
 
-  --sidebar-width: 264px;
+  /* Family tree (f3 library) */
+  --tree-bg: #171b24;
+  --tree-dot-grid: rgba(255, 255, 255, 0.07);
+  --tree-female: rgb(196, 138, 146);
+  --tree-male: rgb(120, 159, 172);
+  --tree-genderless: lightgray;
+  --tree-card-text: #ffffff;
+  --tree-card-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  --tree-card-outline: rgba(220, 220, 220, 1);
+  --tree-card-path-outline: rgba(255, 255, 255, 1);
+  --tree-link-color: currentColor;
+  --tree-spouse-link-color: #d4a8ff;
+  --tree-parent-link-color: #8ab4ff;
+  --tree-add-btn-bg: #3b5560;
+  --tree-node-stroke: #ffffff;
+  --tree-node-label-fill: #ffffff;
+  --tree-node-label-stroke: #000000;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg-page: #f7f8fa;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #ffffff;
+  --bg-surface-hover: #f1f3f5;
+  --bg-surface-hover-strong: #e5e7eb;
+  --bg-surface-hover-strongest: #d9dce1;
+  --bg-inset: #f1f3f5;
+  --bg-overlay: rgba(31, 41, 55, 0.4);
+  --bg-overlay-light: rgba(31, 41, 55, 0.3);
+  --border-subtle: #e5e7eb;
+  --border-default: #d1d5db;
+  --border-strong: #b6bcc6;
+
+  /* Text */
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --text-tertiary: #8a94a3;
+  --text-on-accent: #ffffff;
+  --text-on-inverse: #ffffff;
+
+  /* Accent */
+  --accent: #2563eb;
+  --accent-hover: #3b76ef;
+  --accent-active: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-soft-strong: rgba(37, 99, 235, 0.35);
+  --accent-on-soft: #1d4ed8;
+  --focus-ring: #93b8ff;
+
+  /* Status */
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.1);
+  --success-border: rgba(22, 163, 74, 0.3);
+  --danger: #dc2626;
+  --danger-hover: #e94444;
+  --danger-active: #b91c1c;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --danger-border: rgba(220, 38, 38, 0.3);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --warning-border: rgba(217, 119, 6, 0.3);
+  --info-soft: rgba(37, 99, 235, 0.1);
+  --info-border: rgba(37, 99, 235, 0.35);
+  --info-on-soft: #1d4ed8;
+
+  /* Shadows - lighter/softer than dark theme since there's no dark backdrop */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 6px 16px rgba(16, 24, 40, 0.1);
+  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.16);
+
+  /* Auth page */
+  --auth-card-bg: rgba(255, 255, 255, 0.75);
+  --auth-card-border: rgba(37, 99, 235, 0.25);
+  --auth-brand-icon-color: #2563eb;
+  --auth-input-bg: rgba(31, 41, 55, 0.04);
+
+  /* Family tree (f3 library) - kept fairly dark for contrast against the
+     light UI chrome, since the tree canvas reads as a distinct "stage" in
+     most genealogy apps rather than blending into the page background. */
+  --tree-bg: #eef0f3;
+  --tree-dot-grid: rgba(31, 41, 55, 0.08);
+  --tree-female: #c26f83;
+  --tree-male: #3f7f97;
+  --tree-genderless: #9aa3af;
+  --tree-card-text: #ffffff;
+  --tree-card-shadow: 0 4px 10px rgba(16, 24, 40, 0.18);
+  --tree-card-outline: rgba(37, 99, 235, 0.55);
+  --tree-card-path-outline: rgba(37, 99, 235, 0.85);
+  --tree-link-color: #4b5563;
+  --tree-spouse-link-color: #a855f7;
+  --tree-parent-link-color: #2563eb;
+  --tree-add-btn-bg: #3f7f97;
+  --tree-node-stroke: #ffffff;
+  --tree-node-label-fill: #1f2937;
+  --tree-node-label-stroke: #ffffff;
 }
 
 body {
@@ -74,6 +213,23 @@ body {
 
 #app {
   min-height: 100vh;
+}
+
+/* Applies the color-only transition (defined once in --transition-theme)
+   broadly, so switching data-theme cross-fades every themed surface at
+   once instead of listing `transition: var(--transition-theme)` on dozens
+   of individual selectors. Scoped to color-ish properties only, so it never
+   interferes with layout/transform animations elsewhere (card hover-lift,
+   focus mode, skeleton shimmer, etc). prefers-reduced-motion disables it
+   entirely, same as the rest of the app's motion. */
+*, *::before, *::after {
+  transition: var(--transition-theme);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+  }
 }
 
 h1, h2, h3 {
@@ -106,12 +262,12 @@ h1, h2, h3 {
   z-index: 1;
   width: 100%;
   max-width: 500px;
-  background: rgba(12, 14, 34, 0.55);
+  background: var(--auth-card-bg);
   backdrop-filter: blur(6px);
-  border: 1px solid rgba(124, 113, 240, 0.35);
+  border: 1px solid var(--auth-card-border);
   border-radius: var(--radius-xl);
   padding: var(--sp-8) var(--sp-7) var(--sp-5);
-  box-shadow: 0 0 0 1px rgba(124, 113, 240, 0.08), 0 24px 60px -24px rgba(0, 0, 0, 0.7), 0 0 40px -8px rgba(91, 98, 244, 0.25);
+  box-shadow: 0 0 0 1px rgba(124, 113, 240, 0.08), 0 24px 60px -24px rgba(0, 0, 0, 0.7), 0 0 40px -8px var(--accent-soft-strong);
   animation: auth-card-in 0.32s var(--transition-base) both;
 }
 
@@ -142,7 +298,7 @@ h1, h2, h3 {
   height: 60px;
   border-radius: var(--radius-lg);
   background: var(--accent-soft);
-  color: #9b96ff;
+  color: var(--auth-brand-icon-color);
 }
 
 .auth-brand-icon .icon {
@@ -194,7 +350,7 @@ h1, h2, h3 {
   height: 46px;
   border-radius: 8px;
   padding-left: 42px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--auth-input-bg);
 }
 
 .input-icon-group input.has-trailing-icon {
@@ -277,19 +433,19 @@ h1, h2, h3 {
   font-size: 1rem;
   font-weight: 700;
   background: linear-gradient(90deg, #6a45d9, #5535c3);
-  box-shadow: 0 10px 24px -10px rgba(91, 98, 244, 0.6);
+  box-shadow: 0 10px 24px -10px var(--accent-soft-strong);
   transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
 .btn-auth:hover {
   background: linear-gradient(90deg, #7a55e6, #6342d4);
-  box-shadow: 0 12px 28px -10px rgba(91, 98, 244, 0.7);
+  box-shadow: 0 12px 28px -10px var(--accent-soft-strong);
   transform: translateY(-1px);
 }
 
 .btn-auth:active {
   background: linear-gradient(90deg, #5c38c4, #4729a8);
-  box-shadow: 0 6px 14px -8px rgba(91, 98, 244, 0.5);
+  box-shadow: 0 6px 14px -8px var(--accent-soft-strong);
   transform: translateY(0);
 }
 
@@ -364,7 +520,7 @@ h1, h2, h3 {
 
 .auth-link-btn:hover {
   background: none;
-  color: #8d83ff;
+  color: var(--accent-hover);
   text-decoration: underline;
 }
 
@@ -528,7 +684,7 @@ button,
   font-weight: 500;
   white-space: nowrap;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
@@ -566,13 +722,13 @@ button.secondary,
 
 button.secondary:hover,
 .btn-secondary:hover {
-  background: #232a38;
+  background: var(--bg-surface-hover-strong);
   border-color: var(--border-strong);
 }
 
 button.secondary:active,
 .btn-secondary:active {
-  background: #1a1f2a;
+  background: var(--bg-surface-hover-strongest);
 }
 
 .btn-ghost {
@@ -589,15 +745,15 @@ button.secondary:active,
 .btn-danger {
   background: var(--danger);
   border-color: transparent;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-danger:hover {
-  background: #ff6f6f;
+  background: var(--danger-hover);
 }
 
 .btn-danger:active {
-  background: #d24747;
+  background: var(--danger-active);
 }
 
 .btn-sm {
@@ -655,7 +811,7 @@ button.secondary:active,
 .chip-active[disabled] {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: #c7caff;
+  color: var(--accent-on-soft);
   opacity: 1;
 }
 
@@ -738,7 +894,7 @@ button.secondary:active,
 .nav-item-active,
 .nav-item-active:hover {
   background: var(--accent-soft);
-  color: #d6d8ff;
+  color: var(--accent-on-soft);
 }
 
 .sidebar-foot {
@@ -765,7 +921,7 @@ button.secondary:active,
   height: 32px;
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
   font-weight: 600;
   font-size: 0.85rem;
   flex-shrink: 0;
@@ -787,6 +943,71 @@ button.secondary:active,
 
 .nav-item-logout {
   color: var(--text-tertiary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme toggle                                                        */
+/* ------------------------------------------------------------------ */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+}
+
+.theme-toggle-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.theme-toggle-option .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.theme-toggle-option:hover {
+  color: var(--text-primary);
+}
+
+.theme-toggle-option-active,
+.theme-toggle-option-active:hover {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-theme-toggle {
+  justify-content: center;
+}
+
+.sidebar-theme-toggle .theme-toggle {
+  width: 100%;
+  justify-content: stretch;
+}
+
+.sidebar-theme-toggle .theme-toggle-option {
+  flex: 1;
+}
+
+/* Compact icon-only variant used in the floating Focus Mode toolbar and the
+   mobile topbar, where there's no room for the labeled segmented control. */
+.theme-toggle-icon-btn .icon {
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-overlay {
@@ -875,7 +1096,7 @@ button.secondary:active,
   flex-shrink: 0;
   border-radius: var(--radius-md);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .action-card-icon .icon {
@@ -1019,7 +1240,7 @@ button.secondary:active,
   height: 38px;
   border-radius: var(--radius-md);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .tree-card-icon .icon {
@@ -1094,13 +1315,13 @@ button.secondary:active,
 }
 
 .badge-role-owner {
-  border-color: rgba(91, 98, 244, 0.4);
+  border-color: var(--accent-soft-strong);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .badge-role-editor {
-  border-color: rgba(245, 184, 89, 0.35);
+  border-color: var(--warning-border);
   background: var(--warning-soft);
   color: var(--warning);
 }
@@ -1112,19 +1333,19 @@ button.secondary:active,
 }
 
 .badge-status-approved {
-  border-color: rgba(52, 211, 153, 0.35);
+  border-color: var(--success-border);
   background: var(--success-soft);
   color: var(--success);
 }
 
 .badge-status-pending {
-  border-color: rgba(245, 184, 89, 0.35);
+  border-color: var(--warning-border);
   background: var(--warning-soft);
   color: var(--warning);
 }
 
 .badge-status-revoked {
-  border-color: rgba(241, 91, 91, 0.35);
+  border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);
 }
@@ -1204,7 +1425,7 @@ button.secondary:active,
   margin-bottom: var(--sp-2);
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .empty-state-icon .icon {
@@ -1351,7 +1572,7 @@ button.secondary:active,
 }
 
 .viewer-actions .icon-btn:hover {
-  background: #232a38;
+  background: var(--bg-surface-hover-strong);
 }
 
 .tree-toolbar-row {
@@ -1706,7 +1927,7 @@ body.focus-mode-transitioning .focus-mode-target {
 
 .danger-zone {
   margin-top: var(--sp-6);
-  border-color: rgba(241, 91, 91, 0.35);
+  border-color: var(--danger-border);
 }
 
 .danger-zone h2 {
@@ -1746,7 +1967,7 @@ body.focus-mode-transitioning .focus-mode-target {
   margin: 0 auto var(--sp-4);
   border-radius: 50%;
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .contact-hero-icon .icon {
@@ -1869,7 +2090,7 @@ body.focus-mode-transitioning .focus-mode-target {
   flex-shrink: 0;
   border-radius: var(--radius-md);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .contact-info-icon .icon {
@@ -2026,13 +2247,13 @@ a.contact-info-value:hover {
 
 .mfa-status-enabled {
   background: var(--success-soft);
-  border-color: rgba(52, 211, 153, 0.4);
+  border-color: var(--success-border);
   color: var(--success);
 }
 
 .mfa-status-disabled {
   background: var(--danger-soft);
-  border-color: rgba(241, 91, 91, 0.4);
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
@@ -2063,7 +2284,7 @@ a.contact-info-value:hover {
   align-items: center;
   justify-content: center;
   padding: var(--sp-4);
-  background: rgba(5, 6, 10, 0.65);
+  background: var(--bg-overlay);
   backdrop-filter: blur(2px);
 }
 
@@ -2220,11 +2441,11 @@ a.contact-info-value:hover {
 }
 
 .toast-success {
-  border-color: rgba(52, 211, 153, 0.4);
+  border-color: var(--success-border);
 }
 
 .toast-error {
-  border-color: rgba(241, 91, 91, 0.4);
+  border-color: var(--danger-border);
 }
 
 .toast-message {
@@ -2300,7 +2521,7 @@ a.contact-info-value:hover {
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: rgba(5, 6, 10, 0.55);
+    background: var(--bg-overlay-light);
   }
 
   .app-shell.sidebar-open .sidebar-overlay {
@@ -2705,26 +2926,26 @@ a.contact-info-value:hover {
 }
 
 .badge-ticket-status-new {
-  border-color: rgba(127, 164, 255, 0.4);
-  background: rgba(127, 164, 255, 0.14);
-  color: #9db8ff;
+  border-color: var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-on-soft);
 }
 
 .badge-ticket-status-in_progress {
-  border-color: rgba(245, 184, 89, 0.35);
+  border-color: var(--warning-border);
   background: var(--warning-soft);
   color: var(--warning);
 }
 
 .badge-ticket-status-waiting_for_user {
-  border-color: rgba(91, 98, 244, 0.4);
+  border-color: var(--accent-soft-strong);
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .badge-ticket-status-resolved,
 .badge-ticket-status-closed {
-  border-color: rgba(52, 211, 153, 0.35);
+  border-color: var(--success-border);
   background: var(--success-soft);
   color: var(--success);
 }
@@ -2734,17 +2955,17 @@ a.contact-info-value:hover {
 }
 
 .badge-priority-normal {
-  color: #9db8ff;
+  color: var(--info-on-soft);
 }
 
 .badge-priority-high {
-  border-color: rgba(245, 184, 89, 0.35);
+  border-color: var(--warning-border);
   background: var(--warning-soft);
   color: var(--warning);
 }
 
 .badge-priority-urgent {
-  border-color: rgba(241, 91, 91, 0.35);
+  border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);
 }
@@ -2833,7 +3054,7 @@ a.contact-info-value:hover {
 
 .message-row-mine .message-avatar {
   background: var(--accent-soft);
-  color: #c7caff;
+  color: var(--accent-on-soft);
 }
 
 .message-bubble {
@@ -2846,7 +3067,7 @@ a.contact-info-value:hover {
 
 .message-row-mine .message-bubble {
   background: var(--accent-soft);
-  border-color: rgba(91, 98, 244, 0.35);
+  border-color: var(--accent-soft-strong);
 }
 
 .message-meta {
@@ -2951,8 +3172,8 @@ a.contact-info-value:hover {
 
 .admin-nav-item-active {
   background: var(--accent-soft);
-  color: #c7caff;
-  border-color: rgba(91, 98, 244, 0.4);
+  color: var(--accent-on-soft);
+  border-color: var(--accent-soft-strong);
 }
 
 .admin-nav-soon {
@@ -3008,7 +3229,7 @@ a.contact-info-value:hover {
 
 .internal-notes-panel {
   background: var(--warning-soft);
-  border-color: rgba(245, 184, 89, 0.35);
+  border-color: var(--warning-border);
 }
 
 .internal-notes-panel .message-bubble {
@@ -3361,7 +3582,7 @@ a.contact-info-value:hover {
   display: grid;
   gap: var(--sp-2);
   background: var(--warning-soft);
-  border: 1px solid rgba(245, 184, 89, 0.35);
+  border: 1px solid var(--warning-border);
   border-radius: var(--radius-md);
   padding: var(--sp-4);
   margin: 0 0 var(--sp-4);
@@ -3425,7 +3646,7 @@ a.contact-info-value:hover {
   justify-content: center;
   border-radius: var(--radius-pill);
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
   box-shadow: var(--shadow-md);
   opacity: 0;
   visibility: hidden;

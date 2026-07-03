@@ -114,6 +114,24 @@ function layoutComponentCenters(componentCount, width, height) {
   }));
 }
 
+// Reads the app's current theme tokens from computed styles so this D3-driven
+// SVG (which sets colors via .attr(), not CSS) stays in sync with data-theme
+// without duplicating the palette here. Falls back to the dark-theme values
+// if a token is somehow missing.
+function readGraphTheme() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
+  return {
+    spouseLink: read('--tree-spouse-link-color', '#d4a8ff'),
+    parentLink: read('--tree-parent-link-color', '#8ab4ff'),
+    female: read('--tree-female', '#cc93a6'),
+    male: read('--tree-male', '#76a5b8'),
+    nodeStroke: read('--tree-node-stroke', '#ffffff'),
+    labelFill: read('--tree-node-label-fill', '#ffffff'),
+    labelStroke: read('--tree-node-label-stroke', '#000000'),
+  };
+}
+
 export function renderAllNodesGraph(selector, graph) {
   const container = document.querySelector(selector);
   if (!container) return () => {};
@@ -123,6 +141,7 @@ export function renderAllNodesGraph(selector, graph) {
   const height = container.clientHeight || 600;
   const componentCount = Math.max(1, graph.componentCount || 1);
   const componentCenters = layoutComponentCenters(componentCount, width, height);
+  const theme = readGraphTheme();
 
   const svg = d3
     .select(container)
@@ -139,7 +158,7 @@ export function renderAllNodesGraph(selector, graph) {
     .selectAll('line')
     .data(graph.links)
     .join('line')
-    .attr('stroke', (d) => (d.type === 'spouse' ? '#d4a8ff' : '#8ab4ff'))
+    .attr('stroke', (d) => (d.type === 'spouse' ? theme.spouseLink : theme.parentLink))
     .attr('stroke-opacity', 0.75)
     .attr('stroke-width', (d) => (d.type === 'spouse' ? 2 : 1.25));
 
@@ -153,8 +172,8 @@ export function renderAllNodesGraph(selector, graph) {
   nodes
     .append('circle')
     .attr('r', 11)
-    .attr('fill', (d) => (d.gender === 'F' ? '#cc93a6' : '#76a5b8'))
-    .attr('stroke', '#ffffff')
+    .attr('fill', (d) => (d.gender === 'F' ? theme.female : theme.male))
+    .attr('stroke', theme.nodeStroke)
     .attr('stroke-width', 1.5);
 
   nodes
@@ -163,9 +182,9 @@ export function renderAllNodesGraph(selector, graph) {
     .attr('x', 14)
     .attr('y', 4)
     .attr('font-size', 11)
-    .attr('fill', '#ffffff')
+    .attr('fill', theme.labelFill)
     .attr('paint-order', 'stroke')
-    .attr('stroke', '#000000')
+    .attr('stroke', theme.labelStroke)
     .attr('stroke-width', 2);
 
   // Component-cluster pull is only meaningful with more than one island;

@@ -7,7 +7,36 @@ const ROLE_LABELS = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
 // support address only needs to be configured in one env var.
 export const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'support@example.com';
 
-export function renderSidebarNav({ email, activeView, isAdmin }) {
+/**
+ * A labeled two-option Light/Dark segmented control. `activeTheme` just
+ * decides which option renders as pressed - the caller (main.js) owns the
+ * actual theme state and re-renders this after a switch.
+ * @param {{ activeTheme: 'dark' | 'light', idPrefix?: string }} options
+ */
+export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
+  return `
+    <div class="theme-toggle" role="radiogroup" aria-label="Color theme">
+      <button
+        type="button"
+        id="${idPrefix}-light-btn"
+        class="theme-toggle-option ${activeTheme === 'light' ? 'theme-toggle-option-active' : ''}"
+        role="radio"
+        aria-checked="${activeTheme === 'light'}"
+        data-theme-option="light"
+      >${icon('sun')}<span>Light</span></button>
+      <button
+        type="button"
+        id="${idPrefix}-dark-btn"
+        class="theme-toggle-option ${activeTheme === 'dark' ? 'theme-toggle-option-active' : ''}"
+        role="radio"
+        aria-checked="${activeTheme === 'dark'}"
+        data-theme-option="dark"
+      >${icon('moon')}<span>Dark</span></button>
+    </div>
+  `;
+}
+
+export function renderSidebarNav({ email, activeView, isAdmin, activeTheme }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
   const isTicketsActive = activeView === 'myTickets' || activeView === 'ticketDetail';
 
@@ -42,6 +71,9 @@ export function renderSidebarNav({ email, activeView, isAdmin }) {
         }
       </nav>
       <div class="sidebar-foot">
+        <div class="sidebar-theme-toggle">
+          ${renderThemeToggle({ activeTheme, idPrefix: 'sidebar-theme-toggle' })}
+        </div>
         <div class="sidebar-user">
           <span class="user-avatar">${escapeHtml(initial)}</span>
           <span class="user-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
