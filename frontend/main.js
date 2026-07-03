@@ -106,6 +106,29 @@ function getStoredSidebarCollapsed() {
   }
 }
 
+const REMEMBERED_EMAIL_KEY = 'family-chart-remembered-email';
+
+function getRememberedEmail() {
+  try {
+    return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function setRememberedEmail(email) {
+  try {
+    if (email) {
+      window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
+    } else {
+      window.localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+    }
+  } catch (_error) {
+    // Ignore write failures (privacy mode, quota) - sign-in still works,
+    // it just won't be remembered for next time.
+  }
+}
+
 const state = {
   user: null,
   trees: [],
@@ -132,7 +155,8 @@ const state = {
   memberSearchActiveIndex: -1,
   memberSearchHighlightTimer: null,
   authStep: 'signIn',
-  authEmail: '',
+  authEmail: getRememberedEmail(),
+  rememberMe: Boolean(getRememberedEmail()),
   totpSetup: null,
   dashboardView: 'trees',
   // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
@@ -421,7 +445,7 @@ function renderSignInStep() {
       </form>
       <div class="auth-row-between">
         <label class="auth-checkbox">
-          <input type="checkbox" />
+          <input type="checkbox" id="remember-me-checkbox" ${state.rememberMe ? 'checked' : ''} />
           <span>Remember me</span>
         </label>
         <button type="button" id="go-forgot-password-btn" class="auth-link-btn">Forgot password?</button>
@@ -434,6 +458,9 @@ function renderSignInStep() {
   document.querySelector('#google-signin-btn').addEventListener('click', handleGoogleSignIn);
   document.querySelector('#sign-in-form').addEventListener('submit', handleSignIn);
   attachPasswordToggles(document.querySelector('#sign-in-form'));
+  document.querySelector('#remember-me-checkbox').addEventListener('change', (event) => {
+    state.rememberMe = event.target.checked;
+  });
   document.querySelector('#go-sign-up-btn').addEventListener('click', () => {
     state.authStep = 'signUp';
     render();
@@ -1971,6 +1998,7 @@ async function handleSignIn(event) {
   setButtonBusy(submitBtn, true, 'Signing in...');
   try {
     state.authEmail = email;
+    setRememberedEmail(state.rememberMe ? email : '');
     let result;
     try {
       result = await signIn({ username: email, password });
