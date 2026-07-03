@@ -7,6 +7,11 @@ import { treesRouter } from './routes/trees.js';
 import { accountRouter } from './routes/account.js';
 import { supportRouter } from './routes/support.js';
 import { adminSupportRouter } from './routes/adminSupport.js';
+import { adminUsersRouter } from './routes/adminUsers.js';
+import { adminTreesRouter } from './routes/adminTrees.js';
+import { adminSettingsRouter } from './routes/adminSettings.js';
+import { adminAuditLogsRouter } from './routes/adminAuditLogs.js';
+import { adminDashboardRouter } from './routes/adminDashboard.js';
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
 
@@ -26,6 +31,11 @@ app.use('/api/trees', treesRouter);
 app.use('/api/account', accountRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/admin/support', adminSupportRouter);
+app.use('/api/admin/users', adminUsersRouter);
+app.use('/api/admin/trees', adminTreesRouter);
+app.use('/api/admin/settings', adminSettingsRouter);
+app.use('/api/admin/audit-logs', adminAuditLogsRouter);
+app.use('/api/admin/dashboard', adminDashboardRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

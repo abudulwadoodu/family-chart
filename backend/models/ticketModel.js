@@ -67,7 +67,12 @@ function buildFilters({ status, priority, assignedTo, search, userId }, params) 
     clauses.push('t.user_id = ?');
     params.push(userId);
   }
-  if (status && TICKET_STATUSES.includes(status)) {
+  // 'open' is a virtual status (everything except CLOSED) matching exactly
+  // how the admin dashboard's openTickets stat is computed, so the card's
+  // count and this filtered list never drift apart.
+  if (status === 'open') {
+    clauses.push("t.status != 'CLOSED'");
+  } else if (status && TICKET_STATUSES.includes(status)) {
     clauses.push('t.status = ?');
     params.push(status);
   }

@@ -56,25 +56,40 @@ import {
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
-import {
-  renderMyTicketsPageMarkup,
-  renderTicketDetailPageMarkup,
-  renderAdminPageMarkup,
-  renderAdminDashboardMarkup,
-  renderAdminTicketsTableMarkup,
-  renderAdminTicketDetailMarkup,
-} from './support/components.js';
+import { renderMyTicketsPageMarkup, renderTicketDetailPageMarkup } from './support/components.js';
 import {
   loadMyTickets,
   attachMyTicketsListeners,
   loadTicketDetail,
   attachTicketDetailListeners,
-  loadAdminSection,
-  attachAdminListeners,
   createTicketFromContact,
   attachmentUrlForUser,
-  attachmentUrlForAdmin,
 } from './support/logic.js';
+import { renderAdminShellMarkup, renderAdminEmptyState } from './admin/shared/components.js';
+import { hasPermission } from './admin/shared/permissions.js';
+import { renderAdminDashboardMarkup } from './admin/dashboard/components.js';
+import { createDashboardState, loadAdminDashboard, attachAdminDashboardListeners } from './admin/dashboard/logic.js';
+import { renderUsersPageMarkup, renderUserDetailMarkup } from './admin/users/components.js';
+import { createUsersState, loadUsers, attachUsersListeners, attachUserDetailListeners } from './admin/users/logic.js';
+import { renderTreesPageMarkup, renderTreeDetailMarkup } from './admin/trees/components.js';
+import { createTreesState, loadTrees as loadAdminTrees, attachTreesListeners, attachTreeDetailListeners } from './admin/trees/logic.js';
+import { renderMembersPageMarkup } from './admin/members/components.js';
+import { createMembersState, loadMembers, attachMembersListeners } from './admin/members/logic.js';
+import { renderAnalyticsPageMarkup } from './admin/analytics/components.js';
+import { createAnalyticsState, loadAnalytics } from './admin/analytics/logic.js';
+import { renderSettingsPageMarkup } from './admin/settings/components.js';
+import { createSettingsState, loadSettings, attachSettingsListeners } from './admin/settings/logic.js';
+import { renderAuditLogsPageMarkup } from './admin/auditLogs/components.js';
+import { createAuditLogsState, loadAuditLogs, attachAuditLogsListeners } from './admin/auditLogs/logic.js';
+import { renderAdminTicketsPageMarkup, renderAdminTicketDetailMarkup } from './admin/tickets/components.js';
+import {
+  createTicketsAdminState,
+  loadAdminTickets,
+  attachAdminTicketsListeners,
+  loadAdminTicketDetail,
+  attachAdminTicketDetailListeners,
+  attachmentUrlForAdmin,
+} from './admin/tickets/logic.js';
 
 const app = document.querySelector('#app');
 
@@ -189,28 +204,19 @@ const state = {
     selectedMessages: [],
     selectedLoading: false,
   },
-  // Admin Portal: only reachable when state.user.is_admin is true.
+  // Admin Portal: only reachable when state.user.is_admin is true. Each
+  // module owns its own state slice (dashboard/users/trees/analytics/
+  // settings/auditLogs/tickets) - add a new slice + nav entry to extend.
   admin: {
-    section: 'dashboard', // 'dashboard' | 'tickets' | 'ticketDetail'
-    dashboardCounts: {},
-    dashboardLoading: false,
-    tickets: [],
-    total: 0,
-    page: 1,
-    pageSize: 10,
-    search: '',
-    status: 'all',
-    priority: 'all',
-    assignedTo: 'all',
-    sort: 'updated_at',
-    order: 'desc',
-    loading: false,
-    selectedTicketId: null,
-    selectedTicket: null,
-    selectedOwner: null,
-    selectedMessages: [],
-    selectedNotes: [],
-    selectedLoading: false,
+    section: 'dashboard', // one of ADMIN_NAV_ITEMS ids, or '<module>Detail'
+    dashboard: createDashboardState(),
+    users: createUsersState(),
+    trees: createTreesState(),
+    members: createMembersState(),
+    analytics: createAnalyticsState(),
+    settings: createSettingsState(),
+    auditLogs: createAuditLogsState(),
+    tickets: createTicketsAdminState(),
   },
 };
 
@@ -615,26 +621,133 @@ function renderResetPasswordStep() {
 // Dashboard shell
 // ---------------------------------------------------------------------------
 
+// Extend this switch (plus ADMIN_NAV_ITEMS and one state.admin.<module> slice)
+// to add a new admin module. Each module owns render/logic in its own
+// frontend/admin/<module>/{components,logic}.js pair.
 function renderAdminSectionContent() {
-  if (state.admin.section === 'tickets') {
-    return renderAdminTicketsTableMarkup({ ...state.admin });
+  const { section } = state.admin;
+
+  if (section === 'users') return renderUsersPageMarkup({ ...state.admin.users, currentUser: state.user });
+  if (section === 'userDetail') {
+    if (!state.admin.users.selectedUser) return '<p class="muted">Loading user&hellip;</p>';
+    return renderUserDetailMarkup({
+      user: state.admin.users.selectedUser,
+      busy: state.admin.users.busy,
+      canManageRoles: hasPermission(state.user, 'users:manageRoles'),
+      canDelete: hasPermission(state.user, 'users:delete'),
+    });
   }
-  if (state.admin.section === 'ticketDetail') {
-    if (!state.admin.selectedTicket) return '<p class="muted">Loading ticket&hellip;</p>';
+
+  if (section === 'trees') return renderTreesPageMarkup({ ...state.admin.trees });
+  if (section === 'treeDetail') {
+    if (!state.admin.trees.selectedTree) return '<p class="muted">Loading tree&hellip;</p>';
+    return renderTreeDetailMarkup({
+      tree: state.admin.trees.selectedTree,
+      collaborators: state.admin.trees.selectedCollaborators,
+      backLabel: state.admin.trees.cameFromMembers ? 'Family Members' : 'Family Trees',
+    });
+  }
+
+  if (section === 'members') return renderMembersPageMarkup({ ...state.admin.members });
+
+  if (section === 'tickets') return renderAdminTicketsPageMarkup({ ...state.admin.tickets });
+  if (section === 'ticketDetail') {
+    if (!state.admin.tickets.selectedTicket) return '<p class="muted">Loading ticket&hellip;</p>';
     return renderAdminTicketDetailMarkup({
-      ticket: state.admin.selectedTicket,
-      owner: state.admin.selectedOwner,
-      messages: state.admin.selectedMessages,
-      internalNotes: state.admin.selectedNotes,
-      attachmentUrlFor: attachmentUrlForAdmin(state.admin.selectedTicket.id),
+      ticket: state.admin.tickets.selectedTicket,
+      owner: state.admin.tickets.selectedOwner,
+      messages: state.admin.tickets.selectedMessages,
+      internalNotes: state.admin.tickets.selectedNotes,
+      attachmentUrlFor: attachmentUrlForAdmin(state.admin.tickets.selectedTicket.id),
       currentAdminId: state.user.id,
     });
   }
-  return renderAdminDashboardMarkup({ counts: state.admin.dashboardCounts, loading: state.admin.dashboardLoading });
+
+  if (section === 'analytics') return renderAnalyticsPageMarkup({ ...state.admin.analytics });
+  if (section === 'settings') {
+    return renderSettingsPageMarkup({ ...state.admin.settings, canEdit: hasPermission(state.user, 'settings:edit') });
+  }
+  if (section === 'auditLogs') return renderAuditLogsPageMarkup({ ...state.admin.auditLogs });
+
+  return renderAdminDashboardMarkup({ ...state.admin.dashboard });
+}
+
+function loadAdminSection(sectionState, render) {
+  const { section } = sectionState.admin;
+  if (section === 'users') return loadUsers(sectionState, render);
+  if (section === 'trees') return loadAdminTrees(sectionState, render);
+  if (section === 'members') return loadMembers(sectionState, render);
+  if (section === 'tickets') return loadAdminTickets(sectionState, render);
+  if (section === 'analytics') return loadAnalytics(sectionState, render);
+  if (section === 'settings') return loadSettings(sectionState, render);
+  if (section === 'auditLogs') return loadAuditLogs(sectionState, render);
+  return loadAdminDashboard(sectionState, render);
+}
+
+function attachAdminListeners(sectionState, render) {
+  document.querySelectorAll('[data-admin-section]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nextSection = btn.dataset.adminSection;
+      if (nextSection === sectionState.admin.section) return;
+      sectionState.admin.section = nextSection;
+      render();
+      loadAdminSection(sectionState, render);
+    });
+  });
+
+  // The "Dashboard" breadcrumb crumb appears on every list page (Users,
+  // Trees, Members, Tickets, Analytics, Settings, Audit Logs) - one shared
+  // handler here instead of duplicating it in every module's attach*Listeners.
+  document.querySelector('[data-breadcrumb-id="admin-dashboard-breadcrumb-btn"]')?.addEventListener('click', () => {
+    sectionState.admin.section = 'dashboard';
+    render();
+    loadAdminSection(sectionState, render);
+  });
+
+  const { section } = sectionState.admin;
+  if (section === 'users') return attachUsersListeners(sectionState, render);
+  if (section === 'userDetail') {
+    if (sectionState.admin.users.selectedUser) attachUserDetailListeners(sectionState, render);
+    return undefined;
+  }
+  if (section === 'trees') return attachTreesListeners(sectionState, render);
+  if (section === 'treeDetail') {
+    if (sectionState.admin.trees.selectedTree) {
+      attachTreeDetailListeners(sectionState, render, () => {
+        sectionState.admin.section = 'members';
+        render();
+        loadMembers(sectionState, render);
+      });
+    }
+    return undefined;
+  }
+  if (section === 'members') return attachMembersListeners(sectionState, render);
+  if (section === 'tickets') return attachAdminTicketsListeners(sectionState, render);
+  if (section === 'ticketDetail') {
+    if (sectionState.admin.tickets.selectedTicket) attachAdminTicketDetailListeners(sectionState, render);
+    return undefined;
+  }
+  if (section === 'settings') return attachSettingsListeners(sectionState, render);
+  if (section === 'auditLogs') return attachAuditLogsListeners(sectionState, render);
+  if (section === 'dashboard') {
+    return attachAdminDashboardListeners(sectionState, render, (targetSection, filter) => {
+      if (filter && sectionState.admin[targetSection]) {
+        sectionState.admin[targetSection][filter.key] = filter.value;
+        sectionState.admin[targetSection].page = 1;
+      }
+      sectionState.admin.section = targetSection;
+      render();
+      loadAdminSection(sectionState, render);
+    });
+  }
+  return undefined;
 }
 
 function renderAdminPageContent() {
-  return renderAdminPageMarkup({ section: state.admin.section, content: renderAdminSectionContent() });
+  if (!state.user.is_admin) {
+    return renderAdminEmptyState({ title: 'Page not found', description: 'The page you are looking for does not exist.', iconName: 'search' });
+  }
+  return renderAdminShellMarkup({ section: state.admin.section, content: renderAdminSectionContent(), user: state.user });
 }
 
 function renderMyTicketsPageContent() {
@@ -730,7 +843,7 @@ function renderDashboard() {
   }
 
   if (isAdminView) {
-    attachAdminListeners(state, render);
+    if (state.user.is_admin) attachAdminListeners(state, render);
     return;
   }
 
