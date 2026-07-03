@@ -302,6 +302,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
           ${dropdownMenu({
             id: 'export-options',
             items: [
+              { action: 'export-image', label: 'Export as Image / PDF', icon: 'image' },
               { action: 'export-json', label: 'Export JSON', icon: 'download' },
               { action: 'export-csv', label: 'Export CSV', icon: 'download' },
               { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },

@@ -79,6 +79,12 @@ export const icons = {
   list: svg(
     '<path d="M9 6.5h10"></path><path d="M9 12h10"></path><path d="M9 17.5h10"></path><circle cx="5" cy="6.5" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="5" cy="17.5" r="1.1" fill="currentColor" stroke="none"></circle>'
   ),
+  image: svg(
+    '<rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><circle cx="8.5" cy="9.5" r="1.5"></circle><path d="M20.5 15.5 15.5 11 6.5 19.5"></path>'
+  ),
+  fileText: svg(
+    '<path d="M7 3.5h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1Z"></path><path d="M14 3.5V8h4"></path><path d="M9 12.5h6"></path><path d="M9 16h6"></path>'
+  ),
 };
 
 export function icon(name) {
