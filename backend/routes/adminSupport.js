@@ -14,6 +14,7 @@ import {
 } from '../models/ticketModel.js';
 import { createMessage, listMessagesForTicket, getMessageAttachment } from '../models/messageModel.js';
 import { onAdminReply } from '../services/ticketWorkflow.js';
+import { recordAuditLog, AUDIT_ACTIONS } from '../services/auditLog.js';
 import { sendAdminReplyEmail, sendTicketResolvedEmail, sendTicketClosedEmail } from '../utils/supportEmail.js';
 import {
   SUPPORT_CATEGORIES,
@@ -148,6 +149,13 @@ adminSupportRouter.patch('/tickets/:id', async (req, res, next) => {
         console.error(`[admin-support] status update on ticket #${ticket.id} saved but notification email failed`, emailError);
       }
     }
+
+    recordAuditLog(req, {
+      action: AUDIT_ACTIONS.TICKET_UPDATED,
+      targetType: 'ticket',
+      targetId: ticket.id,
+      details: { status, priority, category, assignedTo: normalizedAssignedTo },
+    });
 
     return res.json({ ok: true, ticket });
   } catch (error) {

@@ -93,6 +93,25 @@ describe('GET /api/admin/support/tickets', () => {
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(2);
   });
+
+  it('filters status=open to everything except CLOSED, matching the dashboard openTickets count', async () => {
+    const user = await asUser('user-a', 'a@example.com');
+    const created = await createTicket(user);
+    const admin = await asAdmin();
+    await request(app)
+      .patch(`/api/admin/support/tickets/${created.body.ticket.id}`)
+      .set('Authorization', admin)
+      .send({ status: 'CLOSED' });
+    await createTicket(user, { subject: 'Second ticket' });
+
+    const stats = await request(app).get('/api/admin/dashboard/stats').set('Authorization', admin);
+    const open = await request(app).get('/api/admin/support/tickets?status=open').set('Authorization', admin);
+    const closed = await request(app).get('/api/admin/support/tickets?status=CLOSED').set('Authorization', admin);
+
+    expect(open.body.total).toBe(stats.body.openTickets);
+    expect(closed.body.total).toBe(stats.body.closedTickets);
+    expect(open.body.tickets.every((t) => t.status !== 'CLOSED')).toBe(true);
+  });
 });
 
 describe('admin replies', () => {
