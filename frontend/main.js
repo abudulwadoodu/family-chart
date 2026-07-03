@@ -31,6 +31,7 @@ import { api } from './api.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
+import { openTreeExportDialog } from './treeExportDialog.js';
 import { buildJsonExportEnvelope } from './jsonExport.js';
 import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
@@ -1473,6 +1474,17 @@ function handleViewerSettingsAction(action) {
   if (action === 'export-json') return handleExportCurrentTree('json');
   if (action === 'export-csv') return handleExportCurrentTree('csv');
   if (action === 'export-gedcom') return openGedcomExportOptionsModal(state.selectedTreeId, state.selectedTreeName);
+  if (action === 'export-image') return handleExportTreeImage();
+}
+
+function handleExportTreeImage() {
+  if (state.viewMode === 'all-nodes') {
+    showToast('Switch to Focused mode to export the tree as an image.', { type: 'error' });
+    return;
+  }
+  const container = document.querySelector('#FamilyChart');
+  if (!container || !state.chart) return;
+  openTreeExportDialog({ container, treeName: state.selectedTreeName });
 }
 
 function openRenameTreeModal() {
