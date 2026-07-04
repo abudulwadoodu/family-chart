@@ -1992,6 +1992,72 @@ button.secondary:active,
   cursor: grab;
 }
 
+/* Drop-target highlight while dragging one member onto another to connect
+   them (see the relationship builder's hover-to-connect gesture in
+   allNodesGraph.js). Reuses the same accent ring as the search pulse
+   (.all-node-highlight above) for visual consistency, without the pulse
+   animation since this needs to track a live drag rather than fire once. */
+.all-nodes-svg .all-nodes g.all-node-drop-target circle {
+  stroke: var(--accent);
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 6px var(--accent-soft));
+}
+
+.all-connect-preview-line {
+  stroke: var(--accent);
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+/* Relationship dialog (frontend/relationshipDialog.js) */
+.relationship-type-list,
+.relationship-subtype-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.relationship-type-option,
+.relationship-subtype-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.relationship-type-option.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.relationship-type-help {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.relationship-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-4) 0;
+  text-align: center;
+}
+
+.relationship-preview-person {
+  font-weight: 600;
+}
+
+.relationship-preview-arrow {
+  color: var(--text-secondary);
+}
+
 /* ------------------------------------------------------------------ */
 /* Focus Mode (maximize the tree)                                     */
 /* ------------------------------------------------------------------ */

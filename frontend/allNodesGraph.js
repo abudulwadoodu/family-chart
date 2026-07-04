@@ -132,7 +132,11 @@ function readGraphTheme() {
   };
 }
 
-export function renderAllNodesGraph(selector, graph) {
+const NODE_RADIUS = 11;
+const DROP_HIT_RADIUS = 21; // matches forceCollide().radius(22) so hit-testing agrees with physical collision
+const DRAG_CONNECT_DEAD_ZONE = 15; // px of drag movement before hover-to-connect can engage, to avoid accidental connects from a jittery click
+
+export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) {
   const container = document.querySelector(selector);
   if (!container) return () => {};
   container.innerHTML = '';
@@ -152,9 +156,9 @@ export function renderAllNodesGraph(selector, graph) {
 
   const graphLayer = svg.append('g').attr('class', 'all-graph-layer');
 
-  const links = graphLayer
-    .append('g')
-    .attr('class', 'all-links')
+  const linksLayer = graphLayer.append('g').attr('class', 'all-links');
+
+  let links = linksLayer
     .selectAll('line')
     .data(graph.links)
     .join('line')
@@ -162,7 +166,7 @@ export function renderAllNodesGraph(selector, graph) {
     .attr('stroke-opacity', 0.75)
     .attr('stroke-width', (d) => (d.type === 'spouse' ? 2 : 1.25));
 
-  const nodes = graphLayer
+  let nodes = graphLayer
     .append('g')
     .attr('class', 'all-nodes')
     .selectAll('g')
@@ -171,10 +175,15 @@ export function renderAllNodesGraph(selector, graph) {
 
   nodes
     .append('circle')
-    .attr('r', 11)
+    .attr('r', NODE_RADIUS)
     .attr('fill', (d) => (d.gender === 'F' ? theme.female : theme.male))
     .attr('stroke', theme.nodeStroke)
     .attr('stroke-width', 1.5);
+
+  const connectPreviewLine = graphLayer
+    .append('line')
+    .attr('class', 'all-connect-preview-line')
+    .attr('visibility', 'hidden');
 
   nodes
     .append('text')
@@ -212,19 +221,114 @@ export function renderAllNodesGraph(selector, graph) {
 
   svg.call(zoomBehavior);
 
+  // Tracks the node currently highlighted as a drop target during a drag,
+  // and the drag's starting point (to gate hover-to-connect behind a small
+  // dead zone so a jittery click near another node doesn't misfire).
+  let dropTargetId = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  function findDropTarget(pointerX, pointerY, excludeId) {
+    let closest = null;
+    let closestDistSq = Infinity;
+    for (const candidate of graph.nodes) {
+      if (candidate.id === excludeId) continue;
+      if (!Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) continue;
+      const dx = candidate.x - pointerX;
+      const dy = candidate.y - pointerY;
+      const distSq = dx * dx + dy * dy;
+      if (distSq <= DROP_HIT_RADIUS * DROP_HIT_RADIUS && distSq < closestDistSq) {
+        closest = candidate;
+        closestDistSq = distSq;
+      }
+    }
+    return closest;
+  }
+
+  function clearDropTargetHighlight() {
+    if (dropTargetId != null) {
+      nodes.filter((d) => d.id === dropTargetId).classed('all-node-drop-target', false);
+    }
+    dropTargetId = null;
+    connectPreviewLine.attr('visibility', 'hidden');
+  }
+
   const dragBehavior = d3
     .drag()
     .on('start', (event, d) => {
       if (event.sourceEvent) event.sourceEvent.stopPropagation();
-      if (!event.active) simulation.alphaTarget(0.25).restart();
+      if (!event.active) simulation.alphaTarget(0.15).restart();
       d.fx = d.x;
       d.fy = d.y;
+      dragStartX = event.x;
+      dragStartY = event.y;
+      dropTargetId = null;
+
+      // Freeze every other node in place for the duration of this drag by
+      // pinning fx/fy to their current position. Without this, the charge
+      // force pushes neighbours away as the dragged node approaches them -
+      // exactly backwards for a "drop onto a neighbour" gesture, since the
+      // intended drop target keeps fleeing from the cursor. Only the
+      // dragged node (fx/fy driven by the pointer) moves; everyone else's
+      // pin is lifted again on drag end.
+      graph.nodes.forEach((n) => {
+        if (n.id === d.id) return;
+        if (n.frozenByDrag) return; // already pinned by an ongoing drag/dialog
+        n.fx = n.x;
+        n.fy = n.y;
+      });
     })
     .on('drag', (event, d) => {
       d.fx = event.x;
       d.fy = event.y;
+
+      const movedDistSq = (event.x - dragStartX) ** 2 + (event.y - dragStartY) ** 2;
+      if (!onConnectAttempt || movedDistSq < DRAG_CONNECT_DEAD_ZONE * DRAG_CONNECT_DEAD_ZONE) {
+        if (dropTargetId != null) clearDropTargetHighlight();
+        return;
+      }
+
+      const candidate = findDropTarget(event.x, event.y, d.id);
+      if (candidate?.id !== dropTargetId) {
+        clearDropTargetHighlight();
+        if (candidate) {
+          dropTargetId = candidate.id;
+          nodes.filter((n) => n.id === candidate.id).classed('all-node-drop-target', true);
+        }
+      }
+      if (candidate) {
+        connectPreviewLine
+          .attr('visibility', 'visible')
+          .attr('x1', d.fx)
+          .attr('y1', d.fy)
+          .attr('x2', candidate.x)
+          .attr('y2', candidate.y);
+      }
     })
     .on('end', (event, d) => {
+      const targetId = dropTargetId;
+      clearDropTargetHighlight();
+
+      // Release every other node's temporary drag-freeze pin, unless it's
+      // separately pinned awaiting a relationship dialog (frozenByDrag),
+      // which releaseDrag()/applyNewLink() handle on their own timeline.
+      graph.nodes.forEach((n) => {
+        if (n.id === d.id) return;
+        if (n.frozenByDrag) return;
+        n.fx = null;
+        n.fy = null;
+      });
+
+      if (targetId != null && onConnectAttempt) {
+        // Keep the node pinned in place (docked against its new target)
+        // until the relationship dialog resolves - releaseDrag()/
+        // applyNewLink() on the returned controller take it from here.
+        d.frozenByDrag = true;
+        if (!event.active) simulation.alphaTarget(0);
+        onConnectAttempt(d.id, targetId);
+        return;
+      }
+
       if (!event.active) simulation.alphaTarget(0);
       d.fx = null;
       d.fy = null;
@@ -263,11 +367,13 @@ export function renderAllNodesGraph(selector, graph) {
   const fitTimer = setTimeout(() => fitToView(300), 220);
 
   let highlightTimer = null;
+  let reheatTimer = null;
 
   return {
     destroy() {
       clearTimeout(fitTimer);
       clearTimeout(highlightTimer);
+      clearTimeout(reheatTimer);
       simulation.stop();
       container.innerHTML = '';
     },
@@ -300,6 +406,48 @@ export function renderAllNodesGraph(selector, graph) {
       highlightTimer = setTimeout(() => matched.classed('all-node-highlight', false), 2500);
 
       return true;
+    },
+    // Releases a node that was pinned in place awaiting a relationship
+    // dialog (drag-end-over-target) back into the simulation, e.g. on
+    // dialog cancel. No-op if the node isn't currently pinned.
+    releaseDrag(id) {
+      const target = graph.nodes.find((d) => d.id === id);
+      if (!target) return;
+      target.fx = null;
+      target.fy = null;
+      target.frozenByDrag = false;
+      simulation.alphaTarget(0.1).restart();
+      clearTimeout(reheatTimer);
+      reheatTimer = setTimeout(() => simulation.alphaTarget(0), 400);
+    },
+    // Adds a newly-confirmed relationship link to the live graph without a
+    // full rebuild: reuses every existing node's current x/y/vx/vy (only
+    // `graph.links` grows by one entry), re-supplies the link force, and
+    // gently reheats rather than restarting the simulation from alpha 1 -
+    // avoids the "large jump"/zoom-reset a full relayout would cause.
+    applyNewLink(newLinkDatum) {
+      graph.links.push(newLinkDatum);
+      simulation.force('link').links(graph.links);
+
+      links = linksLayer
+        .selectAll('line')
+        .data(graph.links)
+        .join('line')
+        .attr('stroke', (d) => (d.type === 'spouse' ? theme.spouseLink : theme.parentLink))
+        .attr('stroke-opacity', 0.75)
+        .attr('stroke-width', (d) => (d.type === 'spouse' ? 2 : 1.25));
+
+      graph.nodes.forEach((d) => {
+        if (d.id === newLinkDatum.source || d.id === newLinkDatum.target) {
+          d.fx = null;
+          d.fy = null;
+          d.frozenByDrag = false;
+        }
+      });
+
+      simulation.alphaTarget(0.1).restart();
+      clearTimeout(reheatTimer);
+      reheatTimer = setTimeout(() => simulation.alphaTarget(0), 400);
     },
   };
 }

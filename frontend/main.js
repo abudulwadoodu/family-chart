@@ -22,6 +22,7 @@ import { Hub } from 'aws-amplify/utils';
 import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
+import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
@@ -165,6 +166,7 @@ const state = {
   focusedMainId: null,
   defaultMainId: null,
   allNodesGraph: null,
+  relationshipBuilder: createRelationshipBuilderState(),
   memberSearchIndex: null,
   memberSearchResults: [],
   memberSearchActiveIndex: -1,
@@ -1978,7 +1980,6 @@ function openRenameTreeModal() {
 }
 
 async function handleSaveTree() {
-  if (state.viewMode === 'all-nodes') return;
   const saveBtn = document.querySelector('#save-btn');
   const label = saveBtn.querySelector('span');
   saveBtn.disabled = true;
@@ -1990,12 +1991,12 @@ async function handleSaveTree() {
       method: 'PUT',
       body: JSON.stringify({ json_data: dataToSave }),
     });
+    state.relationshipBuilder.dirty = false;
     showToast('Tree saved successfully.');
   } catch (error) {
     showToast(error.message || 'Save failed.', { type: 'error' });
   } finally {
-    const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-    saveBtn.disabled = !canEdit || state.viewMode === 'all-nodes';
+    syncSaveButtonAvailability();
     if (label) label.textContent = 'Save';
   }
 }
@@ -2330,12 +2331,11 @@ function setupViewModeToggle() {
 
   const focusedBtn = document.querySelector('#focused-mode-btn');
   const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
-  const saveBtn = document.querySelector('#save-btn');
 
   const syncModeButtons = () => {
     focusedBtn.disabled = state.viewMode === 'focused';
     allNodesBtn.disabled = state.viewMode === 'all-nodes';
-    saveBtn.disabled = !canEdit || state.viewMode === 'all-nodes';
+    syncSaveButtonAvailability();
     syncFocusModeToolbarState();
   };
 
@@ -3438,6 +3438,7 @@ async function loadTree(treeId) {
   state.viewMode = 'focused';
   state.focusedMainId = pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
+  state.relationshipBuilder = createRelationshipBuilderState();
   setSidebarOpen(false);
   render();
 }
@@ -3446,7 +3447,24 @@ function renderAllNodesMode() {
   const graphData = buildAllNodesGraphData(state.selectedTreeData);
   state.chart = null;
   state.editor = null;
-  state.allNodesGraph = renderAllNodesGraph('#FamilyChart', graphData);
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  state.allNodesGraph = renderAllNodesGraph('#FamilyChart', graphData, {
+    onConnectAttempt: canEdit
+      ? (sourceId, targetId) => handleConnectAttempt(state, syncSaveButtonAvailability, sourceId, targetId)
+      : undefined,
+  });
+}
+
+// Re-evaluates the Save button's disabled state from current role/view-mode/
+// dirty flags. Module-scoped (rather than nested inside setupViewModeToggle,
+// like the rest of that closure's button wiring) so relationshipBuilder's
+// onDirtyChange callback can call it directly after a relationship is applied.
+function syncSaveButtonAvailability() {
+  const saveBtn = document.querySelector('#save-btn');
+  if (!saveBtn) return;
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
+  saveBtn.disabled = !canEdit || allNodesBlocked;
 }
 
 function cleanupAllNodesGraph() {
