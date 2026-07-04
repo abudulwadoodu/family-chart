@@ -1,0 +1,51 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, family-chart-prod]
+    defaults:
+      run:
+        working-directory: /home/ubuntu/family-chart
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: family-chart
+          clean: false
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          source ~/.nvm/nvm.sh
+          nvm use 24.15.0
+          npm ci
+
+      - name: Build frontend
+        run: |
+          source ~/.nvm/nvm.sh
+          nvm use 24.15.0
+          npm run build:app
+
+      - name: Reload backend (zero-downtime)
+        run: |
+          source ~/.nvm/nvm.sh
+          nvm use 24.15.0
+          pm2 reload family-backend --update-env
+
+      - name: Health check
+        run: |
+          sleep 2
+          curl -fsS http://localhost/ > /dev/null
+          status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/)
+          echo "backend /api/ status: $status"
+          if [ "$status" -ge 500 ]; then exit 1; fi

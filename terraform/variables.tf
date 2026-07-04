@@ -37,7 +37,7 @@ variable "vpc_id" {
 variable "ssh_allowed_cidr" {
   description = "CIDR allowed to SSH into the EC2 instance (port 22). Update this if your IP changes."
   type        = string
-  default     = "111.92.34.103/32"
+  default     = "111.92.36.151/32"
 }
 
 variable "mfa_configuration" {
