@@ -38,6 +38,14 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  egress {
+    description = "HTTP out (Ubuntu apt mirrors, which are plain HTTP)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = {
     Name    = "launch-wizard-2"
     Project = var.project_name
@@ -83,5 +91,17 @@ resource "aws_instance" "app" {
 
   lifecycle {
     ignore_changes = [ami]
+  }
+}
+
+# Stable public IP so DNS (circlebook.life) and the Cognito/Google OAuth
+# callback URL don't break every time the instance stops/starts.
+resource "aws_eip" "app" {
+  instance = aws_instance.app.id
+  domain   = "vpc"
+
+  tags = {
+    Name    = "familytree-ec2-eip"
+    Project = var.project_name
   }
 }
