@@ -51,16 +51,24 @@ describe('sortDisconnected', () => {
 
 describe('relationSummary', () => {
   it('returns an empty string for a fully disconnected member', () => {
-    expect(relationSummary(datum('a'))).toBe('');
+    const byId = new Map([['a', datum('a')]]);
+    expect(relationSummary(datum('a'), byId)).toBe('');
   });
 
-  it('summarizes parents, children, and spouses with correct pluralization', () => {
+  it('names the actual relatives, not just counts', () => {
+    const p1 = datum('p1', { firstName: 'John', lastName: 'Smith' });
+    const c1 = datum('c1', { firstName: 'Ahmed', lastName: 'Khan' });
+    const c2 = datum('c2', { firstName: 'Layla', lastName: 'Khan' });
+    const s1 = datum('s1', { firstName: 'Fatima', lastName: 'Khan' });
     const d = datum('a', { parents: ['p1'], children: ['c1', 'c2'], spouses: ['s1'] });
-    expect(relationSummary(d)).toBe('1 parent, 2 children, 1 spouse');
+    const byId = new Map([p1, c1, c2, s1, d].map((x) => [x.id, x]));
+
+    expect(relationSummary(d, byId)).toBe('Child of John Smith; Parent of Ahmed Khan, Layla Khan; Spouse of Fatima Khan');
   });
 
-  it('pluralizes multiple parents and spouses', () => {
-    const d = datum('a', { parents: ['p1', 'p2'], spouses: ['s1', 's2'] });
-    expect(relationSummary(d)).toBe('2 parents, 2 spouses');
+  it('falls back gracefully when a relative id is not found in byId', () => {
+    const d = datum('a', { spouses: ['missing'] });
+    const byId = new Map([['a', d]]);
+    expect(relationSummary(d, byId)).toBe('');
   });
 });

@@ -3,13 +3,7 @@
 // children, or spouses) - a stricter bar than allNodesGraph.js's connected-
 // component analysis (which would also flag small linked islands). This
 // module intentionally does not reuse getConnectedComponents for that reason.
-
-function toLabel(datum) {
-  const first = datum?.data?.['first name'] || '';
-  const last = datum?.data?.['last name'] || '';
-  const label = `${first} ${last}`.trim();
-  return label || String(datum?.id ?? '');
-}
+import { toLabel } from '../relationshipDialog.js';
 
 function birthYear(datum) {
   const raw = datum?.data?.birthday;
@@ -27,19 +21,25 @@ export function getDisconnectedMembers(data) {
   return (Array.isArray(data) ? data : []).filter(isDisconnected);
 }
 
-// Short "1 parent, 2 children" style summary for an already-connected
-// member's row, so picking them as a source in "show all members" mode
-// doesn't hide the fact that they're already placed in the tree.
-export function relationSummary(datum) {
+// Short "Parent of Ahmed Khan; Spouse of Fatima Khan" style summary for an
+// already-connected member's row, naming the actual relatives (same
+// toLabel() convention as the right panel's spouse badge in
+// treeHierarchyPanel.js) rather than just counting them - this is what makes
+// an unnamed-but-connected member identifiable in "show all members" mode.
+// `byId` is a Map<id, Datum> over the full tree, needed to resolve relative
+// names; falls back to a bare count if a relative id can't be resolved
+// (defensive - shouldn't happen with well-formed data).
+export function relationSummary(datum, byId) {
   const rels = datum?.rels || {};
+  const parents = (rels.parents || []).map((id) => byId?.get(id)).filter(Boolean);
+  const children = (rels.children || []).map((id) => byId?.get(id)).filter(Boolean);
+  const spouses = (rels.spouses || []).map((id) => byId?.get(id)).filter(Boolean);
+
   const parts = [];
-  const parentCount = (rels.parents || []).length;
-  const childCount = (rels.children || []).length;
-  const spouseCount = (rels.spouses || []).length;
-  if (parentCount) parts.push(`${parentCount} parent${parentCount === 1 ? '' : 's'}`);
-  if (childCount) parts.push(`${childCount} child${childCount === 1 ? '' : 'ren'}`);
-  if (spouseCount) parts.push(`${spouseCount} spouse${spouseCount === 1 ? '' : 's'}`);
-  return parts.join(', ');
+  if (parents.length) parts.push(`Child of ${parents.map(toLabel).join(', ')}`);
+  if (children.length) parts.push(`Parent of ${children.map(toLabel).join(', ')}`);
+  if (spouses.length) parts.push(`Spouse of ${spouses.map(toLabel).join(', ')}`);
+  return parts.join('; ');
 }
 
 export function sortDisconnected(list, mode, recentIds = []) {

@@ -2148,13 +2148,11 @@ button.secondary:active,
 }
 
 .rm-member-connected-badge {
-  display: inline-block;
-  margin-left: var(--sp-1);
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface-hover-strong);
+  display: block;
+  margin-top: 1px;
   color: var(--text-tertiary);
   font-size: 0.72rem;
+  font-style: italic;
 }
 
 #rm-disconnected-list-wrap {

@@ -56,6 +56,7 @@ function renderDisconnectedListBody(rm, data, searchIndex) {
   const page = Math.min(rm.disconnectedPage, totalPages);
   const start = (page - 1) * rm.disconnectedPageSize;
   const pageItems = visible.slice(start, start + rm.disconnectedPageSize);
+  const byId = new Map(data.map((d) => [d.id, d]));
 
   const rowsHtml = pageItems.length
     ? pageItems
@@ -67,7 +68,7 @@ function renderDisconnectedListBody(rm, data, searchIndex) {
             ? `<img class="rm-member-avatar" src="${escapeHtml(datum.data.avatar)}" alt="" />`
             : `<span class="rm-member-avatar rm-member-avatar-placeholder">${icon('user')}</span>`;
           const connected = !isDisconnected(datum);
-          const summary = connected ? relationSummary(datum) : '';
+          const summary = connected ? relationSummary(datum, byId) : '';
           return `
             <li
               class="rm-member-row ${selected ? 'is-selected' : ''} ${active ? 'is-active' : ''}"
