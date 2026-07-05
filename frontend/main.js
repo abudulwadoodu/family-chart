@@ -23,6 +23,13 @@ import QRCode from 'qrcode';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
+import { createRelationshipManagerState } from './relationshipManager/state.js';
+import { renderRelationshipManagerMode } from './relationshipManager/components.js';
+import { attachDisconnectedListListeners } from './relationshipManager/disconnectedListPanel.js';
+import { attachBuilderPanelListeners } from './relationshipManager/builderPanel.js';
+import { attachTreeHierarchyListeners } from './relationshipManager/treeHierarchyPanel.js';
+import { attachRelationshipManagerKeyboard } from './relationshipManager/keyboardNav.js';
+import { undo as undoRelationship, redo as redoRelationship, canUndo as canUndoRelationship, canRedo as canRedoRelationship } from './relationshipManager/undoStack.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
@@ -167,6 +174,7 @@ const state = {
   defaultMainId: null,
   allNodesGraph: null,
   relationshipBuilder: createRelationshipBuilderState(),
+  relationshipManager: createRelationshipManagerState(),
   memberSearchIndex: null,
   memberSearchResults: [],
   memberSearchActiveIndex: -1,
@@ -1805,6 +1813,16 @@ function selectSearchedMember(id) {
     if (clearBtn) clearBtn.hidden = true;
   }
 
+  if (state.viewMode === 'relationship-manager') {
+    // The tree-toolbar member search isn't wired into this mode's own
+    // panels - fall back to Focused mode, same as the All Nodes case below.
+    state.focusedMainId = id;
+    state.viewMode = 'focused';
+    renderChart();
+    highlightFocusedCard(id);
+    return;
+  }
+
   if (state.viewMode === 'all-nodes') {
     const focused = state.allNodesGraph?.focusNode(id);
     if (focused) return;
@@ -1880,7 +1898,7 @@ function focusModeCenter() {
 // Nodes mode has its own pan/zoom with no equivalent hooks, so disable those
 // two floating-toolbar buttons instead of leaving them as silent no-ops.
 function syncFocusModeToolbarState() {
-  const disabled = state.viewMode === 'all-nodes';
+  const disabled = state.viewMode === 'all-nodes' || state.viewMode === 'relationship-manager';
   focusModeController?.setActionDisabled('zoom-in', disabled);
   focusModeController?.setActionDisabled('zoom-out', disabled);
   focusModeController?.setActionDisabled('center', disabled);
@@ -1943,7 +1961,7 @@ function handleViewerSettingsAction(action) {
 }
 
 function handleExportTreeImage() {
-  if (state.viewMode === 'all-nodes') {
+  if (state.viewMode !== 'focused') {
     showToast('Switch to Focused mode to export the tree as an image.', { type: 'error' });
     return;
   }
@@ -1992,6 +2010,7 @@ async function handleSaveTree() {
       body: JSON.stringify({ json_data: dataToSave }),
     });
     state.relationshipBuilder.dirty = false;
+    state.relationshipManager.dirty = false;
     showToast('Tree saved successfully.');
   } catch (error) {
     showToast(error.message || 'Save failed.', { type: 'error' });
@@ -2260,12 +2279,18 @@ function clearSelectedTreeView() {
   state.viewMode = 'focused';
   state.focusedMainId = null;
   state.defaultMainId = null;
+  state.relationshipManager = createRelationshipManagerState();
   closeMemberSearchResults();
   state.memberSearchIndex = null;
 }
 
 function renderChart() {
   cleanupAllNodesGraph();
+  if (state.viewMode === 'relationship-manager') {
+    renderRelationshipManagerViewMode();
+    setupViewModeToggle();
+    return;
+  }
   if (state.viewMode === 'all-nodes') {
     renderAllNodesMode();
     setupViewModeToggle();
@@ -2331,30 +2356,40 @@ function setupViewModeToggle() {
 
   const focusedBtn = document.querySelector('#focused-mode-btn');
   const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
+  const relationshipManagerBtn = document.querySelector('#relationship-manager-mode-btn');
 
   const syncModeButtons = () => {
     focusedBtn.disabled = state.viewMode === 'focused';
     allNodesBtn.disabled = state.viewMode === 'all-nodes';
+    if (relationshipManagerBtn) relationshipManagerBtn.disabled = state.viewMode === 'relationship-manager';
     syncSaveButtonAvailability();
     syncFocusModeToolbarState();
   };
 
-  focusedBtn.addEventListener('click', () => {
+  const saveFocusedMainId = () => {
     if (state.chart?.getMainDatum && state.viewMode === 'focused') {
       const currentMain = state.chart.getMainDatum();
       if (currentMain?.id) state.focusedMainId = currentMain.id;
     }
+  };
+
+  focusedBtn.addEventListener('click', () => {
+    saveFocusedMainId();
     state.viewMode = 'focused';
     renderChart();
     syncModeButtons();
   });
 
   allNodesBtn.addEventListener('click', () => {
-    if (state.chart?.getMainDatum && state.viewMode === 'focused') {
-      const currentMain = state.chart.getMainDatum();
-      if (currentMain?.id) state.focusedMainId = currentMain.id;
-    }
+    saveFocusedMainId();
     state.viewMode = 'all-nodes';
+    renderChart();
+    syncModeButtons();
+  });
+
+  relationshipManagerBtn?.addEventListener('click', () => {
+    saveFocusedMainId();
+    state.viewMode = 'relationship-manager';
     renderChart();
     syncModeButtons();
   });
@@ -3439,6 +3474,7 @@ async function loadTree(treeId) {
   state.focusedMainId = pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
   state.relationshipBuilder = createRelationshipBuilderState();
+  state.relationshipManager = createRelationshipManagerState();
   setSidebarOpen(false);
   render();
 }
@@ -3455,6 +3491,55 @@ function renderAllNodesMode() {
   });
 }
 
+function renderRelationshipManagerViewMode() {
+  state.chart = null;
+  state.editor = null;
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  state.memberSearchIndex = buildMemberSearchIndex(state.selectedTreeData);
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderRelationshipManagerMode(state.relationshipManager, state.selectedTreeData, {
+    canEdit,
+    searchIndex: state.memberSearchIndex,
+  });
+
+  attachDisconnectedListListeners(state, renderRelationshipManagerViewMode, state.selectedTreeData, state.memberSearchIndex);
+  if (canEdit) {
+    attachBuilderPanelListeners(state, renderRelationshipManagerViewMode, syncSaveButtonAvailability);
+  }
+  attachTreeHierarchyListeners(state, renderRelationshipManagerViewMode, (targetId) => {
+    if (!canEdit || state.relationshipManager.selectedSourceIds.length === 0) return;
+    state.relationshipManager.builder.targetId = targetId;
+    state.relationshipManager.builder.step = 'choose-type';
+    renderRelationshipManagerViewMode();
+  });
+
+  const root = document.querySelector('#relationship-manager-root');
+  if (root) {
+    if (relationshipManagerKeyboardCleanup) relationshipManagerKeyboardCleanup();
+    relationshipManagerKeyboardCleanup = attachRelationshipManagerKeyboard(state, renderRelationshipManagerViewMode, root);
+  }
+
+  document.querySelector('#rm-undo-btn')?.addEventListener('click', () => {
+    if (undoRelationship(state.relationshipManager.undoStack, state.selectedTreeData)) {
+      state.relationshipManager.dirty = true;
+      renderRelationshipManagerViewMode();
+      syncSaveButtonAvailability();
+    }
+  });
+  document.querySelector('#rm-redo-btn')?.addEventListener('click', () => {
+    if (redoRelationship(state.relationshipManager.undoStack, state.selectedTreeData)) {
+      state.relationshipManager.dirty = true;
+      renderRelationshipManagerViewMode();
+      syncSaveButtonAvailability();
+    }
+  });
+
+  syncSaveButtonAvailability();
+}
+
+let relationshipManagerKeyboardCleanup = null;
+
 // Re-evaluates the Save button's disabled state from current role/view-mode/
 // dirty flags. Module-scoped (rather than nested inside setupViewModeToggle,
 // like the rest of that closure's button wiring) so relationshipBuilder's
@@ -3464,7 +3549,8 @@ function syncSaveButtonAvailability() {
   if (!saveBtn) return;
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
   const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
-  saveBtn.disabled = !canEdit || allNodesBlocked;
+  const relationshipManagerBlocked = state.viewMode === 'relationship-manager' && !state.relationshipManager.dirty;
+  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked;
 }
 
 function cleanupAllNodesGraph() {

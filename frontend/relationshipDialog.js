@@ -6,14 +6,14 @@ import { showModal } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 
-const TYPE_OPTIONS = [
+export const TYPE_OPTIONS = [
   { type: 'parent', label: 'Parent', help: `Make the other person this person's parent.` },
   { type: 'child', label: 'Child', help: `Make the other person this person's child.` },
   { type: 'spouse', label: 'Spouse', help: 'Record a marriage/partnership.' },
   { type: 'sibling', label: 'Sibling', help: 'Record them as siblings.' },
 ];
 
-const PARENT_SUBTYPES = [
+export const PARENT_SUBTYPES = [
   { value: 'biological', label: 'Biological' },
   { value: 'adoptive', label: 'Adoptive Parent' },
   { value: 'step', label: 'Step Parent' },
@@ -21,21 +21,21 @@ const PARENT_SUBTYPES = [
   { value: 'guardian', label: 'Guardian' },
 ];
 
-const SIBLING_SUBTYPES = [
+export const SIBLING_SUBTYPES = [
   { value: 'full', label: 'Full Sibling' },
   { value: 'half', label: 'Half Sibling' },
   { value: 'step', label: 'Step Sibling' },
   { value: 'twin', label: 'Twin' },
 ];
 
-function toLabel(datum) {
+export function toLabel(datum) {
   const first = datum?.data?.['first name'] || '';
   const last = datum?.data?.['last name'] || '';
   const label = `${first} ${last}`.trim();
   return label || String(datum?.id ?? '');
 }
 
-function describeRelationship(draft) {
+export function describeRelationship(draft) {
   const { type, subtype, marriageDate, status } = draft;
   if (type === 'parent') {
     const label = PARENT_SUBTYPES.find((s) => s.value === subtype)?.label || 'Parent';

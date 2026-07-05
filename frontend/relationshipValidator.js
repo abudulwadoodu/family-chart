@@ -91,6 +91,11 @@ export function validateRelationship(data, sourceId, targetId, type) {
   }
 
   if (type === 'sibling') {
+    // Only checks source->target relMeta. applyRelationship always writes
+    // both sides symmetrically, so this doesn't miss anything created
+    // through this app's own tooling - only a future external import that
+    // sets relMeta asymmetrically could slip past this. Fast-follow, not
+    // blocking: fall back to checking target's relMeta too if that happens.
     const sourceMeta = source.data?.relMeta?.[targetId];
     if (sourceMeta?.type === 'sibling') {
       return { valid: false, reason: 'These two people are already recorded as siblings.' };
