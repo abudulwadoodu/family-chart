@@ -46,6 +46,32 @@ export function computeBulkPreview(data, sourceIds, targetId, type) {
   });
 }
 
+// Family-tree ancestry only ever links a blood/adoptive child to a parent -
+// a child's spouse is never a direct parent/child edge (see the module
+// comment in relationshipMutations.js). If two selected sources are married
+// to each other and the user is about to bulk-apply Parent/Child to both,
+// one of them is almost certainly joining by marriage, not birth - flag it
+// so the couple doesn't both get recorded as the parent's blood children.
+export function findInLawWarnings(data, sourceIds, type) {
+  if (type !== 'parent' && type !== 'child') return [];
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const sourceSet = new Set(sourceIds);
+  const warnings = [];
+  const seen = new Set();
+
+  sourceIds.forEach((id) => {
+    if (seen.has(id)) return;
+    const datum = byId.get(id);
+    const marriedSelectedSpouseId = (datum?.rels?.spouses || []).find((spouseId) => sourceSet.has(spouseId));
+    if (!marriedSelectedSpouseId) return;
+    seen.add(id);
+    seen.add(marriedSelectedSpouseId);
+    warnings.push({ aId: id, bId: marriedSelectedSpouseId });
+  });
+
+  return warnings;
+}
+
 function renderBuilderHeader(rm, data) {
   const byId = new Map(data.map((d) => [d.id, d]));
   const sourceLabels = rm.selectedSourceIds.map((id) => escapeHtml(toLabel(byId.get(id)))).join(', ');
@@ -119,7 +145,7 @@ function renderTargetResultsBlock(rm, data) {
 function renderSelectTargetStep(rm, data) {
   const sources = rm.selectedSourceIds;
   if (sources.length === 0) {
-    return `<p class="rm-builder-empty">Select one or more people from the "Needs Connection" list to start connecting them.</p>`;
+    return `<p class="rm-builder-empty">Select one or more people from the left panel to start connecting them.</p>`;
   }
 
   const byId = new Map(data.map((d) => [d.id, d]));
@@ -235,6 +261,25 @@ function renderPreviewStep(rm, data) {
   const results = rm.builder.perItemResults;
   const validCount = results.filter((r) => r.valid).length;
 
+  const inLawWarnings = findInLawWarnings(data, rm.selectedSourceIds, type);
+  const warningHtml = inLawWarnings.length
+    ? `
+      <div class="rm-inlaw-warning">
+        ${inLawWarnings
+          .map(
+            ({ aId, bId }) => `
+          <p>
+            <strong>${escapeHtml(toLabel(byId.get(aId)))}</strong> and <strong>${escapeHtml(toLabel(byId.get(bId)))}</strong> are married to each other.
+            Only their actual blood/adoptive child should be recorded as ${escapeHtml(targetLabel)}'s ${type === 'child' ? 'child' : 'parent'} -
+            the spouse who joined by marriage will already show up in the tree correctly without a direct link. Consider unchecking one of them and creating that link separately.
+          </p>
+        `,
+          )
+          .join('')}
+      </div>
+    `
+    : '';
+
   const rowsHtml = results
     .map(
       (r) => `
@@ -248,6 +293,7 @@ function renderPreviewStep(rm, data) {
     .join('');
 
   return `
+    ${warningHtml}
     <div class="rm-bulk-preview">${rowsHtml}</div>
     <div class="modal-actions row">
       <button type="button" class="btn btn-ghost" id="rm-builder-back-btn">Back</button>

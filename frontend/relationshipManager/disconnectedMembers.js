@@ -18,11 +18,28 @@ function birthYear(datum) {
   return Number.isNaN(year) ? null : year;
 }
 
+export function isDisconnected(datum) {
+  const rels = datum?.rels || {};
+  return (rels.parents || []).length === 0 && (rels.children || []).length === 0 && (rels.spouses || []).length === 0;
+}
+
 export function getDisconnectedMembers(data) {
-  return (Array.isArray(data) ? data : []).filter((d) => {
-    const rels = d.rels || {};
-    return (rels.parents || []).length === 0 && (rels.children || []).length === 0 && (rels.spouses || []).length === 0;
-  });
+  return (Array.isArray(data) ? data : []).filter(isDisconnected);
+}
+
+// Short "1 parent, 2 children" style summary for an already-connected
+// member's row, so picking them as a source in "show all members" mode
+// doesn't hide the fact that they're already placed in the tree.
+export function relationSummary(datum) {
+  const rels = datum?.rels || {};
+  const parts = [];
+  const parentCount = (rels.parents || []).length;
+  const childCount = (rels.children || []).length;
+  const spouseCount = (rels.spouses || []).length;
+  if (parentCount) parts.push(`${parentCount} parent${parentCount === 1 ? '' : 's'}`);
+  if (childCount) parts.push(`${childCount} child${childCount === 1 ? '' : 'ren'}`);
+  if (spouseCount) parts.push(`${spouseCount} spouse${spouseCount === 1 ? '' : 's'}`);
+  return parts.join(', ');
 }
 
 export function sortDisconnected(list, mode, recentIds = []) {

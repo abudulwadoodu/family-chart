@@ -6,13 +6,7 @@
 import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { buildMemberSearchIndex, searchMembers } from '../memberSearch.js';
-
-function toLabel(datum) {
-  const first = datum?.data?.['first name'] || '';
-  const last = datum?.data?.['last name'] || '';
-  const label = `${first} ${last}`.trim();
-  return label || String(datum?.id ?? '');
-}
+import { toLabel } from '../relationshipDialog.js';
 
 export function buildHierarchyRoots(data) {
   return data.filter((d) => (d.rels?.parents || []).length === 0 && ((d.rels?.children || []).length > 0 || (d.rels?.spouses || []).length > 0));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeBulkPreview } from './builderPanel.js';
+import { computeBulkPreview, findInLawWarnings } from './builderPanel.js';
 
 function datum(id, { parents = [], children = [], spouses = [], firstName = id, lastName = '' } = {}) {
   return { id, data: { gender: 'M', 'first name': firstName, 'last name': lastName }, rels: { parents, children, spouses } };
@@ -33,5 +33,38 @@ describe('computeBulkPreview', () => {
     const results = computeBulkPreview([a], ['a'], 'a', 'parent');
     expect(results[0].valid).toBe(false);
     expect(results[0].reason).toMatch(/themselves/);
+  });
+});
+
+describe('findInLawWarnings', () => {
+  it('flags a married couple both selected as sources for a parent/child link', () => {
+    const husband = datum('h', { spouses: ['w'] });
+    const wife = datum('w', { spouses: ['h'] });
+    const data = [husband, wife];
+    const warnings = findInLawWarnings(data, ['h', 'w'], 'child');
+    expect(warnings).toEqual([{ aId: 'h', bId: 'w' }]);
+  });
+
+  it('does not flag a single selected source with a spouse outside the selection', () => {
+    const husband = datum('h', { spouses: ['w'] });
+    const wife = datum('w', { spouses: ['h'] });
+    const data = [husband, wife];
+    const warnings = findInLawWarnings(data, ['h'], 'child');
+    expect(warnings).toEqual([]);
+  });
+
+  it('does not flag unmarried selected sources', () => {
+    const a = datum('a');
+    const b = datum('b');
+    const warnings = findInLawWarnings([a, b], ['a', 'b'], 'child');
+    expect(warnings).toEqual([]);
+  });
+
+  it('only applies to parent/child types, not spouse or sibling', () => {
+    const husband = datum('h', { spouses: ['w'] });
+    const wife = datum('w', { spouses: ['h'] });
+    const data = [husband, wife];
+    expect(findInLawWarnings(data, ['h', 'w'], 'spouse')).toEqual([]);
+    expect(findInLawWarnings(data, ['h', 'w'], 'sibling')).toEqual([]);
   });
 });

@@ -2134,11 +2134,27 @@ button.secondary:active,
   color: var(--text-secondary);
 }
 
-.rm-keep-selection {
+.rm-keep-selection,
+.rm-show-all-toggle {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
   cursor: pointer;
+}
+
+.rm-show-all-toggle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.rm-member-connected-badge {
+  display: inline-block;
+  margin-left: var(--sp-1);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-hover-strong);
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
 }
 
 #rm-disconnected-list-wrap {
@@ -2318,6 +2334,27 @@ button.secondary:active,
 .rm-recent-chip[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.rm-inlaw-warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-soft);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
+.rm-inlaw-warning p {
+  margin: 0;
+}
+
+.rm-inlaw-warning strong {
+  color: var(--text-primary);
 }
 
 .rm-bulk-preview {

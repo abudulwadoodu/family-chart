@@ -11,6 +11,12 @@ export function createRelationshipManagerState() {
     disconnectedSort: 'name', // 'name' | 'recent' | 'birthYear'
     disconnectedPage: 1,
     disconnectedPageSize: 25,
+    // When false (default), the left panel lists only zero-rels members
+    // ("Needs Connection"). When true, it lists everyone, so an already-
+    // connected member can be picked as a source for an additional
+    // relationship (e.g. adding a second parent, or linking an existing
+    // member into a different branch).
+    showAllMembers: false,
     selectedSourceIds: [],
     lastClickedIndex: null,
     keepSelection: false,

@@ -1,11 +1,12 @@
 // Left panel: the "Needs Connection" list. Search/sort/paginate the
-// disconnected-members set and let the user multi-select rows (checkbox,
-// shift-click range, ctrl/cmd-click toggle, or keyboard) to feed into the
-// builder panel.
+// disconnected-members set (or, with the "Show all members" toggle on,
+// every member) and let the user multi-select rows (checkbox, shift-click
+// range, ctrl/cmd-click toggle, or keyboard) to feed into the builder panel.
 import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
-import { getDisconnectedMembers, sortDisconnected } from './disconnectedMembers.js';
+import { getDisconnectedMembers, sortDisconnected, isDisconnected, relationSummary } from './disconnectedMembers.js';
 import { searchMembers } from '../memberSearch.js';
+import { toLabel } from '../relationshipDialog.js';
 
 function debounce(fn, delay = 250) {
   let timer;
@@ -13,13 +14,6 @@ function debounce(fn, delay = 250) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
-}
-
-function toLabel(datum) {
-  const first = datum?.data?.['first name'] || '';
-  const last = datum?.data?.['last name'] || '';
-  const label = `${first} ${last}`.trim();
-  return label || String(datum?.id ?? '');
 }
 
 function birthYearLabel(datum) {
@@ -41,12 +35,12 @@ function genderLabel(datum) {
 // visible list once and hand it to both this panel and the builder panel
 // (which needs to know how many sources are selected for its header).
 export function getVisibleDisconnectedList(rm, data, searchIndex) {
-  const disconnected = getDisconnectedMembers(data);
+  const candidates = rm.showAllMembers ? (Array.isArray(data) ? data : []) : getDisconnectedMembers(data);
   const filtered = rm.disconnectedSearch.trim() && searchIndex
-    ? searchMembers(searchIndex, rm.disconnectedSearch, disconnected.length).filter((entry) =>
-        disconnected.some((d) => d.id === entry.id),
-      ).map((entry) => disconnected.find((d) => d.id === entry.id))
-    : disconnected;
+    ? searchMembers(searchIndex, rm.disconnectedSearch, candidates.length).filter((entry) =>
+        candidates.some((d) => d.id === entry.id),
+      ).map((entry) => candidates.find((d) => d.id === entry.id))
+    : candidates;
   return sortDisconnected(filtered, rm.disconnectedSort, rm.recent?.memberIds || []);
 }
 
@@ -72,6 +66,8 @@ function renderDisconnectedListBody(rm, data, searchIndex) {
           const avatar = datum.data?.avatar
             ? `<img class="rm-member-avatar" src="${escapeHtml(datum.data.avatar)}" alt="" />`
             : `<span class="rm-member-avatar rm-member-avatar-placeholder">${icon('user')}</span>`;
+          const connected = !isDisconnected(datum);
+          const summary = connected ? relationSummary(datum) : '';
           return `
             <li
               class="rm-member-row ${selected ? 'is-selected' : ''} ${active ? 'is-active' : ''}"
@@ -85,13 +81,22 @@ function renderDisconnectedListBody(rm, data, searchIndex) {
               ${avatar}
               <span class="rm-member-info">
                 <span class="rm-member-name">${escapeHtml(toLabel(datum))}</span>
-                <span class="rm-member-meta">${escapeHtml(genderLabel(datum))}${birthYearLabel(datum) ? ` &middot; b. ${escapeHtml(birthYearLabel(datum))}` : ''}</span>
+                <span class="rm-member-meta">
+                  ${escapeHtml(genderLabel(datum))}${birthYearLabel(datum) ? ` &middot; b. ${escapeHtml(birthYearLabel(datum))}` : ''}
+                  ${summary ? `<span class="rm-member-connected-badge">${escapeHtml(summary)}</span>` : ''}
+                </span>
               </span>
             </li>
           `;
         })
         .join('')
-    : `<li class="rm-empty-state">No disconnected members ${rm.disconnectedSearch ? 'match your search' : 'left to connect'}.</li>`;
+    : `<li class="rm-empty-state">${
+        rm.disconnectedSearch
+          ? 'No members match your search.'
+          : rm.showAllMembers
+            ? 'No members in this tree yet.'
+            : 'No disconnected members left to connect.'
+      }</li>`;
 
   return `
     <ul class="rm-member-list" id="rm-disconnected-list" role="listbox" aria-multiselectable="true">
@@ -107,10 +112,11 @@ function renderDisconnectedListBody(rm, data, searchIndex) {
 
 export function renderDisconnectedListPanel(rm, data, searchIndex) {
   const visible = getVisibleDisconnectedList(rm, data, searchIndex);
+  const title = rm.showAllMembers ? 'All Members' : 'Needs Connection';
 
   return `
     <div class="rm-panel-header">
-      <h3>Needs Connection <span class="rm-count-badge" id="rm-disconnected-count">${visible.length}</span></h3>
+      <h3 id="rm-disconnected-title">${title} <span class="rm-count-badge" id="rm-disconnected-count">${visible.length}</span></h3>
       <label class="search-box rm-search-box">
         ${icon('search')}
         <input
@@ -118,15 +124,19 @@ export function renderDisconnectedListPanel(rm, data, searchIndex) {
           id="rm-disconnected-search-input"
           placeholder="Search..."
           autocomplete="off"
-          aria-label="Search disconnected members"
+          aria-label="Search members"
           value="${escapeHtml(rm.disconnectedSearch)}"
         />
       </label>
-      <select id="rm-disconnected-sort-select" aria-label="Sort disconnected members">
+      <select id="rm-disconnected-sort-select" aria-label="Sort members">
         <option value="name" ${rm.disconnectedSort === 'name' ? 'selected' : ''}>Name</option>
         <option value="birthYear" ${rm.disconnectedSort === 'birthYear' ? 'selected' : ''}>Birth year</option>
         <option value="recent" ${rm.disconnectedSort === 'recent' ? 'selected' : ''}>Recently selected</option>
       </select>
+      <label class="rm-show-all-toggle">
+        <input type="checkbox" id="rm-show-all-toggle" ${rm.showAllMembers ? 'checked' : ''} />
+        Show all members (including already-connected)
+      </label>
     </div>
     <div class="rm-panel-toolbar">
       <label class="rm-keep-selection">
@@ -231,6 +241,12 @@ export function attachDisconnectedListListeners(state, render, data, searchIndex
 
   document.querySelector('#rm-disconnected-sort-select')?.addEventListener('change', (event) => {
     rm.disconnectedSort = event.target.value;
+    render();
+  });
+
+  document.querySelector('#rm-show-all-toggle')?.addEventListener('change', (event) => {
+    rm.showAllMembers = event.target.checked;
+    rm.disconnectedPage = 1;
     render();
   });
 

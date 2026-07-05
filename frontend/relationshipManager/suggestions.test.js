@@ -55,4 +55,11 @@ describe('suggestMatches', () => {
     const results = suggestMatches(candidate, [candidate, ...many], { limit: 3 });
     expect(results).toHaveLength(3);
   });
+
+  it('falls back to the raw id as the label when a member has no first/last name set', () => {
+    const candidate = datum('a', { birthday: '1990-01-01' });
+    const nameless = { id: 'x', data: { gender: 'M', birthday: '1991-01-01' }, rels: { parents: [], children: [], spouses: [] } };
+    const results = suggestMatches(candidate, [candidate, nameless]);
+    expect(results.find((r) => r.id === 'x')?.label).toBe('x');
+  });
 });
