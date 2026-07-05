@@ -1,0 +1,138 @@
+// Right panel: field-by-field compare + merge for the currently selected
+// candidate pair. "a" is always the keep/survivor side, "b" is the side that
+// will be dropped once merged - the toolbar lets the user flip which member
+// is which before merging.
+import { escapeHtml } from '../utils.js';
+import { toLabel } from '../relationshipDialog.js';
+import { diffFields, applyMerge } from './duplicateMerge.js';
+import { pushCommand, undo, redo } from './undoStack.js';
+
+const FIELD_LABELS = {
+  'first name': 'First name',
+  'last name': 'Last name',
+  gender: 'Gender',
+  birthday: 'Birthday',
+  location: 'Location',
+  avatar: 'Photo',
+  notes: 'Notes',
+};
+
+function fieldLabel(field) {
+  return FIELD_LABELS[field] || field;
+}
+
+function relCount(datum) {
+  const rels = datum?.rels || {};
+  return (rels.parents || []).length + (rels.children || []).length + (rels.spouses || []).length;
+}
+
+function renderFieldRow(field, valueA, valueB, choice) {
+  const display = (v) => (v === '' || v === undefined || v === null ? '<em>(empty)</em>' : escapeHtml(String(v)));
+  return `
+    <div class="dm-field-row">
+      <span class="dm-field-name">${escapeHtml(fieldLabel(field))}</span>
+      <label class="dm-field-option ${choice === 'a' ? 'is-chosen' : ''}">
+        <input type="radio" name="dm-field-${escapeHtml(field)}" value="a" ${choice === 'a' ? 'checked' : ''} />
+        ${display(valueA)}
+      </label>
+      <label class="dm-field-option ${choice === 'b' ? 'is-chosen' : ''}">
+        <input type="radio" name="dm-field-${escapeHtml(field)}" value="b" ${choice === 'b' ? 'checked' : ''} />
+        ${display(valueB)}
+      </label>
+    </div>
+  `;
+}
+
+export function renderComparePanel(dm, data, candidate) {
+  if (!candidate) {
+    return `
+      <div class="dm-panel-header"><h3>Compare</h3></div>
+      <div class="dm-empty-state">Select a pair on the left to compare and merge.</div>
+    `;
+  }
+
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const keepId = dm.keepFirst ? candidate.aId : candidate.bId;
+  const dropId = dm.keepFirst ? candidate.bId : candidate.aId;
+  const a = byId.get(keepId);
+  const b = byId.get(dropId);
+  if (!a || !b) {
+    return `<div class="dm-panel-header"><h3>Compare</h3></div><div class="dm-empty-state">One of these members no longer exists.</div>`;
+  }
+
+  const diffs = diffFields(a, b);
+  const fieldsHtml = diffs.length
+    ? diffs.map(({ field, valueA, valueB }) => renderFieldRow(field, valueA, valueB, dm.fieldChoices[field] || (valueA ? 'a' : 'b'))).join('')
+    : `<div class="dm-empty-state">No conflicting fields - all values match.</div>`;
+
+  const inheritedCount = relCount(b);
+
+  return `
+    <div class="dm-panel-header">
+      <h3>Compare &amp; Merge</h3>
+    </div>
+    <div class="dm-compare-body">
+      <div class="dm-compare-heading">
+        <span class="dm-compare-col">Keep: ${escapeHtml(toLabel(a))}</span>
+        <button type="button" id="dm-swap-btn" class="chip" title="Swap which record is kept">Swap</button>
+        <span class="dm-compare-col">Remove: ${escapeHtml(toLabel(b))}</span>
+      </div>
+      <div class="dm-field-list">${fieldsHtml}</div>
+      <div class="dm-rel-preview">
+        ${inheritedCount > 0
+          ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${escapeHtml(toLabel(b))}.`
+          : `${escapeHtml(toLabel(b))} has no relationships to inherit.`}
+      </div>
+      <button type="button" id="dm-merge-btn" class="btn btn-primary">Merge into ${escapeHtml(toLabel(a))}</button>
+    </div>
+  `;
+}
+
+export function attachComparePanelListeners(state, render) {
+  const dm = state.duplicateManager;
+  const data = state.selectedTreeData;
+
+  document.querySelector('#dm-undo-btn')?.addEventListener('click', () => {
+    if (undo(dm.undoStack, data)) {
+      dm.dirty = true;
+      render();
+    }
+  });
+
+  document.querySelector('#dm-redo-btn')?.addEventListener('click', () => {
+    if (redo(dm.undoStack, data)) {
+      dm.dirty = true;
+      render();
+    }
+  });
+
+  if (!dm.selectedPairKey) return;
+
+  document.querySelector('#dm-swap-btn')?.addEventListener('click', () => {
+    dm.keepFirst = !dm.keepFirst;
+    dm.fieldChoices = {};
+    render();
+  });
+
+  document.querySelectorAll('.dm-field-row input[type="radio"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const field = input.name.replace('dm-field-', '');
+      dm.fieldChoices[field] = input.value;
+      render();
+    });
+  });
+
+  document.querySelector('#dm-merge-btn')?.addEventListener('click', () => {
+    const [sortedA, sortedB] = dm.selectedPairKey.split('::');
+    const keepId = dm.keepFirst ? sortedA : sortedB;
+    const dropId = dm.keepFirst ? sortedB : sortedA;
+    const command = applyMerge(data, { keepId, dropId, fieldChoices: { ...dm.fieldChoices } });
+    if (!command) return;
+    pushCommand(dm.undoStack, command);
+    dm.dirty = true;
+    dm.selectedPairKey = null;
+    dm.keepFirst = true;
+    dm.fieldChoices = {};
+    render();
+  });
+}

@@ -30,6 +30,10 @@ import { attachBuilderPanelListeners } from './relationshipManager/builderPanel.
 import { attachTreeHierarchyListeners } from './relationshipManager/treeHierarchyPanel.js';
 import { attachRelationshipManagerKeyboard } from './relationshipManager/keyboardNav.js';
 import { undo as undoRelationship, redo as redoRelationship, canUndo as canUndoRelationship, canRedo as canRedoRelationship } from './relationshipManager/undoStack.js';
+import { createDuplicateManagerState } from './duplicateManager/state.js';
+import { renderDuplicateManagerMode } from './duplicateManager/components.js';
+import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
+import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
@@ -175,6 +179,7 @@ const state = {
   allNodesGraph: null,
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
+  duplicateManager: createDuplicateManagerState(),
   memberSearchIndex: null,
   memberSearchResults: [],
   memberSearchActiveIndex: -1,
@@ -1813,8 +1818,8 @@ function selectSearchedMember(id) {
     if (clearBtn) clearBtn.hidden = true;
   }
 
-  if (state.viewMode === 'relationship-manager') {
-    // The tree-toolbar member search isn't wired into this mode's own
+  if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager') {
+    // The tree-toolbar member search isn't wired into either mode's own
     // panels - fall back to Focused mode, same as the All Nodes case below.
     state.focusedMainId = id;
     state.viewMode = 'focused';
@@ -1898,7 +1903,7 @@ function focusModeCenter() {
 // Nodes mode has its own pan/zoom with no equivalent hooks, so disable those
 // two floating-toolbar buttons instead of leaving them as silent no-ops.
 function syncFocusModeToolbarState() {
-  const disabled = state.viewMode === 'all-nodes' || state.viewMode === 'relationship-manager';
+  const disabled = state.viewMode === 'all-nodes' || state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager';
   focusModeController?.setActionDisabled('zoom-in', disabled);
   focusModeController?.setActionDisabled('zoom-out', disabled);
   focusModeController?.setActionDisabled('center', disabled);
@@ -2011,6 +2016,7 @@ async function handleSaveTree() {
     });
     state.relationshipBuilder.dirty = false;
     state.relationshipManager.dirty = false;
+    state.duplicateManager.dirty = false;
     showToast('Tree saved successfully.');
   } catch (error) {
     showToast(error.message || 'Save failed.', { type: 'error' });
@@ -2280,12 +2286,18 @@ function clearSelectedTreeView() {
   state.focusedMainId = null;
   state.defaultMainId = null;
   state.relationshipManager = createRelationshipManagerState();
+  state.duplicateManager = createDuplicateManagerState();
   closeMemberSearchResults();
   state.memberSearchIndex = null;
 }
 
 function renderChart() {
   cleanupAllNodesGraph();
+  if (state.viewMode === 'duplicate-manager') {
+    renderDuplicateManagerViewMode();
+    setupViewModeToggle();
+    return;
+  }
   if (state.viewMode === 'relationship-manager') {
     renderRelationshipManagerViewMode();
     setupViewModeToggle();
@@ -2357,11 +2369,13 @@ function setupViewModeToggle() {
   const focusedBtn = document.querySelector('#focused-mode-btn');
   const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
   const relationshipManagerBtn = document.querySelector('#relationship-manager-mode-btn');
+  const duplicateManagerBtn = document.querySelector('#duplicate-manager-mode-btn');
 
   const syncModeButtons = () => {
     focusedBtn.disabled = state.viewMode === 'focused';
     allNodesBtn.disabled = state.viewMode === 'all-nodes';
     if (relationshipManagerBtn) relationshipManagerBtn.disabled = state.viewMode === 'relationship-manager';
+    if (duplicateManagerBtn) duplicateManagerBtn.disabled = state.viewMode === 'duplicate-manager';
     syncSaveButtonAvailability();
     syncFocusModeToolbarState();
   };
@@ -2390,6 +2404,13 @@ function setupViewModeToggle() {
   relationshipManagerBtn?.addEventListener('click', () => {
     saveFocusedMainId();
     state.viewMode = 'relationship-manager';
+    renderChart();
+    syncModeButtons();
+  });
+
+  duplicateManagerBtn?.addEventListener('click', () => {
+    saveFocusedMainId();
+    state.viewMode = 'duplicate-manager';
     renderChart();
     syncModeButtons();
   });
@@ -3538,6 +3559,22 @@ function renderRelationshipManagerViewMode() {
   syncSaveButtonAvailability();
 }
 
+function renderDuplicateManagerViewMode() {
+  state.chart = null;
+  state.editor = null;
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderDuplicateManagerMode(state.duplicateManager, state.selectedTreeData, { canEdit });
+
+  attachDuplicateListListeners(state, renderDuplicateManagerViewMode);
+  if (canEdit) {
+    attachComparePanelListeners(state, renderDuplicateManagerViewMode);
+  }
+
+  syncSaveButtonAvailability();
+}
+
 let relationshipManagerKeyboardCleanup = null;
 
 // Re-evaluates the Save button's disabled state from current role/view-mode/
@@ -3550,7 +3587,8 @@ function syncSaveButtonAvailability() {
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
   const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
   const relationshipManagerBlocked = state.viewMode === 'relationship-manager' && !state.relationshipManager.dirty;
-  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked;
+  const duplicateManagerBlocked = state.viewMode === 'duplicate-manager' && !state.duplicateManager.dirty;
+  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked || duplicateManagerBlocked;
 }
 
 function cleanupAllNodesGraph() {
