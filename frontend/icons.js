@@ -112,6 +112,12 @@ export const icons = {
   panelLeft: svg(
     '<rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M9.5 4.5v15"></path><path d="M14.5 9.5l-2.5 2.5 2.5 2.5" transform="translate(-1.5,0)"></path>'
   ),
+  user: svg(
+    '<circle cx="12" cy="8" r="3.5"></circle><path d="M4.5 19.5a7.5 7.5 0 0 1 15 0"></path>'
+  ),
+  undo: svg('<path d="M6 8.5H15a4.5 4.5 0 0 1 0 9H10"></path><path d="M9.5 5 6 8.5 9.5 12"></path>'),
+  redo: svg('<path d="M18 8.5H9a4.5 4.5 0 0 0 0 9h5"></path><path d="M14.5 5 18 8.5 14.5 12"></path>'),
+  chevronRight: svg('<path d="M9 6l6 6-6 6"></path>'),
 };
 
 export function icon(name) {

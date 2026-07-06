@@ -367,6 +367,8 @@ export function renderViewModeToggle({ viewMode, canEdit }) {
     <div class="view-mode-toggle">
       <button type="button" id="focused-mode-btn" class="chip ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
       <button type="button" id="all-nodes-mode-btn" class="chip ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
+      <button type="button" id="relationship-manager-mode-btn" class="chip ${viewMode === 'relationship-manager' ? 'chip-active' : ''}" ${viewMode === 'relationship-manager' ? 'disabled' : ''}>Relationships</button>
+      <button type="button" id="duplicate-manager-mode-btn" class="chip ${viewMode === 'duplicate-manager' ? 'chip-active' : ''}" ${viewMode === 'duplicate-manager' ? 'disabled' : ''}>Duplicates</button>
     </div>
   `;
 }

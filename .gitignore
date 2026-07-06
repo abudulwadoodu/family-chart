@@ -9,6 +9,7 @@ cypress/screenshots
 docs/api
 /.env
 /data/
+/requirements.md
 
 # Terraform
 **/.terraform/

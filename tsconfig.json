@@ -2,10 +2,12 @@
   "compilerOptions": {
     "target": "es2015",
     "module": "esnext",
+    "moduleResolution": "bundler",
     "allowJs": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
+    "rootDir": "./src",
     "outDir": "./dist"
   },
   "include": ["src"]
