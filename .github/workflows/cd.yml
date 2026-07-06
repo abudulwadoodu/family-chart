@@ -11,41 +11,63 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, family-chart-prod]
-    defaults:
-      run:
-        working-directory: /home/ubuntu/family-chart
-        shell: bash
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          path: family-chart
-          clean: false
-          fetch-depth: 1
+          node-version: "24"
+          cache: "npm"
 
       - name: Install dependencies
-        run: |
-          source ~/.nvm/nvm.sh
-          nvm use 24.15.0
-          npm ci
+        run: npm ci
 
       - name: Build frontend
-        run: |
-          source ~/.nvm/nvm.sh
-          nvm use 24.15.0
-          npm run build:app
+        run: npm run build:app
 
-      - name: Reload backend (zero-downtime)
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Add EC2 host to known_hosts
+        run: ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync built frontend
         run: |
-          source ~/.nvm/nvm.sh
-          nvm use 24.15.0
-          pm2 reload family-backend --update-env
+          rsync -az --delete \
+            dist/app/ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/family-chart/dist/app/"
+
+      - name: Sync backend source and manifests
+        run: |
+          rsync -az --delete \
+            --exclude='.env' \
+            --exclude='data/' \
+            --exclude='node_modules/' \
+            backend/ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/family-chart/backend/"
+          rsync -az package.json package-lock.json \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/family-chart/"
+
+      - name: Install backend prod dependencies and reload
+        run: |
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+            set -e
+            source ~/.nvm/nvm.sh
+            nvm use 24.15.0
+            cd /home/ubuntu/family-chart
+            npm ci --omit=dev
+            pm2 reload family-backend --update-env
+          '
 
       - name: Health check
         run: |
-          sleep 2
-          curl -fsS http://localhost/ > /dev/null
-          status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/)
-          echo "backend /api/ status: $status"
-          if [ "$status" -ge 500 ]; then exit 1; fi
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+            sleep 2
+            curl -fsS http://localhost/ > /dev/null
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/)
+            echo "backend /api/ status: $status"
+            if [ "$status" -ge 500 ]; then exit 1; fi
+          '
