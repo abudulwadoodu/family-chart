@@ -1,5 +1,9 @@
+import os from 'os';
+import path from 'path';
+
 export function setBaseTestEnv() {
   process.env.DB_PATH = ':memory:';
+  process.env.MEDIA_STORAGE_PATH = path.join(os.tmpdir(), 'family-chart-test-media');
   process.env.FRONTEND_ORIGIN = 'http://localhost:8080';
   process.env.COGNITO_USER_POOL_ID = 'ap-south-2_test';
   process.env.COGNITO_CLIENT_ID = 'test-client-id';

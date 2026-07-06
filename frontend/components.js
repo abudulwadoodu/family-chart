@@ -387,6 +387,22 @@ export function renderFocusModeButton() {
   `;
 }
 
+export function renderMediaLibraryButton() {
+  return `
+    <button type="button" id="media-library-btn" class="chip" title="Photos, videos, and documents for this tree">
+      ${icon('image')}<span>Media Library</span>
+    </button>
+  `;
+}
+
+export function renderTimelineButton() {
+  return `
+    <button type="button" id="timeline-btn" class="chip" title="Events for this tree">
+      ${icon('clock')}<span>Timeline</span>
+    </button>
+  `;
+}
+
 export function renderMemberSearch() {
   return `
     <div class="member-search" id="member-search">

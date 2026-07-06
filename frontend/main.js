@@ -32,6 +32,19 @@ import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
+import { attachPersonMediaTabs, openReadOnlyPersonModal } from './personMediaPanel.js';
+import {
+  createMediaLibraryPageState,
+  renderMediaLibraryPageContent,
+  attachMediaLibraryPageListeners,
+  loadMediaLibraryPage,
+} from './mediaLibraryPanel.js';
+import {
+  createTimelinePageState,
+  renderTimelinePageContent,
+  attachTimelinePageListeners,
+  loadTimelinePage,
+} from './timelinePanel.js';
 import { buildJsonExportEnvelope } from './jsonExport.js';
 import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
@@ -47,6 +60,8 @@ import {
   renderViewModeToggle,
   renderResetViewButton,
   renderFocusModeButton,
+  renderMediaLibraryButton,
+  renderTimelineButton,
   renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
@@ -210,6 +225,13 @@ const state = {
     selectedMessages: [],
     selectedLoading: false,
   },
+  // Tree-wide Media Library page (reachable from the tree viewer toolbar).
+  // Reset via clearSelectedTreeView whenever the user leaves the tree, so
+  // switching trees doesn't leak the previous tree's media/albums.
+  mediaLibrary: createMediaLibraryPageState(),
+  // Tree-wide Timeline page (reachable from the tree viewer toolbar). Reset
+  // the same way as mediaLibrary above.
+  timeline: createTimelinePageState(),
   // Admin Portal: only reachable when state.user.is_admin is true. Each
   // module owns its own state slice (dashboard/users/trees/analytics/
   // settings/auditLogs/tickets) - add a new slice + nav entry to extend.
@@ -1095,6 +1117,25 @@ function renderDashboard() {
     !isMyTicketsView &&
     !isTicketDetailView &&
     state.dashboardView === 'admin';
+  const isMediaLibraryView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isAdminView &&
+    state.dashboardView === 'mediaLibrary' &&
+    Boolean(state.selectedTreeId);
+  const isTimelineView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isAdminView &&
+    !isMediaLibraryView &&
+    state.dashboardView === 'timeline' &&
+    Boolean(state.selectedTreeId);
   const isViewerView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1102,6 +1143,8 @@ function renderDashboard() {
     !isMyTicketsView &&
     !isTicketDetailView &&
     !isAdminView &&
+    !isMediaLibraryView &&
+    !isTimelineView &&
     Boolean(state.selectedTreeId);
 
   app.innerHTML = `
@@ -1123,9 +1166,18 @@ function renderDashboard() {
                       ? renderTicketDetailPageContent()
                       : isAdminView
                         ? renderAdminPageContent()
-                        : isViewerView
-                          ? renderTreeViewerMarkup()
-                          : renderTreesLandingMarkup()
+                        : isMediaLibraryView
+                          ? renderMediaLibraryPageContent(state.mediaLibrary, {
+                              readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                            })
+                          : isTimelineView
+                            ? renderTimelinePageContent(state.timeline, {
+                                memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                              })
+                            : isViewerView
+                              ? renderTreeViewerMarkup()
+                              : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
@@ -1162,6 +1214,48 @@ function renderDashboard() {
 
   if (isAdminView) {
     if (state.user.is_admin) attachAdminListeners(state, render);
+    return;
+  }
+
+  if (isMediaLibraryView) {
+    attachMediaLibraryPageListeners(
+      state.mediaLibrary,
+      {
+        api,
+        treeId: state.selectedTreeId,
+        memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+      },
+      render,
+      () => {
+        state.dashboardView = 'trees';
+        render();
+      }
+    );
+    if (!state.mediaLibrary.loaded) {
+      loadMediaLibraryPage(state.mediaLibrary, { api, treeId: state.selectedTreeId }, render);
+    }
+    return;
+  }
+
+  if (isTimelineView) {
+    attachTimelinePageListeners(
+      state.timeline,
+      {
+        api,
+        treeId: state.selectedTreeId,
+        memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+      },
+      render,
+      () => {
+        state.dashboardView = 'trees';
+        render();
+      }
+    );
+    if (!state.timeline.loaded) {
+      loadTimelinePage(state.timeline, { api, treeId: state.selectedTreeId }, render);
+    }
     return;
   }
 
@@ -1636,6 +1730,8 @@ function renderTreeViewerMarkup() {
           <div id="view-mode-toggle"></div>
           ${renderResetViewButton()}
           ${renderFocusModeButton()}
+          ${renderMediaLibraryButton()}
+          ${renderTimelineButton()}
         </div>
         ${renderMemberSearch()}
       </div>
@@ -1654,6 +1750,16 @@ function attachTreeViewerListeners() {
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
+  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
+    state.mediaLibrary = createMediaLibraryPageState();
+    state.dashboardView = 'mediaLibrary';
+    render();
+  });
+  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
+    state.timeline = createTimelinePageState();
+    state.dashboardView = 'timeline';
+    render();
+  });
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2261,6 +2367,8 @@ function clearSelectedTreeView() {
   state.defaultMainId = null;
   closeMemberSearchResults();
   state.memberSearchIndex = null;
+  state.mediaLibrary = createMediaLibraryPageState();
+  state.timeline = createTimelinePageState();
 }
 
 function renderChart() {
@@ -2296,9 +2404,31 @@ function renderChart() {
       .editTree()
       .setFields(['first name', 'last name', 'birthday', 'location', 'notes', 'avatar'])
       .setEditFirst(true)
-      .setCardClickOpen(card);
+      .setCardClickOpen(card)
+      .setOnFormCreation(({ cont, form_creator }) => {
+        attachPersonMediaTabs({
+          cont,
+          datum: form_creator.datum,
+          api,
+          treeId: state.selectedTreeId,
+          memberIndex: state.memberSearchIndex || [],
+        });
+      });
   } else {
     state.editor = null;
+    // Viewers never get editTree(), so the card's default click (re-center
+    // the tree on that person) is preserved here and a read-only Media/
+    // Events modal is opened alongside it.
+    card.setOnCardClick((e, d) => {
+      state.chart.updateMainId(d.data.id);
+      state.chart.updateTree({});
+      openReadOnlyPersonModal({
+        api,
+        treeId: state.selectedTreeId,
+        datum: d.data,
+        memberIndex: state.memberSearchIndex || [],
+      });
+    });
   }
 
   state.chart.updateTree({
