@@ -48,6 +48,12 @@
   stroke: currentColor;
   stroke-width: 3px;
 }
+.f3 .fit_screen_icon {
+  color: var(--tree-action-icon-color, #fff);
+}
+.f3 .card_family_tree {
+  color: var(--tree-action-icon-color, #fff);
+}
 .f3 .card_family_tree rect {
   transition: 0.3s;
 }
@@ -56,28 +62,28 @@
 }
 .f3 .card_add_relative {
   cursor: pointer;
-  color: #fff;
+  color: var(--tree-action-icon-color, #fff) !important;
   transition: 0.3s;
 }
 .f3 .card_add_relative circle {
   fill: rgba(0, 0, 0, 0);
 }
 .f3 .card_add_relative:hover {
-  color: black;
+  color: var(--accent, black);
 }
 .f3 .card_edit.pencil_icon {
-  color: #fff;
+  color: var(--tree-action-icon-color, #fff) !important;
   transition: 0.3s;
 }
 .f3 .card_edit.pencil_icon:hover {
-  color: black;
+  color: var(--accent, black);
 }
 .f3 .card_break_link, .f3 .link_upper, .f3 .link_lower, .f3 .link_particles {
   transform-origin: 50% 50%;
   transition: 1s;
 }
 .f3 .card_break_link {
-  color: #fff;
+  color: var(--tree-action-icon-color, #fff) !important;
 }
 .f3 .card_break_link.closed .link_upper {
   transform: translate(-140.5px, 655.6px);
@@ -102,7 +108,7 @@
   background-color: var(--background-color);
   background-image: radial-gradient(var(--tree-dot-grid, rgba(255, 255, 255, 0.07)) 0.7px, transparent 0.7px);
   background-size: 16px 16px;
-  color: var(--text-color);
+  color: var(--tree-panel-text, var(--text-color));
 }
 .f3 {
   position: relative;
@@ -188,10 +194,14 @@
 }
 
 .f3-radio-group {
+  display: flex;
+  align-items: center;
   margin: 15px 0;
 }
 
 .f3-radio-group label {
+  display: inline-flex;
+  align-items: center;
   margin-right: 15px;
   cursor: pointer;
 }
@@ -239,7 +249,7 @@
   left: 10px;
   top: 8px;
   font-size: 30px;
-  color: var(--text-color);
+  color: var(--tree-action-icon-color, #fff) !important;
 }
 
 .f3-edit-btn {
@@ -249,6 +259,7 @@
   height: 24px;
   cursor: pointer;
   display: inline-block;
+  color: var(--tree-action-icon-color, #fff) !important;
 }
 
 .f3-add-relative-btn {
@@ -257,6 +268,7 @@
   height: 27px;
   margin-right: 5px;
   display: inline-block;
+  color: var(--tree-action-icon-color, #fff) !important;
 }
 
 /* card-html */
@@ -375,6 +387,7 @@
   top: -15px;
   right: -2px;
   z-index: -1;
+  color: var(--tree-action-icon-color, #fff);
 }
 .f3 div.mini-tree svg {
   width: 55px;
@@ -776,7 +789,7 @@
 .f3-autocomplete input {
   border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.2));
   background-color: var(--background-color);
-  color: var(--text-color);
+  color: var(--tree-panel-text, var(--text-color));
   padding: 10px;
   width: 100%;
 }
@@ -789,7 +802,7 @@
   right: 10px;
   top: 10px;
   cursor: pointer;
-  color: var(--text-color);
+  color: var(--tree-panel-text, var(--text-color));
   transition: color 0.3s ease-in-out;
   width: 20px;
 }
@@ -815,7 +828,7 @@
   transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
 }
 .f3-autocomplete-item > div:hover, .f3-autocomplete-item.f3-selected > div {
-  background-color: var(--text-color);
+  background-color: var(--tree-panel-text, var(--text-color));
   color: var(--background-color);
 }
 
@@ -848,7 +861,7 @@
   height: 100%;
   position:relative;
   background-color: var(--tree-bg, rgb(33,33,33));
-  color: var(--tree-card-text, #fff);
+  color: var(--tree-panel-text, var(--tree-card-text, #fff));
 }
 
 .f3 .f3-kinship-info .card-kinship-self {

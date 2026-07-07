@@ -118,6 +118,8 @@
   --tree-node-stroke: #ffffff;
   --tree-node-label-fill: #ffffff;
   --tree-node-label-stroke: #000000;
+  --tree-action-icon-color: #ffffff;
+  --tree-panel-text: #ffffff;
 }
 
 [data-theme='light'] {
@@ -203,6 +205,8 @@
   --tree-node-stroke: #ffffff;
   --tree-node-label-fill: #1f2937;
   --tree-node-label-stroke: #ffffff;
+  --tree-action-icon-color: #4b5563;
+  --tree-panel-text: #1f2937;
 }
 
 body {
@@ -4270,6 +4274,7 @@ button.admin-stat-card {
   margin: 0;
   font-size: 2rem;
   font-weight: 700;
+  color: var(--text-primary);
 }
 
 .admin-stat-label {
@@ -5626,4 +5631,27 @@ button.admin-stat-card {
 .timeline-event-location {
   margin: 2px 0 0;
   font-size: 0.85rem;
+}
+
+.f3 .f3-svg-circle-hover {
+  color: #ffffff !important;
+}
+
+[data-theme='light'] .f3 .f3-svg-circle-hover {
+  color: #4b5563 !important;
+}
+
+.f3 .f3-svg-circle-hover circle {
+  transition: fill 0.2s ease-in-out;
+}
+
+.f3 .f3-svg-circle-hover:hover circle {
+  fill: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* `.f3 div.card:hover > div` (library CSS) applies a -2px hover transform to
+   every direct child of `.card`, which would otherwise make these icons
+   visibly shift position on hover along with `.card-inner`. */
+.f3 div.card > .f3-svg-circle-hover {
+  transform: none !important;
 }

@@ -12,9 +12,9 @@ export default function createSvg(cont: HTMLElement, props: ZoomProps = {}) {
       </g>
       <g style="transform: translate(100%, 100%)">
         <g class="fit_screen_icon cursor-pointer" style="transform: translate(-50px, -50px); display: none">
-          <rect width="27" height="27" stroke-dasharray="${27/2}" stroke-dashoffset="${27/4}" 
-            style="stroke:#fff;stroke-width:4px;fill:transparent;"/>
-          <circle r="5" cx="${27/2}" cy="${27/2}" style="fill:#fff" />          
+          <rect width="27" height="27" stroke-dasharray="${27/2}" stroke-dashoffset="${27/4}"
+            style="stroke:currentColor;stroke-width:4px;fill:transparent;"/>
+          <circle r="5" cx="${27/2}" cy="${27/2}" style="fill:currentColor" />
         </g>
       </g>
     </svg>
