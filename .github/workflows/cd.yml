@@ -27,6 +27,12 @@ jobs:
 
       - name: Build frontend
         run: npm run build:app
+        env:
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.VITE_COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+          VITE_AWS_REGION: ${{ secrets.VITE_AWS_REGION }}
+          VITE_COGNITO_OAUTH_DOMAIN: ${{ secrets.VITE_COGNITO_OAUTH_DOMAIN }}
+          VITE_SUPPORT_EMAIL: ${{ secrets.VITE_SUPPORT_EMAIL }}
 
       - name: Install SSH key
         uses: webfactory/ssh-agent@v0.9.0

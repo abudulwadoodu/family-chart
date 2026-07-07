@@ -23,11 +23,11 @@ resource "aws_security_group" "app" {
   }
 
   ingress {
-    description = "SSH from the operators current IP"
+    description = "SSH (key-based auth is the access control; GitHub Actions runners use non-static IPs)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.ssh_allowed_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
