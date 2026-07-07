@@ -113,8 +113,8 @@ export default function calculateTree(data: Data, {
     function hasCh(d:HN) {return !!d.children}
     function sameParent(a:HN, b:HN) {return a.parent == b.parent}
     function sameBothParents(a: HN, b: HN) {
-      const parentsA = [...a.data.rels.parents].sort();
-      const parentsB = [...b.data.rels.parents].sort();
+      const parentsA = [...(a.data.rels.parents || [])].sort();
+      const parentsB = [...(b.data.rels.parents || [])].sort();
       return parentsA.length === parentsB.length && parentsA.every((p, i) => p === parentsB[i]);
     }
     function hasSpouses(d:HN) {return d.data.rels.spouses && d.data.rels.spouses.length > 0}
@@ -130,7 +130,7 @@ export default function calculateTree(data: Data, {
     }
 
     function hierarchyGetterParents(d:Datum) {
-      let parents = [...d.rels.parents]
+      let parents = [...(d.rels.parents || [])]
       const p1 = data_stash.find(d => d.id === parents[0])
       if (p1 && p1.data.gender === "F") parents.reverse()
 

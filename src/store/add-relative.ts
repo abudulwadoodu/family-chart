@@ -25,7 +25,7 @@ export function cleanUp(data: Data) {
     const d = data[i]
     if (d._new_rel_data) {
       data.forEach(d2 => {
-        if (d2.rels.parents.includes(d.id)) d2.rels.parents.splice(d2.rels.parents.indexOf(d.id), 1)
+        if (d2.rels.parents && d2.rels.parents.includes(d.id)) d2.rels.parents.splice(d2.rels.parents.indexOf(d.id), 1)
         if (d2.rels.children && d2.rels.children.includes(d.id)) d2.rels.children.splice(d2.rels.children.indexOf(d.id), 1)
         if (d2.rels.spouses && d2.rels.spouses.includes(d.id)) d2.rels.spouses.splice(d2.rels.spouses.indexOf(d.id), 1)
       })
@@ -43,6 +43,7 @@ export function addDatumRelsPlaceholders(
   let can_add = {parent: true, spouse: true, child: true}
   if (canAdd) can_add = Object.assign(can_add, canAdd(datum))
 
+  if (!datum.rels.parents) datum.rels.parents = []
   if (!datum.rels.spouses) datum.rels.spouses = []
   if (!datum.rels.children) datum.rels.children = []
   if (can_add.parent) addParents()

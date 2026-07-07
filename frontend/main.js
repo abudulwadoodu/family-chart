@@ -20,6 +20,7 @@ import {
 } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import QRCode from 'qrcode';
+import * as d3 from 'd3';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
@@ -2442,7 +2443,6 @@ function renderChart() {
       .editTree()
       .setFields(['first name', 'last name', 'birthday', 'location', 'notes', 'avatar'])
       .setEditFirst(true)
-      .setCardClickOpen(card)
       .setOnFormCreation(({ cont, form_creator }) => {
         attachPersonMediaTabs({
           cont,
@@ -2452,6 +2452,129 @@ function renderChart() {
           memberIndex: state.memberSearchIndex || [],
         });
       });
+
+    // Canceling add-relative mode (EditTree's internal cancelCallback) always
+    // reopens the edit form for that person as a side effect, regardless of
+    // how the cancel was triggered. We don't want that here — canceling
+    // should just hide the add-relative placeholder boxes — so close the
+    // form again right after in the same synchronous tick.
+    const cancelAddRelative = () => {
+      if (!state.editor.isAddingRelative()) return;
+      state.editor.addRelativeInstance.onCancel();
+      state.editor.closeForm();
+    };
+
+    if (!state.escapeCancelsAddRelativeBound) {
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (!state.editor || !state.editor.isAddingRelative()) return;
+        cancelAddRelative();
+      });
+      state.escapeCancelsAddRelativeBound = true;
+    }
+
+    // Hover icons give an explicit way to view/edit/add-relative for any
+    // card, so a plain tap can just drill down the tree instead of also
+    // popping the profile panel open (that double-effect was confusing on
+    // mobile: one tap looked like it opened a profile instead of re-rooting
+    // the tree). Icons are appended to `.card` itself, as siblings of
+    // `.card-inner`, not inside it: `.card:hover > div` in the library CSS
+    // applies a -2px hover transform to every direct child of `.card`, so an
+    // icon appended inside `.card-inner` would shift on hover along with it.
+    card.setOnCardUpdate(function cardUpdate(d) {
+      if (d.data._new_rel_data) return;
+      if (state.editor.isRemovingRelative()) return;
+
+      const cardEl = this.querySelector('.card');
+      if (!cardEl) return;
+
+      const addIconIcon = (rightOffset, iconHtml, onClick) => {
+        d3.select(cardEl)
+          .append('div')
+          .attr('class', 'f3-svg-circle-hover')
+          .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: 0; right: ${rightOffset}px;`)
+          .html(iconHtml)
+          .select('svg')
+          .style('padding', '0')
+          .on('click', onClick);
+      };
+
+      // Add-relative icon: jumps straight into add-relative placeholder mode
+      // without ever rendering the full edit form first. Clicking it again
+      // for the same person toggles the placeholder boxes back off.
+      //
+      // The tree layout is always computed relative to the current main_id
+      // (ancestry/progeny hierarchy is walked from that person), so we must
+      // re-root onto the person being activated, or their newly created
+      // father/mother/spouse placeholders can end up outside the rendered
+      // hierarchy and simply never appear even though they exist in the data.
+      //
+      // We must also explicitly cancel any add-relative session that's
+      // still active for a DIFFERENT person before re-rooting. AddRelative's
+      // own activate() cancels the previous session internally, but that
+      // cancel's callback (EditTree's cancelCallback) calls
+      // store.updateMainId(oldDatum.id) — if we call updateMainId(newDatum)
+      // first and then activate(), that internal cancel silently clobbers
+      // main_id back to the OLD person before the new placeholders are
+      // computed, which is exactly what caused clicking one member's
+      // add-icon right after another's (without Escape in between) to only
+      // show a couple of placeholder boxes.
+      addIconIcon(0, f3.icons.userPlusSvgIcon(), (e) => {
+        e.stopPropagation();
+        const alreadyActiveForThisPerson =
+          state.editor.isAddingRelative() && state.editor.addRelativeInstance.datum?.id === d.data.id;
+        if (alreadyActiveForThisPerson) {
+          cancelAddRelative();
+          return;
+        }
+        cancelAddRelative();
+        state.chart.updateMainId(d.data.id);
+        state.editor.addRelativeInstance.activate(d.data);
+      });
+
+      // Edit icon: the only action that opens the full editable profile form.
+      // Placed next to the add-relative icon since both are edit actions.
+      addIconIcon(23, f3.icons.userEditSvgIcon(), (e) => {
+        e.stopPropagation();
+        state.editor.setEditFirst(true);
+        state.editor.open(d.data);
+        card.onCardClickDefault(e, d);
+      });
+
+      // View icon: opens the same profile panel read-only (fields as text,
+      // with its own in-form pencil to switch to edit if needed). Kept apart
+      // from the two edit actions above since it's a different kind of action.
+      addIconIcon(46, f3.icons.infoSvgIcon(), (e) => {
+        e.stopPropagation();
+        state.editor.setEditFirst(false);
+        state.editor.open(d.data);
+        card.onCardClickDefault(e, d);
+      });
+    });
+
+    // Viewing/editing/adding-relatives is now handled entirely by the hover
+    // icons above, so a plain card click is pure navigation: re-root
+    // (drill down) only if this person has relatives not yet shown in the
+    // tree. If everything about them is already displayed (e.g. no
+    // subtree, or it's already expanded), the click is a no-op instead of
+    // re-rooting on a card that wouldn't reveal anything new.
+    card.setOnCardClick((e, d) => {
+      if (state.editor.isAddingRelative()) {
+        if (d.data._new_rel_data) {
+          state.editor.open(d.data);
+        } else {
+          cancelAddRelative();
+          card.onCardClickDefault(e, d);
+        }
+      } else if (state.editor.isRemovingRelative()) {
+        state.editor.open(d.data);
+      } else if (d.all_rels_displayed) {
+        // no subtree to drill into
+      } else {
+        state.editor.closeForm();
+        card.onCardClickDefault(e, d);
+      }
+    });
   } else {
     state.editor = null;
     // Viewers never get editTree(), so the card's default click (re-center
@@ -2473,17 +2596,9 @@ function renderChart() {
     initial: true,
     tree_position: 'inherit',
   });
-  if (canEdit && state.editor) {
-    const main = state.chart.getMainDatum();
-    if (main) {
-      state.focusedMainId = main.id;
-      state.editor.open(main);
-      state.chart.updateTree({
-        initial: true,
-        tree_position: 'inherit',
-      });
-    }
-  } else if (state.chart) {
+  // Don't auto-open the editor on load — it should only appear once the
+  // user explicitly clicks the edit icon on a card.
+  if (state.chart) {
     const main = state.chart.getMainDatum();
     state.focusedMainId = main?.id || state.focusedMainId;
   }
