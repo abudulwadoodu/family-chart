@@ -81,6 +81,13 @@ import {
   renderContactPageMarkup,
   renderFooter,
   renderThemeToggle,
+  renderTreesEmptyStateMarkup,
+  renderCompactJoinSearch,
+  renderCompactJoinSearchResults,
+  renderJoinRoleModalBody,
+  renderRoleChangeModalBody,
+  renderPendingRequestsPageMarkup,
+  renderMyRequestsPageMarkup,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
@@ -211,6 +218,26 @@ const state = {
   otpSent: false,
   otpResendAvailableAt: 0,
   dashboardView: 'trees',
+  // "Search before you create" step on the Create Tree page.
+  joinSearch: {
+    query: '',
+    loading: false,
+    searched: false,
+    results: [],
+  },
+  // "Pending Requests" dashboard view (incoming join requests for trees this
+  // user owns).
+  pendingRequests: {
+    loading: false,
+    loaded: false,
+    requests: [],
+  },
+  // "My Requests" dashboard view (join requests this user has sent, any status).
+  myRequests: {
+    loading: false,
+    loaded: false,
+    requests: [],
+  },
   // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
   // /terms and /privacy regardless of sign-in state - see syncRouteFromLocation
   // below. null means "no public route active, show the normal auth/dashboard".
@@ -1119,6 +1146,66 @@ function renderTicketDetailPageContent() {
   });
 }
 
+function renderPendingRequestsPageContent() {
+  return renderPendingRequestsPageMarkup({ ...state.pendingRequests });
+}
+
+async function loadPendingRequests() {
+  if (state.pendingRequests.loading) return;
+  state.pendingRequests.loading = true;
+  render();
+  try {
+    const { requests } = await api('/api/trees/manage-requests');
+    state.pendingRequests.requests = requests;
+  } catch (error) {
+    showToast(error.message || 'Could not load pending requests.', { type: 'error' });
+  } finally {
+    state.pendingRequests.loading = false;
+    state.pendingRequests.loaded = true;
+    render();
+  }
+}
+
+function attachPendingRequestsListeners() {
+  document.querySelectorAll('.pending-request-approve-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideJoinRequest(Number(btn.dataset.requestId), 'approved'));
+  });
+  document.querySelectorAll('.pending-request-reject-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideJoinRequest(Number(btn.dataset.requestId), 'rejected'));
+  });
+}
+
+async function handleDecideJoinRequest(requestId, status) {
+  try {
+    await api(`/api/trees/requests/${requestId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.pendingRequests.requests = state.pendingRequests.requests.filter((r) => r.id !== requestId);
+    render();
+    showToast(status === 'approved' ? 'Request approved.' : 'Request rejected.');
+  } catch (error) {
+    showToast(error.message || 'Could not update the request.', { type: 'error' });
+  }
+}
+
+function renderMyRequestsPageContent() {
+  return renderMyRequestsPageMarkup({ ...state.myRequests });
+}
+
+async function loadMyRequests() {
+  if (state.myRequests.loading) return;
+  state.myRequests.loading = true;
+  render();
+  try {
+    const { requests } = await api('/api/trees/my-requests');
+    state.myRequests.requests = requests;
+  } catch (error) {
+    showToast(error.message || 'Could not load your requests.', { type: 'error' });
+  } finally {
+    state.myRequests.loading = false;
+    state.myRequests.loaded = true;
+    render();
+  }
+}
+
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
@@ -1126,12 +1213,29 @@ function renderDashboard() {
   const isMyTicketsView = !isSecurityView && !isCreateTreeView && !isContactView && state.dashboardView === 'myTickets';
   const isTicketDetailView =
     !isSecurityView && !isCreateTreeView && !isContactView && !isMyTicketsView && state.dashboardView === 'ticketDetail';
+  const isPendingRequestsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    state.dashboardView === 'pendingRequests';
+  const isMyRequestsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    state.dashboardView === 'myRequests';
   const isAdminView =
     !isSecurityView &&
     !isCreateTreeView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
     state.dashboardView === 'admin';
   const isMediaLibraryView =
     !isSecurityView &&
@@ -1139,6 +1243,8 @@ function renderDashboard() {
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
     !isAdminView &&
     state.dashboardView === 'mediaLibrary' &&
     Boolean(state.selectedTreeId);
@@ -1148,6 +1254,8 @@ function renderDashboard() {
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
@@ -1158,6 +1266,8 @@ function renderDashboard() {
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
@@ -1180,20 +1290,24 @@ function renderDashboard() {
                     ? renderMyTicketsPageContent()
                     : isTicketDetailView
                       ? renderTicketDetailPageContent()
-                      : isAdminView
-                        ? renderAdminPageContent()
-                        : isMediaLibraryView
-                          ? renderMediaLibraryPageContent(state.mediaLibrary, {
-                              readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
-                            })
-                          : isTimelineView
-                            ? renderTimelinePageContent(state.timeline, {
-                                memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
-                                readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
-                              })
-                            : isViewerView
-                              ? renderTreeViewerMarkup()
-                              : renderTreesLandingMarkup()
+                      : isPendingRequestsView
+                        ? renderPendingRequestsPageContent()
+                        : isMyRequestsView
+                          ? renderMyRequestsPageContent()
+                          : isAdminView
+                            ? renderAdminPageContent()
+                            : isMediaLibraryView
+                              ? renderMediaLibraryPageContent(state.mediaLibrary, {
+                                  readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                                })
+                              : isTimelineView
+                                ? renderTimelinePageContent(state.timeline, {
+                                    memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                    readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                                  })
+                                : isViewerView
+                                  ? renderTreeViewerMarkup()
+                                  : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
@@ -1225,6 +1339,17 @@ function renderDashboard() {
 
   if (isTicketDetailView) {
     if (state.support.selectedTicket) attachTicketDetailListeners(state, render);
+    return;
+  }
+
+  if (isPendingRequestsView) {
+    attachPendingRequestsListeners();
+    if (!state.pendingRequests.loaded) loadPendingRequests();
+    return;
+  }
+
+  if (isMyRequestsView) {
+    if (!state.myRequests.loaded) loadMyRequests();
     return;
   }
 
@@ -1309,6 +1434,16 @@ function attachShellListeners() {
     setSidebarOpen(false);
     render();
     loadMyTickets(state, render);
+  });
+  document.querySelector('#nav-pending-requests-btn').addEventListener('click', () => {
+    state.dashboardView = 'pendingRequests';
+    setSidebarOpen(false);
+    render();
+  });
+  document.querySelector('#nav-my-requests-btn').addEventListener('click', () => {
+    state.dashboardView = 'myRequests';
+    setSidebarOpen(false);
+    render();
   });
   document.querySelector('#nav-admin-btn')?.addEventListener('click', () => {
     state.dashboardView = 'admin';
@@ -1398,6 +1533,13 @@ function bindDropdownTriggers(scopeEl) {
 // Trees landing (dashboard home)
 // ---------------------------------------------------------------------------
 
+// Only the header is static markup here - everything below it (toolbar,
+// discover-search, empty states, and the tree grid itself) is owned by
+// renderTreeGrid() into #trees-landing-body, since that's the function every
+// data-change call site (loadTrees, sort/filter, create, delete, import...)
+// already calls. That lets the empty-state vs active-state layout swap
+// happen automatically whenever the tree count changes, without having to
+// thread a full top-level render() through every one of those call sites.
 function renderTreesLandingMarkup() {
   return `
     ${renderPageHeader({
@@ -1424,8 +1566,7 @@ function renderTreesLandingMarkup() {
         ],
       },
     })}
-    ${renderTreesToolbarRow({ search: state.treeSearch, sort: state.treeSort })}
-    <div id="tree-grid" class="tree-grid"></div>
+    <div id="trees-landing-body"></div>
   `;
 }
 
@@ -1437,14 +1578,6 @@ function attachTreesLandingListeners() {
   bindDropdownTriggers(document.querySelector('.page-header'));
   document.querySelectorAll('.page-header .dropdown-item').forEach((btn) => {
     btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
-  });
-  document.querySelector('#tree-search-input').addEventListener('input', (event) => {
-    state.treeSearch = event.target.value;
-    renderTreeGrid();
-  });
-  document.querySelector('#tree-sort-select').addEventListener('change', (event) => {
-    state.treeSort = event.target.value;
-    renderTreeGrid();
   });
 }
 
@@ -1518,6 +1651,106 @@ function attachCreateTreePageListeners() {
   document.querySelector('#create-tree-name-input')?.focus();
 }
 
+function attachJoinResultListeners() {
+  document.querySelectorAll('.join-request-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openJoinRoleModal(Number(btn.dataset.treeId)));
+  });
+}
+
+async function handleJoinSearch(event) {
+  event.preventDefault();
+  const query = String(new FormData(event.target).get('query') || '').trim();
+  if (!query) return;
+
+  state.joinSearch.query = query;
+  state.joinSearch.loading = true;
+  state.joinSearch.searched = false;
+  render();
+
+  try {
+    const { trees } = await api(`/api/trees/search?query=${encodeURIComponent(query)}`);
+    state.joinSearch.results = trees;
+  } catch (error) {
+    state.joinSearch.results = [];
+    showToast(error.message || 'Search failed.', { type: 'error' });
+  } finally {
+    state.joinSearch.loading = false;
+    state.joinSearch.searched = true;
+    render();
+    document.querySelector('#join-search-input')?.focus();
+  }
+}
+
+function openJoinRoleModal(treeId) {
+  const tree = state.joinSearch.results.find((t) => t.id === treeId);
+  if (!tree) return;
+
+  const modal = showModal({
+    bodyHtml: renderJoinRoleModalBody({ treeName: tree.name }),
+  });
+
+  modal.root.querySelector('#join-role-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const role = String(formData.get('role') || 'viewer');
+    const message = String(formData.get('message') || '').trim();
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/request-join`, {
+        method: 'POST',
+        body: JSON.stringify({ role, message: message || undefined }),
+      });
+      modal.close();
+      showToast('Request sent to the tree owner.');
+      const result = state.joinSearch.results.find((t) => t.id === treeId);
+      if (result) result.membershipStatus = 'pending';
+      state.myRequests.loaded = false;
+      render();
+    } catch (error) {
+      showToast(error.message || 'Could not send request.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function openRoleChangeModal() {
+  const treeId = state.selectedTreeId;
+  const treeName = state.selectedTreeName;
+  const currentRole = state.selectedTreeRole;
+  if (!treeId || !currentRole || currentRole === 'owner') return;
+
+  const modal = showModal({
+    bodyHtml: renderRoleChangeModalBody({ treeName, currentRole }),
+  });
+
+  modal.root.querySelector('#role-change-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#role-change-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#role-change-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const role = String(formData.get('role') || '');
+    const message = String(formData.get('message') || '').trim();
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/request-role-change`, {
+        method: 'POST',
+        body: JSON.stringify({ role, message: message || undefined }),
+      });
+      modal.close();
+      showToast('Role change request sent to the tree owner.');
+      state.myRequests.loaded = false;
+      render();
+    } catch (error) {
+      showToast(error.message || 'Could not send request.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
+}
+
 function sortTrees(list, sort) {
   const copy = [...list];
   if (sort === 'alpha') copy.sort((a, b) => a.name.localeCompare(b.name));
@@ -1526,30 +1759,74 @@ function sortTrees(list, sort) {
   return copy;
 }
 
+// Owns everything below the page header on the homepage: picks between the
+// loading skeleton, the empty-state-with-embedded-search layout (zero trees
+// on the account), and the active layout (toolbar + compact discover-search
+// + tree grid). Called after every load/filter/sort/create/delete so the
+// layout swaps automatically as state.trees.length crosses zero.
 function renderTreeGrid() {
-  const container = document.querySelector('#tree-grid');
-  if (!container) return;
+  const body = document.querySelector('#trees-landing-body');
+  if (!body) return;
 
   if (state.treesLoading && !state.treesLoaded) {
-    container.innerHTML = renderSkeletonGrid(6);
+    body.innerHTML = `<div class="tree-grid">${renderSkeletonGrid(6)}</div>`;
     return;
   }
+
+  if (state.trees.length === 0) {
+    body.innerHTML = renderTreesEmptyStateMarkup(state.joinSearch);
+    document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
+    document.querySelector('#skip-search-create-btn').addEventListener('click', () => {
+      state.dashboardView = 'createTree';
+      render();
+    });
+    attachJoinResultListeners();
+    return;
+  }
+
+  body.innerHTML = `
+    ${renderTreesToolbarRow({
+      search: state.treeSearch,
+      sort: state.treeSort,
+      discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query }),
+    })}
+    <div id="discover-search-results">${renderCompactJoinSearchResults(state.joinSearch)}</div>
+    <div id="tree-grid" class="tree-grid"></div>
+  `;
+
+  document.querySelector('#tree-search-input').addEventListener('input', (event) => {
+    state.treeSearch = event.target.value;
+    renderActiveTreeGrid();
+  });
+  document.querySelector('#tree-sort-select').addEventListener('change', (event) => {
+    state.treeSort = event.target.value;
+    renderActiveTreeGrid();
+  });
+  document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
+  attachJoinResultListeners();
+
+  renderActiveTreeGrid();
+}
+
+// Just the personal tree-card grid (or its filtered-empty state), scoped
+// inside #tree-grid - separated from renderTreeGrid so typing in the
+// personal filter box doesn't have to re-render the discover-search widget
+// or results panel next to it.
+function renderActiveTreeGrid() {
+  const container = document.querySelector('#tree-grid');
+  if (!container) return;
 
   const term = state.treeSearch.trim().toLowerCase();
   const filtered = term ? state.trees.filter((tree) => tree.name.toLowerCase().includes(term)) : state.trees;
   const sorted = sortTrees(filtered, state.treeSort);
 
   if (sorted.length === 0) {
-    container.innerHTML = renderEmptyState({ mode: state.trees.length === 0 ? 'no-trees' : 'no-results' });
-    document.querySelector('#empty-create-btn')?.addEventListener('click', () => {
-      state.dashboardView = 'createTree';
-      render();
-    });
+    container.innerHTML = renderEmptyState({ mode: 'no-results' });
     document.querySelector('#empty-clear-search-btn')?.addEventListener('click', () => {
       state.treeSearch = '';
       const searchInput = document.querySelector('#tree-search-input');
       if (searchInput) searchInput.value = '';
-      renderTreeGrid();
+      renderActiveTreeGrid();
     });
     return;
   }
@@ -1763,6 +2040,7 @@ function attachTreeViewerListeners() {
   });
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
+  document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());

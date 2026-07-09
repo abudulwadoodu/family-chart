@@ -62,6 +62,12 @@ export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, coll
         <button type="button" class="nav-item ${isTicketsActive ? 'nav-item-active' : ''}" id="nav-tickets-btn" title="My Support Tickets">
           ${icon('clock')}<span class="nav-label">My Support Tickets</span>
         </button>
+        <button type="button" class="nav-item ${activeView === 'pendingRequests' ? 'nav-item-active' : ''}" id="nav-pending-requests-btn" title="Pending Requests">
+          ${icon('mail')}<span class="nav-label">Pending Requests</span>
+        </button>
+        <button type="button" class="nav-item ${activeView === 'myRequests' ? 'nav-item-active' : ''}" id="nav-my-requests-btn" title="My Requests">
+          ${icon('list')}<span class="nav-label">My Requests</span>
+        </button>
         ${
           isAdmin
             ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn" title="Admin">
@@ -166,13 +172,251 @@ export function renderCreateTreeCard() {
   `;
 }
 
-export function renderTreesToolbarRow({ search, sort }) {
+// Empty-state layout (zero trees on the account): the global "find your
+// family" search is embedded directly inside the empty container instead of
+// living in its own card above it, since there's no tree grid yet to
+// separate it from. A "skip search and create" link is the only way to
+// reach tree creation here - the redundant "+ Create Tree" button was
+// removed since the page header's "+ New Tree" already covers that action.
+export function renderTreesEmptyStateMarkup({ query, loading, searched, results }) {
+  const body = loading
+    ? `<p class="muted join-search-status">Searching...</p>`
+    : !searched
+      ? ''
+      : results.length === 0
+        ? `<p class="muted join-search-status">No matching trees found.</p>`
+        : `<div class="join-search-results">${results.map(renderJoinResultCard).join('')}</div>`;
+
+  return `
+    <div class="empty-state empty-state-with-search">
+      <div class="empty-state-icon">${icon('search')}</div>
+      <h2 class="empty-state-title">Find your family first</h2>
+      <p class="empty-state-desc">Search by tree name or a family surname to see if your family is already on Family Chart.</p>
+      <form id="join-search-form" class="empty-state-search-form">
+        <label class="search-box discover-search-box">
+          ${icon('search')}
+          <input id="join-search-input" type="search" name="query" placeholder="e.g. Smith or Smith Family Tree" maxlength="120" value="${escapeHtml(query)}" />
+        </label>
+        <button type="submit" class="btn btn-primary">Search</button>
+      </form>
+      ${body}
+      <p class="empty-state-skip"><button type="button" id="skip-search-create-btn" class="link-btn">Or, skip search and create a new tree.</button></p>
+    </div>
+  `;
+}
+
+// Compact, single-line variant of the same discover-search shown once the
+// account already has trees - sits in the toolbar row next to the personal
+// "Search trees by name..." filter. Styled with the accent color
+// (discover-search-box) so it reads as "search everyone's trees" rather
+// than "filter my trees", even though the two boxes sit side by side.
+export function renderCompactJoinSearch({ query }) {
+  return `
+    <form id="join-search-form" class="discover-search-form">
+      <label class="search-box discover-search-box" title="Search the entire database for other family trees, not just yours">
+        ${icon('search')}
+        <input id="join-search-input" type="search" name="query" placeholder="Discover other family branches..." maxlength="120" value="${escapeHtml(query)}" />
+      </label>
+      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+    </form>
+  `;
+}
+
+// Results panel for the compact active-state search - rendered into its own
+// container below the toolbar row so it doesn't shove the tree grid down
+// while empty, and is hidden entirely until a search has actually run.
+export function renderCompactJoinSearchResults({ loading, searched, results }) {
+  if (!loading && !searched) return '';
+
+  const body = loading
+    ? `<p class="muted join-search-status">Searching...</p>`
+    : results.length === 0
+      ? `<p class="muted join-search-status">No matching trees found.</p>`
+      : `<div class="join-search-results">${results.map(renderJoinResultCard).join('')}</div>`;
+
+  return `<div class="discover-search-results-panel">${body}</div>`;
+}
+
+function renderJoinResultCard(tree) {
+  const action =
+    tree.membershipStatus === 'member'
+      ? `<button type="button" class="btn btn-secondary btn-sm" disabled>Already a Member</button>`
+      : tree.membershipStatus === 'pending'
+        ? `<button type="button" class="btn btn-secondary btn-sm" disabled>Request Pending</button>`
+        : `<button type="button" class="btn btn-primary btn-sm join-request-btn" data-tree-id="${tree.id}">Request to Join</button>`;
+
+  return `
+    <div class="join-result-card" data-tree-id="${tree.id}">
+      <div class="join-result-info">
+        <p class="join-result-title">${escapeHtml(tree.name)}</p>
+        <p class="join-result-meta">Owned by ${escapeHtml(tree.ownerEmail)}</p>
+      </div>
+      <div class="join-result-actions">
+        ${action}
+      </div>
+    </div>
+  `;
+}
+
+export function renderJoinRoleModalBody({ treeName }) {
+  return `
+    ${modalCloseButton('join-role-modal-close-btn')}
+    <h3 id="modal-title">Request to Join "${escapeHtml(treeName)}"</h3>
+    <form id="join-role-form" class="stack">
+      <label>Do you want to request Viewer or Editor access?
+        <select name="role" id="join-role-select">
+          <option value="viewer" selected>Viewer</option>
+          <option value="editor">Editor</option>
+        </select>
+      </label>
+      <label>Message <span class="label-optional">(optional)</span>
+        <textarea name="message" id="join-role-message-input" rows="3" maxlength="500" placeholder="Let the owner know who you are, e.g. &quot;I'm your cousin on the Smith side.&quot;"></textarea>
+      </label>
+      <div class="modal-actions row">
+        <button type="button" class="btn btn-ghost" id="join-role-modal-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Send Request</button>
+      </div>
+    </form>
+  `;
+}
+
+// Modal for an existing member asking the owner to change their role. Only
+// offers the role(s) they don't already have - a viewer only sees "Editor",
+// so the form can't be submitted requesting the role they already hold.
+export function renderRoleChangeModalBody({ treeName, currentRole }) {
+  const otherRole = currentRole === 'editor' ? 'viewer' : 'editor';
+  const otherRoleLabel = ROLE_LABELS[otherRole] || otherRole;
+
+  return `
+    ${modalCloseButton('role-change-modal-close-btn')}
+    <h3 id="modal-title">Request Different Access to "${escapeHtml(treeName)}"</h3>
+    <p class="modal-message">You are currently a <strong>${escapeHtml(ROLE_LABELS[currentRole] || currentRole)}</strong> on this tree.</p>
+    <form id="role-change-form" class="stack">
+      <label>Requested role
+        <select name="role" id="role-change-select">
+          <option value="${otherRole}" selected>${escapeHtml(otherRoleLabel)}</option>
+        </select>
+      </label>
+      <label>Message <span class="label-optional">(optional)</span>
+        <textarea name="message" id="role-change-message-input" rows="3" maxlength="500" placeholder="Let the owner know why you'd like this changed."></textarea>
+      </label>
+      <div class="modal-actions row">
+        <button type="button" class="btn btn-ghost" id="role-change-modal-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Send Request</button>
+      </div>
+    </form>
+  `;
+}
+
+// "Pending Requests" dashboard view: incoming join requests across every
+// tree the current user owns, with inline Approve/Reject actions.
+export function renderPendingRequestsPageMarkup({ loading, requests }) {
+  const body = loading
+    ? `<p class="muted">Loading requests...</p>`
+    : requests.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('mail')}</div>
+          <h2 class="empty-state-title">No Pending Requests</h2>
+          <p class="empty-state-desc">When someone asks to join one of your family trees, it'll show up here.</p>
+        </div>`
+      : `<div class="pending-request-list">${requests.map(renderPendingRequestRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'Pending Requests', subtitle: 'Review requests to join your family trees.' })}
+    ${body}
+  `;
+}
+
+function renderPendingRequestRow(request) {
+  const messageBlock = request.message
+    ? `<p class="pending-request-message">&ldquo;${escapeHtml(request.message)}&rdquo;</p>`
+    : '';
+  const actionText =
+    request.request_type === 'role_change'
+      ? `<span class="muted">wants to change their role on</span> ${escapeHtml(request.tree_name)} <span class="muted">to</span>`
+      : `<span class="muted">wants to join</span> ${escapeHtml(request.tree_name)} <span class="muted">as</span>`;
+
+  return `
+    <div class="pending-request-row" data-request-id="${request.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${escapeHtml(request.sender_email)} ${actionText}</p>
+        <p class="pending-request-meta">
+          <span class="badge badge-role-${request.role_requested}">${escapeHtml(request.role_requested)}</span>
+          <span class="muted">${escapeHtml(formatRelativeTime(request.created_at))}</span>
+        </p>
+        ${messageBlock}
+      </div>
+      <div class="pending-request-actions">
+        <button type="button" class="btn btn-secondary btn-sm pending-request-reject-btn" data-request-id="${request.id}">Reject</button>
+        <button type="button" class="btn btn-primary btn-sm pending-request-approve-btn" data-request-id="${request.id}">Approve</button>
+      </div>
+    </div>
+  `;
+}
+
+const SENT_REQUEST_STATUS_LABELS = {
+  pending: { label: 'Pending', className: 'badge-role-viewer' },
+  approved: { label: 'Approved', className: 'badge-role-owner' },
+  rejected: { label: 'Rejected', className: 'badge-role-editor' },
+};
+
+// "My Requests" dashboard view: every join request the current user has
+// sent (any status), so a rejection isn't a silent dead end - the requester
+// can see it happened instead of just re-finding "Request to Join" in search.
+export function renderMyRequestsPageMarkup({ loading, requests }) {
+  const body = loading
+    ? `<p class="muted">Loading your requests...</p>`
+    : requests.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('mail')}</div>
+          <h2 class="empty-state-title">No Requests Sent</h2>
+          <p class="empty-state-desc">Search for a family tree from the homepage to request access.</p>
+        </div>`
+      : `<div class="pending-request-list">${requests.map(renderSentRequestRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'My Requests', subtitle: 'Track the status of trees you have asked to join.' })}
+    ${body}
+  `;
+}
+
+function renderSentRequestRow(request) {
+  const status = SENT_REQUEST_STATUS_LABELS[request.status] || SENT_REQUEST_STATUS_LABELS.pending;
+  const messageBlock = request.message
+    ? `<p class="pending-request-message">&ldquo;${escapeHtml(request.message)}&rdquo;</p>`
+    : '';
+  const titlePrefix = request.request_type === 'role_change' ? 'Role change on' : '';
+
+  return `
+    <div class="pending-request-row" data-request-id="${request.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${titlePrefix ? `<span class="muted">${titlePrefix}</span> ` : ''}${escapeHtml(request.tree_name)} <span class="muted">owned by</span> ${escapeHtml(request.owner_email)}</p>
+        <p class="pending-request-meta">
+          <span class="badge badge-role-${request.role_requested}">${escapeHtml(request.role_requested)}</span>
+          <span class="badge ${status.className}">${escapeHtml(status.label)}</span>
+          <span class="muted">${escapeHtml(formatRelativeTime(request.updated_at))}</span>
+        </p>
+        ${messageBlock}
+      </div>
+    </div>
+  `;
+}
+
+// discoverSearchHtml is an optional slot (renderCompactJoinSearch's markup)
+// placed between the personal filter and the sort dropdown, so both search
+// boxes sit in the same sub-header row - visually side by side, but styled
+// distinctly (see .discover-search-box) so it's clear one filters your own
+// trees and the other searches the whole database.
+export function renderTreesToolbarRow({ search, sort, discoverSearchHtml = '' }) {
   return `
     <div class="trees-toolbar-row">
       <label class="search-box">
         ${icon('search')}
         <input type="search" id="tree-search-input" placeholder="Search trees by name..." value="${escapeHtml(search)}" />
       </label>
+      ${discoverSearchHtml}
       <label class="sort-box">
         <span class="sort-box-label">Sort by</span>
         <select id="tree-sort-select">
@@ -247,27 +491,17 @@ export function renderTreeCard(tree, { renaming } = {}) {
   `;
 }
 
-export function renderEmptyState({ mode }) {
-  if (mode === 'no-results') {
-    return `
-      <div class="empty-state">
-        <div class="empty-state-icon">${icon('search')}</div>
-        <h2 class="empty-state-title">No trees match your search</h2>
-        <p class="empty-state-desc">Try a different name, or clear your search to see all trees.</p>
-        <div class="empty-state-actions">
-          <button type="button" id="empty-clear-search-btn" class="btn btn-secondary">Clear search</button>
-        </div>
-      </div>
-    `;
-  }
-
+// Only used when the account has trees but the personal name filter matches
+// none of them - the true "zero trees on the account" case is handled by
+// renderTreesEmptyStateMarkup instead, which embeds the discover-search UI.
+export function renderEmptyState({ mode: _mode }) {
   return `
     <div class="empty-state">
-      <div class="empty-state-icon">${icon('trees')}</div>
-      <h2 class="empty-state-title">No Family Trees Yet</h2>
-      <p class="empty-state-desc">Create your first family tree to get started. You can import a CSV once it's open.</p>
+      <div class="empty-state-icon">${icon('search')}</div>
+      <h2 class="empty-state-title">No trees match your search</h2>
+      <p class="empty-state-desc">Try a different name, or clear your search to see all trees.</p>
       <div class="empty-state-actions">
-        <button type="button" id="empty-create-btn" class="btn btn-primary">${icon('plus')}<span>Create Tree</span></button>
+        <button type="button" id="empty-clear-search-btn" class="btn btn-secondary">Clear search</button>
       </div>
     </div>
   `;
@@ -316,6 +550,11 @@ export function renderTreeViewerHeader({ treeName, role }) {
         <div class="viewer-title-row">
           <h1 class="viewer-title">${escapeHtml(treeName)}</h1>
           <span class="badge badge-role-${role}">${ROLE_LABELS[role] || role}</span>
+          ${
+            !isOwner
+              ? `<button type="button" id="request-role-change-btn" class="btn btn-ghost btn-sm">Request Different Access</button>`
+              : ''
+          }
         </div>
       </div>
       <div class="viewer-actions">
