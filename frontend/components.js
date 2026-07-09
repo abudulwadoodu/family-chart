@@ -191,7 +191,7 @@ export function renderTreesEmptyStateMarkup({ query, loading, searched, results 
     <div class="empty-state empty-state-with-search">
       <div class="empty-state-icon">${icon('search')}</div>
       <h2 class="empty-state-title">Find your family first</h2>
-      <p class="empty-state-desc">Search by tree name or a family surname to see if your family is already on Family Chart.</p>
+      <p class="empty-state-desc">Search by tree name or a family member's first or last name to see if your family is already on Family Chart.</p>
       <form id="join-search-form" class="empty-state-search-form">
         <label class="search-box discover-search-box">
           ${icon('search')}

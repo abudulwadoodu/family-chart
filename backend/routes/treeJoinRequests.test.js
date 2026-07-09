@@ -55,6 +55,28 @@ describe('tree discovery search', () => {
     ]);
   });
 
+  it('finds discoverable trees by a member\'s first name or last name', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const seeker = await asUser('seeker-sub', 'seeker@example.com');
+
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({
+        json_data: [
+          { id: 'p1', data: { 'first name': 'Wadood', 'last name': 'Abdul' }, rels: {} },
+        ],
+      });
+
+    const firstNameRes = await request(app).get('/api/trees/search').query({ query: 'Wadood' }).set('Authorization', seeker);
+    expect(firstNameRes.body.trees).toEqual([expect.objectContaining({ id: treeId })]);
+
+    const lastNameRes = await request(app).get('/api/trees/search').query({ query: 'Abdul' }).set('Authorization', seeker);
+    expect(lastNameRes.body.trees).toEqual([expect.objectContaining({ id: treeId })]);
+  });
+
   it('excludes trees that are not discoverable', async () => {
     const owner = await asUser('owner-sub', 'owner@example.com');
     const seeker = await asUser('seeker-sub', 'seeker@example.com');

@@ -7,12 +7,12 @@ export class JoinRequestError extends Error {
   }
 }
 
-// Trees matching a name/surname search, restricted to is_discoverable = true
-// so member data itself never leaks - only the title and owner's email. The
-// surname match is a simple ILIKE against family_data.json_data's people
-// (Datum objects with first/last name fields), which is good enough for
-// "does a tree for this family already exist" without needing a dedicated
-// search index.
+// Trees matching a name search, restricted to is_discoverable = true so
+// member data itself never leaks - only the title and owner's email. The
+// name match is a simple ILIKE against family_data.json_data's people
+// (Datum objects with first/last name fields) on either first or last name,
+// which is good enough for "does a tree for this family already exist"
+// without needing a dedicated search index.
 export async function searchDiscoverableTrees(searchTerm, requestingUserId) {
   const term = `%${searchTerm}%`;
   const { rows } = await query(
@@ -29,7 +29,8 @@ export async function searchDiscoverableTrees(searchTerm, requestingUserId) {
          t.name ILIKE $1
          OR EXISTS (
            SELECT 1 FROM jsonb_array_elements(COALESCE(fd.json_data, '[]'::jsonb)) AS person
-           WHERE (person->'data'->>'last name') ILIKE $1
+           WHERE (person->'data'->>'first name') ILIKE $1
+              OR (person->'data'->>'last name') ILIKE $1
          )
        )
      ORDER BY t.created_at DESC

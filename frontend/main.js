@@ -1677,7 +1677,16 @@ async function handleJoinSearch(event) {
     state.joinSearch.loading = false;
     state.joinSearch.searched = true;
     render();
-    document.querySelector('#join-search-input')?.focus();
+    // render() rebuilds the input from scratch, so a plain .focus() would
+    // otherwise leave the caret at position 0 instead of after the typed
+    // text - jarring when the compact "discover other family branches" box
+    // is narrow (shrunk/mobile view) and the query is long enough to scroll.
+    const input = document.querySelector('#join-search-input');
+    if (input) {
+      input.focus();
+      const length = input.value.length;
+      input.setSelectionRange(length, length);
+    }
   }
 }
 
