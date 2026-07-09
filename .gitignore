@@ -15,6 +15,8 @@ docs/api
 **/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfplan
+tfplan
 terraform.tfvars
 crash.log
 crash.*.log

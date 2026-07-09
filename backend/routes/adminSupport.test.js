@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -24,7 +24,7 @@ vi.mock('@aws-sdk/client-ses', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -54,16 +54,10 @@ function createTicket(auth, overrides = {}) {
   return req;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   sendMock.mockReset();
   sendMock.mockResolvedValue({});
-  const db = getDb();
-  db.exec('DELETE FROM support_messages');
-  db.exec('DELETE FROM support_tickets');
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+  await resetDb();
 });
 
 describe('admin authorization', () => {
@@ -190,7 +184,8 @@ describe('PATCH /api/admin/support/tickets/:id', () => {
     const user = await asUser('user-a', 'a@example.com');
     const created = await createTicket(user);
     const admin = await asAdmin();
-    const userRow = getDb().prepare('SELECT id FROM users WHERE email = ?').get('a@example.com');
+    const { rows: userRows } = await query('SELECT id FROM users WHERE email = $1', ['a@example.com']);
+    const userRow = userRows[0];
 
     const res = await request(app)
       .patch(`/api/admin/support/tickets/${created.body.ticket.id}`)
@@ -198,7 +193,8 @@ describe('PATCH /api/admin/support/tickets/:id', () => {
       .send({ assignedTo: userRow.id });
     expect(res.status).toBe(400);
 
-    const adminRow = getDb().prepare('SELECT id FROM users WHERE email = ?').get('admin@example.com');
+    const { rows: adminRows } = await query('SELECT id FROM users WHERE email = $1', ['admin@example.com']);
+    const adminRow = adminRows[0];
     const res2 = await request(app)
       .patch(`/api/admin/support/tickets/${created.body.ticket.id}`)
       .set('Authorization', admin)
@@ -221,9 +217,10 @@ describe('GET /api/admin/support/tickets/:id/messages/:messageId/attachment', ()
       .field('isInternal', 'true')
       .attach('file', Buffer.from('internal attachment'), { filename: 'log.txt', contentType: 'text/plain' });
 
-    const note = getDb()
-      .prepare('SELECT id FROM support_messages WHERE ticket_id = ? AND is_internal = 1')
-      .get(created.body.ticket.id);
+    const { rows: noteRows } = await query('SELECT id FROM support_messages WHERE ticket_id = $1 AND is_internal = true', [
+      created.body.ticket.id,
+    ]);
+    const note = noteRows[0];
 
     const res = await request(app)
       .get(`/api/admin/support/tickets/${created.body.ticket.id}/messages/${note.id}/attachment`)

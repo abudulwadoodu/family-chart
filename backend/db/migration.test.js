@@ -1,45 +1,84 @@
-import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import pg from 'pg';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { setBaseTestEnv } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
-const { initDb, getDb } = await import('./index.js');
+const { Pool } = pg;
+const { getPool, initDb, closeDb } = await import('./index.js');
+const { runMigrations } = await import('./migrate.js');
 
-describe('tree_permissions migration', () => {
-  it('migrates approved tree_memberships rows into tree_permissions and drops the legacy table', () => {
-    // Simulate a pre-migration database that still has the legacy tree_memberships table.
-    const db = getDb();
-    db.exec(`
-      CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, cognito_sub TEXT, created_at TEXT DEFAULT (datetime('now')));
-      CREATE TABLE trees (id INTEGER PRIMARY KEY, name TEXT, owner_id INTEGER, created_at TEXT DEFAULT (datetime('now')));
-      CREATE TABLE tree_memberships (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        tree_id INTEGER,
-        role TEXT,
-        status TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+describe('schema_migrations tracking (real backend/db/migrations)', () => {
+  beforeEach(async () => {
+    await initDb();
+  });
+
+  afterEach(async () => {
+    await closeDb();
+  });
+
+  it('records every applied migration file by name', async () => {
+    const { rows } = await getPool().query('SELECT name FROM schema_migrations ORDER BY name');
+    expect(rows.map((r) => r.name)).toContain('001_init.sql');
+  });
+
+  it('does not re-apply a migration that is already recorded', async () => {
+    const pool = getPool();
+    const before = await pool.query('SELECT COUNT(*) AS c FROM schema_migrations');
+
+    await runMigrations(pool);
+
+    const after = await pool.query('SELECT COUNT(*) AS c FROM schema_migrations');
+    expect(after.rows[0].c).toBe(before.rows[0].c);
+  });
+
+  it('produces the final schema directly - no legacy tree_memberships table exists to migrate from', async () => {
+    const { rows } = await getPool().query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tree_memberships'`
+    );
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe('runMigrations against a scratch migration directory', () => {
+  it('applies numbered migrations in order and skips already-applied ones on a second run', async () => {
+    const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'family-chart-migrations-'));
+    fs.writeFileSync(
+      path.join(scratchDir, '001_create_widgets.sql'),
+      'CREATE TABLE widgets (id SERIAL PRIMARY KEY, name TEXT NOT NULL);',
+      'utf8'
+    );
+    fs.writeFileSync(path.join(scratchDir, '002_add_widget_color.sql'), 'ALTER TABLE widgets ADD COLUMN color TEXT;', 'utf8');
+
+    const schema = `scratch_${Date.now()}`;
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      options: `-c search_path=${schema}`,
+    });
+    await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+
+    try {
+      await runMigrations(pool, scratchDir);
+      await runMigrations(pool, scratchDir); // second run must be a no-op, not an error
+
+      const { rows: columns } = await pool.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'widgets'`,
+        [schema]
       );
-    `);
-    db.prepare("INSERT INTO users (id, email, cognito_sub) VALUES (1, 'owner@example.com', 'sub-1')").run();
-    db.prepare("INSERT INTO users (id, email, cognito_sub) VALUES (2, 'pending@example.com', 'sub-2')").run();
-    db.prepare("INSERT INTO users (id, email, cognito_sub) VALUES (3, 'revoked@example.com', 'sub-3')").run();
-    db.prepare("INSERT INTO trees (id, name, owner_id) VALUES (1, 'Demo', 1)").run();
-    db.prepare("INSERT INTO tree_memberships (user_id, tree_id, role, status) VALUES (1, 1, 'owner', 'approved')").run();
-    db.prepare("INSERT INTO tree_memberships (user_id, tree_id, role, status) VALUES (2, 1, 'viewer', 'pending')").run();
-    db.prepare("INSERT INTO tree_memberships (user_id, tree_id, role, status) VALUES (3, 1, 'editor', 'revoked')").run();
+      expect(columns.map((c) => c.column_name)).toEqual(expect.arrayContaining(['id', 'name', 'color']));
 
-    initDb();
-
-    const permissions = db.prepare('SELECT tree_id, user_id, role FROM tree_permissions ORDER BY user_id').all();
-    expect(permissions).toEqual([{ tree_id: 1, user_id: 1, role: 'owner' }]);
-
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-    expect(tables).not.toContain('tree_memberships');
-    expect(tables).toContain('tree_permissions');
+      const { rows: applied } = await pool.query(
+        `SELECT name FROM schema_migrations ORDER BY name`
+      );
+      expect(applied.map((r) => r.name)).toEqual(['001_create_widgets.sql', '002_add_widget_color.sql']);
+    } finally {
+      await pool.query(`DROP SCHEMA ${schema} CASCADE`);
+      await pool.end();
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+    }
   });
 });

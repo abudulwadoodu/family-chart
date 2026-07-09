@@ -3,7 +3,7 @@ import request from 'supertest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -19,7 +19,6 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
 
 const fixturesDir = join(import.meta.dirname, '..', 'test', 'fixtures', 'gedcom');
 const fixture = (name) => readFileSync(join(fixturesDir, name));
@@ -33,12 +32,8 @@ async function asUser(sub, email) {
   return authHeader(sub, email);
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('GEDCOM preview', () => {

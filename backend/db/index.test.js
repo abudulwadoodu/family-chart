@@ -1,25 +1,39 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
-const { initDb, getDb } = await import('./index.js');
+const { initDb, query } = await import('./index.js');
+
+beforeEach(async () => {
+  await initDb();
+  await resetDb();
+});
 
 describe('initDb', () => {
-  it('creates the users table with a cognito_sub column and no password/OTP/refresh-token tables', () => {
-    initDb();
-    const db = getDb();
+  it('creates the users table with a cognito_sub column and no password/OTP/refresh-token tables', async () => {
+    const { rows: columns } = await query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'users'`
+    );
+    const columnNames = columns.map((row) => row.column_name);
+    expect(columnNames).toContain('cognito_sub');
+    expect(columnNames).not.toContain('password_hash');
 
-    const columns = db.prepare('PRAGMA table_info(users)').all();
-    expect(columns.some((column) => column.name === 'cognito_sub')).toBe(true);
-    expect(columns.some((column) => column.name === 'password_hash')).toBe(false);
-
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
+    const { rows: tableRows } = await query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    );
+    const tables = tableRows.map((row) => row.table_name);
     expect(tables).not.toContain('otp_requests');
     expect(tables).not.toContain('refresh_tokens');
+    expect(tables).not.toContain('tree_memberships');
+    expect(tables).toContain('tree_permissions');
+  });
+
+  it('is safe to run twice - migrations are only applied once', async () => {
+    await initDb();
+    const { rows } = await query('SELECT name FROM schema_migrations');
+    const names = rows.map((row) => row.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });

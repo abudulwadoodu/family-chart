@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 
-import { getDb } from '../db/index.js';
+import { query, withTransaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
 import { isNonEmptyString, isValidEmail, capitalizeFirst } from '../utils/validation.js';
@@ -18,21 +18,31 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 treesRouter.use(requireAuth);
 
-treesRouter.get('/', (req, res, next) => {
+// Upserts family_data.json_data (JSONB) for a tree, matching the shared
+// "import overwrites the whole tree" behavior used by import-csv/import-json/
+// import-gedcom and the plain PUT /:id save.
+async function upsertFamilyData(treeId, people) {
+  await query(
+    `INSERT INTO family_data (tree_id, json_data, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = excluded.updated_at`,
+    [treeId, JSON.stringify(people)]
+  );
+}
+
+treesRouter.get('/', async (req, res, next) => {
   try {
-    const db = getDb();
-    const trees = db
-      .prepare(
-        `SELECT t.id, t.name, t.owner_id, t.created_at, tp.role,
-                COALESCE(fd.updated_at, t.created_at) AS updated_at,
-                COALESCE(json_array_length(fd.json_data), 0) AS member_count
-         FROM trees t
-         JOIN tree_permissions tp ON tp.tree_id = t.id
-         LEFT JOIN family_data fd ON fd.tree_id = t.id
-         WHERE tp.user_id = ?
-         ORDER BY t.created_at DESC`
-      )
-      .all(req.user.id);
+    const { rows: trees } = await query(
+      `SELECT t.id, t.name, t.owner_id, t.created_at, tp.role,
+              COALESCE(fd.updated_at, t.created_at) AS updated_at,
+              COALESCE(jsonb_array_length(fd.json_data), 0) AS member_count
+       FROM trees t
+       JOIN tree_permissions tp ON tp.tree_id = t.id
+       LEFT JOIN family_data fd ON fd.tree_id = t.id
+       WHERE tp.user_id = $1
+       ORDER BY t.created_at DESC`,
+      [req.user.id]
+    );
 
     return res.json({ trees });
   } catch (error) {
@@ -40,31 +50,35 @@ treesRouter.get('/', (req, res, next) => {
   }
 });
 
-treesRouter.post('/', (req, res, next) => {
+treesRouter.post('/', async (req, res, next) => {
   try {
     const { name } = req.body || {};
     if (!isNonEmptyString(name, 120)) {
       return res.status(400).json({ error: 'Tree name is required' });
     }
 
-    const db = getDb();
     const userId = req.user.id;
     const trimmedName = capitalizeFirst(name.trim());
+    const initialPeople = JSON.parse(getDefaultTreeDataJson());
 
-    const initialJson = getDefaultTreeDataJson();
+    const treeId = await withTransaction(async (client) => {
+      const treeResult = await client.query('INSERT INTO trees (name, owner_id) VALUES ($1, $2) RETURNING id', [
+        trimmedName,
+        userId,
+      ]);
+      const id = treeResult.rows[0].id;
 
-    const tx = db.transaction(() => {
-      const treeResult = db.prepare('INSERT INTO trees (name, owner_id) VALUES (?, ?)').run(trimmedName, userId);
-      const treeId = treeResult.lastInsertRowid;
-
-      db.prepare("INSERT INTO tree_permissions (tree_id, user_id, role, updated_at) VALUES (?, ?, 'owner', datetime('now'))")
-        .run(treeId, userId);
-      db.prepare("INSERT INTO family_data (tree_id, json_data, updated_at) VALUES (?, ?, datetime('now'))")
-        .run(treeId, initialJson);
-      return treeId;
+      await client.query(
+        "INSERT INTO tree_permissions (tree_id, user_id, role, updated_at) VALUES ($1, $2, 'owner', NOW())",
+        [id, userId]
+      );
+      await client.query('INSERT INTO family_data (tree_id, json_data, updated_at) VALUES ($1, $2, NOW())', [
+        id,
+        JSON.stringify(initialPeople),
+      ]);
+      return id;
     });
 
-    const treeId = tx();
     return res.status(201).json({ id: treeId, name: trimmedName });
   } catch (error) {
     return next(error);
@@ -142,26 +156,26 @@ treesRouter.post('/json/preview', upload.single('file'), (req, res, next) => {
   }
 });
 
-treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
-    const db = getDb();
     const treeId = Number(req.params.id);
-    const tree = db.prepare('SELECT id, name, owner_id, created_at FROM trees WHERE id = ?').get(treeId);
-    const familyData = db.prepare('SELECT json_data FROM family_data WHERE tree_id = ?').get(treeId);
+    const { rows: treeRows } = await query('SELECT id, name, owner_id, created_at FROM trees WHERE id = $1', [treeId]);
+    const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
 
+    const tree = treeRows[0];
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
 
     return res.json({
       tree,
       role: req.treePermission.role,
-      data: familyData ? JSON.parse(familyData.json_data) : [],
+      data: familyDataRows[0]?.json_data ?? [],
     });
   } catch (error) {
     return next(error);
   }
 });
 
-treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), (req, res, next) => {
+treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const { json_data: jsonData } = req.body || {};
@@ -170,23 +184,15 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), (req, res, next) =
       return res.status(400).json({ error: 'json_data is required' });
     }
 
-    const normalizedJson = JSON.stringify(jsonData);
-    const db = getDb();
-    const result = db
-      .prepare(
-        `INSERT INTO family_data (tree_id, json_data, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      )
-      .run(treeId, normalizedJson);
+    await upsertFamilyData(treeId, jsonData);
 
-    return res.json({ ok: true, changes: result.changes });
+    return res.json({ ok: true, changes: 1 });
   } catch (error) {
     return next(error);
   }
 });
 
-treesRouter.patch('/:id', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.patch('/:id', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const { name } = req.body || {};
     if (!isNonEmptyString(name, 120)) {
@@ -195,8 +201,7 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), (req, res, next) => {
 
     const treeId = Number(req.params.id);
     const trimmedName = capitalizeFirst(name.trim());
-    const db = getDb();
-    db.prepare('UPDATE trees SET name = ? WHERE id = ?').run(trimmedName, treeId);
+    await query('UPDATE trees SET name = $1 WHERE id = $2', [trimmedName, treeId]);
 
     return res.json({ ok: true, name: trimmedName });
   } catch (error) {
@@ -204,15 +209,14 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), (req, res, next) => {
   }
 });
 
-treesRouter.delete('/:id', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.delete('/:id', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const db = getDb();
 
-    const tree = db.prepare('SELECT id FROM trees WHERE id = ?').get(treeId);
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    const { rows } = await query('SELECT id FROM trees WHERE id = $1', [treeId]);
+    if (!rows[0]) return res.status(404).json({ error: 'Tree not found' });
 
-    db.prepare('DELETE FROM trees WHERE id = ?').run(treeId);
+    await query('DELETE FROM trees WHERE id = $1', [treeId]);
     return res.json({ ok: true });
   } catch (error) {
     return next(error);
@@ -223,7 +227,7 @@ treesRouter.post(
   '/:id/import-csv',
   requireTreeRole(['owner', 'editor']),
   upload.single('file'),
-  (req, res, next) => {
+  async (req, res, next) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'CSV file is required' });
       const csvText = req.file.buffer.toString('utf8');
@@ -233,12 +237,7 @@ treesRouter.post(
       if (errors.length > 0) return res.status(400).json({ error: errors[0].message, errors });
 
       const treeId = Number(req.params.id);
-      const db = getDb();
-      db.prepare(
-        `INSERT INTO family_data (tree_id, json_data, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      ).run(treeId, JSON.stringify(people));
+      await upsertFamilyData(treeId, people);
 
       return res.json({ ok: true, imported_count: people.length, warnings });
     } catch (error) {
@@ -252,7 +251,7 @@ treesRouter.post(
   '/:id/import-json',
   requireTreeRole(['owner', 'editor']),
   upload.single('file'),
-  (req, res, next) => {
+  async (req, res, next) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'JSON file is required' });
       const jsonText = req.file.buffer.toString('utf8');
@@ -263,12 +262,7 @@ treesRouter.post(
       const warnings = [...mapWarnings, ...validationWarnings];
 
       const treeId = Number(req.params.id);
-      const db = getDb();
-      db.prepare(
-        `INSERT INTO family_data (tree_id, json_data, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      ).run(treeId, JSON.stringify(cleanedPeople));
+      await upsertFamilyData(treeId, cleanedPeople);
 
       return res.json({ ok: true, imported_count: cleanedPeople.length, warnings });
     } catch (error) {
@@ -289,7 +283,7 @@ treesRouter.post(
   '/:id/import-gedcom',
   requireTreeRole(['owner', 'editor']),
   upload.single('file'),
-  (req, res, next) => {
+  async (req, res, next) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'GEDCOM file is required' });
 
@@ -307,12 +301,7 @@ treesRouter.post(
       const { people: importedPeople, warnings } = gedcomToDomain(records, options);
       const treeId = Number(req.params.id);
 
-      const db = getDb();
-      db.prepare(
-        `INSERT INTO family_data (tree_id, json_data, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = datetime('now')`
-      ).run(treeId, JSON.stringify(importedPeople));
+      await upsertFamilyData(treeId, importedPeople);
 
       return res.json({ ok: true, imported_count: importedPeople.length, skipped_count: 0, added_ids: importedPeople.map((p) => p.id), warnings });
     } catch (error) {
@@ -327,15 +316,14 @@ treesRouter.post(
 // the GEDCOM text as JSON (not a raw file response) so the frontend can keep
 // using its existing JSON-only `api()` helper and build the download blob
 // itself.
-treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const db = getDb();
-    const tree = db.prepare('SELECT id FROM trees WHERE id = ?').get(treeId);
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    const { rows: treeRows } = await query('SELECT id FROM trees WHERE id = $1', [treeId]);
+    if (!treeRows[0]) return res.status(404).json({ error: 'Tree not found' });
 
-    const familyData = db.prepare('SELECT json_data FROM family_data WHERE tree_id = ?').get(treeId);
-    const people = familyData ? JSON.parse(familyData.json_data) : [];
+    const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
+    const people = familyDataRows[0]?.json_data ?? [];
 
     const options = {
       includeNotes: req.query.includeNotes !== 'false',
@@ -354,15 +342,15 @@ treesRouter.get('/:id/export-gedcom', requireTreeRole(['owner', 'editor', 'viewe
 // The versioned JSON envelope's nested schema (birth/death/relationships/
 // contact) lives once in utils/json rather than being duplicated in
 // frontend JS, matching the export-gedcom precedent above.
-treesRouter.get('/:id/export-json', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+treesRouter.get('/:id/export-json', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const db = getDb();
-    const tree = db.prepare('SELECT id, name FROM trees WHERE id = ?').get(treeId);
+    const { rows: treeRows } = await query('SELECT id, name FROM trees WHERE id = $1', [treeId]);
+    const tree = treeRows[0];
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
 
-    const familyData = db.prepare('SELECT json_data FROM family_data WHERE tree_id = ?').get(treeId);
-    const people = familyData ? JSON.parse(familyData.json_data) : [];
+    const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
+    const people = familyDataRows[0]?.json_data ?? [];
 
     const envelope = domainToJsonExport(people, { treeName: tree.name });
     return res.json({ ok: true, envelope });
@@ -371,26 +359,24 @@ treesRouter.get('/:id/export-json', requireTreeRole(['owner', 'editor', 'viewer'
   }
 });
 
-treesRouter.get('/:id/permissions', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.get('/:id/permissions', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const db = getDb();
-    const permissions = db
-      .prepare(
-        `SELECT tp.id, tp.tree_id, tp.user_id, tp.role, tp.created_at, tp.updated_at, u.email
-         FROM tree_permissions tp
-         JOIN users u ON u.id = tp.user_id
-         WHERE tp.tree_id = ?
-         ORDER BY tp.created_at ASC`
-      )
-      .all(treeId);
+    const { rows: permissions } = await query(
+      `SELECT tp.id, tp.tree_id, tp.user_id, tp.role, tp.created_at, tp.updated_at, u.email
+       FROM tree_permissions tp
+       JOIN users u ON u.id = tp.user_id
+       WHERE tp.tree_id = $1
+       ORDER BY tp.created_at ASC`,
+      [treeId]
+    );
     return res.json({ permissions });
   } catch (error) {
     return next(error);
   }
 });
 
-treesRouter.post('/:id/share', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.post('/:id/share', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const { email, role } = req.body || {};
@@ -402,7 +388,7 @@ treesRouter.post('/:id/share', requireTreeRole(['owner']), (req, res, next) => {
       return res.status(400).json({ error: 'Role must be either editor or viewer' });
     }
 
-    const targetUser = findUserByEmail(email.trim().toLowerCase());
+    const targetUser = await findUserByEmail(email.trim().toLowerCase());
     if (!targetUser) {
       return res.status(404).json({ error: 'No user found with that email. They need to sign in at least once first.' });
     }
@@ -411,18 +397,19 @@ treesRouter.post('/:id/share', requireTreeRole(['owner']), (req, res, next) => {
       return res.status(400).json({ error: 'You already own this tree' });
     }
 
-    const db = getDb();
-    const existing = db
-      .prepare('SELECT id FROM tree_permissions WHERE tree_id = ? AND user_id = ?')
-      .get(treeId, targetUser.id);
-    if (existing) {
+    const { rows: existingRows } = await query('SELECT id FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [
+      treeId,
+      targetUser.id,
+    ]);
+    if (existingRows[0]) {
       return res.status(409).json({ error: 'This user already has access to this tree' });
     }
 
-    db.prepare(
+    await query(
       `INSERT INTO tree_permissions (tree_id, user_id, role, updated_at)
-       VALUES (?, ?, ?, datetime('now'))`
-    ).run(treeId, targetUser.id, role);
+       VALUES ($1, $2, $3, NOW())`,
+      [treeId, targetUser.id, role]
+    );
 
     return res.status(201).json({ ok: true, email: targetUser.email, role });
   } catch (error) {
@@ -430,7 +417,7 @@ treesRouter.post('/:id/share', requireTreeRole(['owner']), (req, res, next) => {
   }
 });
 
-treesRouter.put('/:id/share/:userId', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.put('/:id/share/:userId', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const targetUserId = Number(req.params.userId);
@@ -440,19 +427,17 @@ treesRouter.put('/:id/share/:userId', requireTreeRole(['owner']), (req, res, nex
       return res.status(400).json({ error: 'Role must be either editor or viewer' });
     }
 
-    const db = getDb();
-    const target = db
-      .prepare('SELECT id, role FROM tree_permissions WHERE tree_id = ? AND user_id = ?')
-      .get(treeId, targetUserId);
+    const { rows } = await query('SELECT id, role FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [
+      treeId,
+      targetUserId,
+    ]);
+    const target = rows[0];
     if (!target) return res.status(404).json({ error: 'Permission not found' });
     if (target.role === 'owner') {
       return res.status(400).json({ error: "The owner's role cannot be changed" });
     }
 
-    db.prepare("UPDATE tree_permissions SET role = ?, updated_at = datetime('now') WHERE id = ?").run(
-      role,
-      target.id
-    );
+    await query('UPDATE tree_permissions SET role = $1, updated_at = NOW() WHERE id = $2', [role, target.id]);
 
     return res.json({ ok: true, role });
   } catch (error) {
@@ -460,21 +445,22 @@ treesRouter.put('/:id/share/:userId', requireTreeRole(['owner']), (req, res, nex
   }
 });
 
-treesRouter.delete('/:id/share/:userId', requireTreeRole(['owner']), (req, res, next) => {
+treesRouter.delete('/:id/share/:userId', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const targetUserId = Number(req.params.userId);
 
-    const db = getDb();
-    const target = db
-      .prepare('SELECT id, role FROM tree_permissions WHERE tree_id = ? AND user_id = ?')
-      .get(treeId, targetUserId);
+    const { rows } = await query('SELECT id, role FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [
+      treeId,
+      targetUserId,
+    ]);
+    const target = rows[0];
     if (!target) return res.status(404).json({ error: 'Permission not found' });
     if (target.role === 'owner') {
       return res.status(400).json({ error: 'Owners cannot remove their own access' });
     }
 
-    db.prepare('DELETE FROM tree_permissions WHERE id = ?').run(target.id);
+    await query('DELETE FROM tree_permissions WHERE id = $1', [target.id]);
     return res.json({ ok: true });
   } catch (error) {
     return next(error);

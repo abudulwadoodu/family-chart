@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -24,7 +24,7 @@ vi.mock('@aws-sdk/client-ses', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -49,16 +49,10 @@ function createTicket(auth, overrides = {}) {
   return req;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   sendMock.mockReset();
   sendMock.mockResolvedValue({});
-  const db = getDb();
-  db.exec('DELETE FROM support_messages');
-  db.exec('DELETE FROM support_tickets');
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+  await resetDb();
 });
 
 describe('POST /api/support/tickets', () => {
@@ -77,7 +71,7 @@ describe('POST /api/support/tickets', () => {
     // confirmation to the user + notice to the support inbox
     expect(sendMock).toHaveBeenCalledTimes(2);
 
-    const messages = getDb().prepare('SELECT * FROM support_messages WHERE ticket_id = ?').all(res.body.ticket.id);
+    const { rows: messages } = await query('SELECT * FROM support_messages WHERE ticket_id = $1', [res.body.ticket.id]);
     expect(messages).toHaveLength(1);
     expect(messages[0].sender_type).toBe('USER');
   });
@@ -99,8 +93,8 @@ describe('POST /api/support/tickets', () => {
     });
 
     expect(res.status).toBe(201);
-    const message = getDb().prepare('SELECT * FROM support_messages WHERE ticket_id = ?').get(res.body.ticket.id);
-    expect(message.attachment_filename).toBe('note.txt');
+    const { rows } = await query('SELECT * FROM support_messages WHERE ticket_id = $1', [res.body.ticket.id]);
+    expect(rows[0].attachment_filename).toBe('note.txt');
   });
 
   it('rejects disallowed attachment types', async () => {
@@ -135,7 +129,8 @@ describe('POST /api/support/tickets', () => {
     const res = await createTicket(user, { website: 'http://spam.example' });
     expect(res.status).toBe(201);
     expect(sendMock).not.toHaveBeenCalled();
-    expect(getDb().prepare('SELECT COUNT(*) AS c FROM support_tickets').get().c).toBe(0);
+    const { rows } = await query('SELECT COUNT(*) AS c FROM support_tickets');
+    expect(Number(rows[0].c)).toBe(0);
   });
 
   it('rate limits repeated ticket creation from the same user', async () => {
@@ -212,7 +207,7 @@ describe('POST /api/support/tickets/:id/messages', () => {
   it('blocks replies on a closed ticket', async () => {
     const user = await asUser('user-a', 'a@example.com');
     const created = await createTicket(user);
-    getDb().prepare("UPDATE support_tickets SET status = 'CLOSED' WHERE id = ?").run(created.body.ticket.id);
+    await query("UPDATE support_tickets SET status = 'CLOSED' WHERE id = $1", [created.body.ticket.id]);
 
     const res = await request(app)
       .post(`/api/support/tickets/${created.body.ticket.id}/messages`)
@@ -229,7 +224,10 @@ describe('GET /api/support/messages/:messageId/attachment', () => {
       filename: 'note.txt',
       contentType: 'text/plain',
     });
-    const message = getDb().prepare('SELECT id FROM support_messages WHERE ticket_id = ?').get(created.body.ticket.id);
+    const { rows: messageRows } = await query('SELECT id FROM support_messages WHERE ticket_id = $1', [
+      created.body.ticket.id,
+    ]);
+    const message = messageRows[0];
 
     const res = await request(app).get(`/api/support/messages/${message.id}/attachment`).set('Authorization', user);
     expect(res.status).toBe(200);
@@ -243,7 +241,10 @@ describe('GET /api/support/messages/:messageId/attachment', () => {
       filename: 'note.txt',
       contentType: 'text/plain',
     });
-    const message = getDb().prepare('SELECT id FROM support_messages WHERE ticket_id = ?').get(created.body.ticket.id);
+    const { rows: messageRows } = await query('SELECT id FROM support_messages WHERE ticket_id = $1', [
+      created.body.ticket.id,
+    ]);
+    const message = messageRows[0];
 
     const res = await request(app).get(`/api/support/messages/${message.id}/attachment`).set('Authorization', userB);
     expect(res.status).toBe(404);

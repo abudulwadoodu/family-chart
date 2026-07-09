@@ -9,10 +9,10 @@ export const adminAuditLogsRouter = express.Router();
 
 adminAuditLogsRouter.use(requireAuth, requireAdmin);
 
-adminAuditLogsRouter.get('/', (req, res, next) => {
+adminAuditLogsRouter.get('/', async (req, res, next) => {
   try {
     const { search, action, adminId, page, pageSize } = req.query;
-    const result = listAuditLogs({ search, action, adminId, page, pageSize });
+    const result = await listAuditLogs({ search, action, adminId, page, pageSize });
     return res.json({ ...result, actions: Object.values(AUDIT_ACTIONS) });
   } catch (error) {
     return next(error);

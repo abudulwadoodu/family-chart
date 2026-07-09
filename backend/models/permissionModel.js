@@ -1,14 +1,13 @@
-import { getDb } from '../db/index.js';
+import { query, withTransaction } from '../db/index.js';
 
-export function getPermissionByUserAndTree(userId, treeId) {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT id, tree_id, user_id, role, created_at, updated_at
-       FROM tree_permissions
-       WHERE user_id = ? AND tree_id = ?`
-    )
-    .get(userId, treeId);
+export async function getPermissionByUserAndTree(userId, treeId) {
+  const { rows } = await query(
+    `SELECT id, tree_id, user_id, role, created_at, updated_at
+     FROM tree_permissions
+     WHERE user_id = $1 AND tree_id = $2`,
+    [userId, treeId]
+  );
+  return rows[0];
 }
 
 export class TransferOwnershipError extends Error {
@@ -22,25 +21,23 @@ export class TransferOwnershipError extends Error {
 // transfer target. Ownership is keyed off trees.owner_id — the column the schema's
 // ON DELETE CASCADE actually anchors on — rather than tree_permissions.role, since
 // this app only ever assigns one owner per tree (no multi-owner support exists).
-export function getTreesOwnedByUser(userId) {
-  const db = getDb();
-  const ownedTrees = db
-    .prepare('SELECT id, name FROM trees WHERE owner_id = ? ORDER BY created_at ASC')
-    .all(userId);
+export async function getTreesOwnedByUser(userId) {
+  const { rows: ownedTrees } = await query('SELECT id, name FROM trees WHERE owner_id = $1 ORDER BY created_at ASC', [
+    userId,
+  ]);
 
   if (!ownedTrees.length) return [];
 
   const treeIds = ownedTrees.map((tree) => tree.id);
-  const placeholders = treeIds.map(() => '?').join(',');
-  const otherMembers = db
-    .prepare(
-      `SELECT tp.tree_id, tp.user_id, tp.role, u.email
-       FROM tree_permissions tp
-       JOIN users u ON u.id = tp.user_id
-       WHERE tp.tree_id IN (${placeholders}) AND tp.user_id != ?
-       ORDER BY tp.created_at ASC`
-    )
-    .all(...treeIds, userId);
+  const placeholders = treeIds.map((_, i) => `$${i + 1}`).join(',');
+  const { rows: otherMembers } = await query(
+    `SELECT tp.tree_id, tp.user_id, tp.role, u.email
+     FROM tree_permissions tp
+     JOIN users u ON u.id = tp.user_id
+     WHERE tp.tree_id IN (${placeholders}) AND tp.user_id != $${treeIds.length + 1}
+     ORDER BY tp.created_at ASC`,
+    [...treeIds, userId]
+  );
 
   return ownedTrees.map((tree) => {
     const members = otherMembers.filter((member) => member.tree_id === tree.id);
@@ -56,19 +53,19 @@ export function getTreesOwnedByUser(userId) {
 // Promotes an existing member (editor or viewer) of the tree to owner, then removes
 // the current owner's permission row. The target must already be a member — this
 // never invites a new user, it only re-assigns ownership among existing collaborators.
-export function transferTreeOwnership(treeId, fromUserId, toUserId) {
-  const db = getDb();
-  const tx = db.transaction(() => {
-    const target = db
-      .prepare('SELECT id, role FROM tree_permissions WHERE tree_id = ? AND user_id = ?')
-      .get(treeId, toUserId);
+export async function transferTreeOwnership(treeId, fromUserId, toUserId) {
+  await withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT id, role FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [
+      treeId,
+      toUserId,
+    ]);
+    const target = rows[0];
     if (!target || target.role === 'owner') {
       throw new TransferOwnershipError('INVALID_TRANSFER_TARGET');
     }
 
-    db.prepare("UPDATE tree_permissions SET role = 'owner', updated_at = datetime('now') WHERE id = ?").run(target.id);
-    db.prepare('UPDATE trees SET owner_id = ? WHERE id = ?').run(toUserId, treeId);
-    db.prepare('DELETE FROM tree_permissions WHERE tree_id = ? AND user_id = ?').run(treeId, fromUserId);
+    await client.query("UPDATE tree_permissions SET role = 'owner', updated_at = NOW() WHERE id = $1", [target.id]);
+    await client.query('UPDATE trees SET owner_id = $1 WHERE id = $2', [toUserId, treeId]);
+    await client.query('DELETE FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [treeId, fromUserId]);
   });
-  tx();
 }

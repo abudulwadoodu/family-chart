@@ -62,8 +62,8 @@ supportRouter.post('/tickets', rateLimit({ windowMs: 10 * 60 * 1000, max: 5 }), 
     const attachmentError = validateAttachment(req.file);
     if (attachmentError) return res.status(400).json({ error: attachmentError });
 
-    const ticket = createTicket({ userId: req.user.id, subject: trimmedSubject, category });
-    createMessage({ ticketId: ticket.id, senderType: 'USER', senderId: req.user.id, message: trimmedMessage, file: req.file });
+    const ticket = await createTicket({ userId: req.user.id, subject: trimmedSubject, category });
+    await createMessage({ ticketId: ticket.id, senderType: 'USER', senderId: req.user.id, message: trimmedMessage, file: req.file });
 
     try {
       await sendTicketCreatedEmail({ ticket, userEmail: req.user.email, message: trimmedMessage, attachment: req.file });
@@ -77,21 +77,21 @@ supportRouter.post('/tickets', rateLimit({ windowMs: 10 * 60 * 1000, max: 5 }), 
   }
 });
 
-supportRouter.get('/tickets', (req, res, next) => {
+supportRouter.get('/tickets', async (req, res, next) => {
   try {
     const { search, status, priority, sort, order, page, pageSize } = req.query;
-    const result = listTicketsForUser({ userId: req.user.id, search, status, priority, sort, order, page, pageSize });
+    const result = await listTicketsForUser({ userId: req.user.id, search, status, priority, sort, order, page, pageSize });
     return res.json(result);
   } catch (error) {
     return next(error);
   }
 });
 
-supportRouter.get('/tickets/:id', (req, res, next) => {
+supportRouter.get('/tickets/:id', async (req, res, next) => {
   try {
-    const ticket = getTicketForUser(Number(req.params.id), req.user.id);
+    const ticket = await getTicketForUser(Number(req.params.id), req.user.id);
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    const messages = listMessagesForTicket(ticket.id, { includeInternal: false });
+    const messages = await listMessagesForTicket(ticket.id, { includeInternal: false });
     return res.json({ ticket, messages });
   } catch (error) {
     return next(error);
@@ -104,7 +104,7 @@ supportRouter.post(
   parseUpload,
   async (req, res, next) => {
     try {
-      const ticket = getTicketForUser(Number(req.params.id), req.user.id);
+      const ticket = await getTicketForUser(Number(req.params.id), req.user.id);
       if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
       if (ticket.status === 'CLOSED') {
         return res.status(400).json({ error: 'This ticket is closed and can no longer accept replies' });
@@ -119,17 +119,17 @@ supportRouter.post(
       const attachmentError = validateAttachment(req.file);
       if (attachmentError) return res.status(400).json({ error: attachmentError });
 
-      const savedMessage = createMessage({
+      const savedMessage = await createMessage({
         ticketId: ticket.id,
         senderType: 'USER',
         senderId: req.user.id,
         message: trimmedMessage,
         file: req.file,
       });
-      const updatedTicket = onUserReply(ticket);
+      const updatedTicket = await onUserReply(ticket);
 
       try {
-        const assignedAdmin = updatedTicket.assigned_to ? findUserById(updatedTicket.assigned_to) : null;
+        const assignedAdmin = updatedTicket.assigned_to ? await findUserById(updatedTicket.assigned_to) : null;
         await sendUserReplyEmail({
           ticket: updatedTicket,
           userEmail: req.user.email,
@@ -148,13 +148,13 @@ supportRouter.post(
   }
 );
 
-supportRouter.get('/messages/:messageId/attachment', (req, res, next) => {
+supportRouter.get('/messages/:messageId/attachment', async (req, res, next) => {
   try {
-    const attachment = getMessageAttachment(Number(req.params.messageId));
+    const attachment = await getMessageAttachment(Number(req.params.messageId));
     if (!attachment || attachment.is_internal || !attachment.attachment_data) {
       return res.status(404).json({ error: 'Attachment not found' });
     }
-    const ticket = getTicketForUser(attachment.ticket_id, req.user.id);
+    const ticket = await getTicketForUser(attachment.ticket_id, req.user.id);
     if (!ticket) return res.status(404).json({ error: 'Attachment not found' });
 
     res.setHeader('Content-Type', attachment.attachment_mimetype || 'application/octet-stream');

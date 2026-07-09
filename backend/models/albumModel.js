@@ -1,73 +1,62 @@
-import { getDb } from '../db/index.js';
+import { query } from '../db/index.js';
 
-export function createAlbum({ treeId, name, description, createdBy }) {
-  const db = getDb();
-  const result = db
-    .prepare(
-      `INSERT INTO albums (tree_id, name, description, created_by, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`
-    )
-    .run(treeId, name, description ?? null, createdBy);
-  return getAlbumById(result.lastInsertRowid);
+export async function createAlbum({ treeId, name, description, createdBy }) {
+  const { rows } = await query(
+    `INSERT INTO albums (tree_id, name, description, created_by, updated_at)
+     VALUES ($1, $2, $3, $4, NOW()) RETURNING id`,
+    [treeId, name, description ?? null, createdBy]
+  );
+  return getAlbumById(rows[0].id);
 }
 
-export function getAlbumById(id) {
-  const db = getDb();
-  return db.prepare('SELECT * FROM albums WHERE id = ?').get(id);
+export async function getAlbumById(id) {
+  const { rows } = await query('SELECT * FROM albums WHERE id = $1', [id]);
+  return rows[0];
 }
 
-export function listAlbumsForTree(treeId) {
-  const db = getDb();
-  return db.prepare('SELECT * FROM albums WHERE tree_id = ? ORDER BY created_at DESC').all(treeId);
+export async function listAlbumsForTree(treeId) {
+  const { rows } = await query('SELECT * FROM albums WHERE tree_id = $1 ORDER BY created_at DESC', [treeId]);
+  return rows;
 }
 
-export function updateAlbum(id, { name, description }) {
-  const db = getDb();
-  db.prepare("UPDATE albums SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?").run(
+export async function updateAlbum(id, { name, description }) {
+  await query('UPDATE albums SET name = $1, description = $2, updated_at = NOW() WHERE id = $3', [
     name,
     description ?? null,
-    id
-  );
+    id,
+  ]);
   return getAlbumById(id);
 }
 
-export function setAlbumCover(albumId, mediaId) {
-  const db = getDb();
-  return db
-    .prepare("UPDATE albums SET cover_media_id = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(mediaId, albumId);
+export async function setAlbumCover(albumId, mediaId) {
+  return query('UPDATE albums SET cover_media_id = $1, updated_at = NOW() WHERE id = $2', [mediaId, albumId]);
 }
 
-export function addMediaToAlbum(albumId, mediaId, sortOrder = 0) {
-  const db = getDb();
-  return db
-    .prepare(
-      `INSERT INTO album_media (album_id, media_id, sort_order)
-       VALUES (?, ?, ?)
-       ON CONFLICT(album_id, media_id) DO UPDATE SET sort_order = excluded.sort_order`
-    )
-    .run(albumId, mediaId, sortOrder);
+export async function addMediaToAlbum(albumId, mediaId, sortOrder = 0) {
+  return query(
+    `INSERT INTO album_media (album_id, media_id, sort_order)
+     VALUES ($1, $2, $3)
+     ON CONFLICT(album_id, media_id) DO UPDATE SET sort_order = excluded.sort_order`,
+    [albumId, mediaId, sortOrder]
+  );
 }
 
-export function removeMediaFromAlbum(albumId, mediaId) {
-  const db = getDb();
-  return db.prepare('DELETE FROM album_media WHERE album_id = ? AND media_id = ?').run(albumId, mediaId);
+export async function removeMediaFromAlbum(albumId, mediaId) {
+  return query('DELETE FROM album_media WHERE album_id = $1 AND media_id = $2', [albumId, mediaId]);
 }
 
-export function listMediaForAlbum(albumId) {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT m.*, am.sort_order
-       FROM album_media am
-       JOIN media m ON m.id = am.media_id
-       WHERE am.album_id = ?
-       ORDER BY am.sort_order ASC, m.created_at ASC`
-    )
-    .all(albumId);
+export async function listMediaForAlbum(albumId) {
+  const { rows } = await query(
+    `SELECT m.*, am.sort_order
+     FROM album_media am
+     JOIN media m ON m.id = am.media_id
+     WHERE am.album_id = $1
+     ORDER BY am.sort_order ASC, m.created_at ASC`,
+    [albumId]
+  );
+  return rows;
 }
 
-export function deleteAlbum(id) {
-  const db = getDb();
-  return db.prepare('DELETE FROM albums WHERE id = ?').run(id);
+export async function deleteAlbum(id) {
+  return query('DELETE FROM albums WHERE id = $1', [id]);
 }

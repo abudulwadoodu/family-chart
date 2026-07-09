@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { query } from '../db/index.js';
 
 function resolvePagination(page, pageSize) {
   const safePageSize = Math.min(Math.max(Number(pageSize) || 20, 1), 50);
@@ -15,27 +15,21 @@ function memberName(person) {
 // their own SQL rows, so this flattens every tree's members into one list in
 // application code. Fine at this app's scale (family trees, not millions of
 // rows) - if that changes, this is the place to introduce a members table.
-export function listMembersForAdmin({ search, treeId, page, pageSize }) {
-  const db = getDb();
-  const trees = db
-    .prepare(
-      `SELECT t.id AS tree_id, t.name AS tree_name, owner.email AS owner_email, fd.json_data
-       FROM trees t
-       LEFT JOIN users owner ON owner.id = t.owner_id
-       JOIN family_data fd ON fd.tree_id = t.id
-       ${treeId ? 'WHERE t.id = ?' : ''}
-       ORDER BY t.id`
-    )
-    .all(...(treeId ? [Number(treeId)] : []));
+export async function listMembersForAdmin({ search, treeId, page, pageSize }) {
+  const { rows: trees } = await query(
+    `SELECT t.id AS tree_id, t.name AS tree_name, owner.email AS owner_email, fd.json_data
+     FROM trees t
+     LEFT JOIN users owner ON owner.id = t.owner_id
+     JOIN family_data fd ON fd.tree_id = t.id
+     ${treeId ? 'WHERE t.id = $1' : ''}
+     ORDER BY t.id`,
+    treeId ? [Number(treeId)] : []
+  );
 
   let members = [];
   for (const tree of trees) {
-    let people;
-    try {
-      people = JSON.parse(tree.json_data);
-    } catch {
-      continue;
-    }
+    // json_data is JSONB - pg already parses it into a JS value, not a string.
+    const people = Array.isArray(tree.json_data) ? tree.json_data : [];
     for (const person of people) {
       members.push({
         id: `${tree.tree_id}:${person.id}`,

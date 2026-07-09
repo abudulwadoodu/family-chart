@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -18,7 +18,6 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -33,13 +32,8 @@ async function asAdmin() {
   return asUser('admin-sub', 'admin@example.com');
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM audit_logs');
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('admin authorization', () => {

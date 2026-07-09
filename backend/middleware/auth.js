@@ -22,9 +22,9 @@ export async function requireAuth(req, res, next) {
 
   try {
     const payload = await getVerifier().verify(token);
-    const user = findOrCreateUserByCognitoSub(payload.sub, payload.email);
+    const user = await findOrCreateUserByCognitoSub(payload.sub, payload.email);
     if (user.status === 'suspended') return res.status(403).json({ error: 'This account has been suspended' });
-    updateLastLogin(user.id);
+    await updateLastLogin(user.id);
     req.user = { id: user.id, email: user.email, isAdmin: Boolean(user.is_admin), adminRole: user.admin_role || null };
     return next();
   } catch (_error) {

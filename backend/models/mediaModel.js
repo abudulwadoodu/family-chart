@@ -1,6 +1,6 @@
-import { getDb } from '../db/index.js';
+import { query } from '../db/index.js';
 
-export function createMedia({
+export async function createMedia({
   treeId,
   kind,
   storageKey,
@@ -15,15 +15,12 @@ export function createMedia({
   takenAt,
   uploadedBy,
 }) {
-  const db = getDb();
-  const result = db
-    .prepare(
-      `INSERT INTO media (
-         tree_id, kind, storage_key, mime_type, file_size, width, height,
-         duration_seconds, page_count, title, description, taken_at, uploaded_by, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-    )
-    .run(
+  const { rows } = await query(
+    `INSERT INTO media (
+       tree_id, kind, storage_key, mime_type, file_size, width, height,
+       duration_seconds, page_count, title, description, taken_at, uploaded_by, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()) RETURNING id`,
+    [
       treeId,
       kind,
       storageKey,
@@ -36,67 +33,74 @@ export function createMedia({
       title ?? null,
       description ?? null,
       takenAt ?? null,
-      uploadedBy
-    );
-  return getMediaById(result.lastInsertRowid);
+      uploadedBy,
+    ]
+  );
+  return getMediaById(rows[0].id);
 }
 
-export function getMediaById(id) {
-  const db = getDb();
-  return db.prepare('SELECT * FROM media WHERE id = ?').get(id);
+export async function getMediaById(id) {
+  const { rows } = await query('SELECT * FROM media WHERE id = $1', [id]);
+  return rows[0];
 }
 
-export function listMediaForTree(treeId, { kind } = {}) {
-  const db = getDb();
+export async function listMediaForTree(treeId, { kind } = {}) {
   if (kind) {
-    return db
-      .prepare('SELECT * FROM media WHERE tree_id = ? AND kind = ? ORDER BY COALESCE(taken_at, created_at) DESC')
-      .all(treeId, kind);
+    const { rows } = await query(
+      'SELECT * FROM media WHERE tree_id = $1 AND kind = $2 ORDER BY COALESCE(taken_at, created_at) DESC',
+      [treeId, kind]
+    );
+    return rows;
   }
-  return db
-    .prepare('SELECT * FROM media WHERE tree_id = ? ORDER BY COALESCE(taken_at, created_at) DESC')
-    .all(treeId);
+  const { rows } = await query('SELECT * FROM media WHERE tree_id = $1 ORDER BY COALESCE(taken_at, created_at) DESC', [
+    treeId,
+  ]);
+  return rows;
 }
 
 // Every photo/video/document tagged with this person, across the tree -
 // powers a per-person media gallery on the card/profile view.
-export function listMediaForMember(treeId, memberId) {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT DISTINCT m.*
+export async function listMediaForMember(treeId, memberId) {
+  const { rows } = await query(
+    `SELECT * FROM (
+       SELECT DISTINCT ON (m.id) m.*
        FROM media m
        JOIN media_tags mt ON mt.media_id = m.id
-       WHERE mt.tree_id = ? AND mt.member_id = ?
-       ORDER BY COALESCE(m.taken_at, m.created_at) DESC`
-    )
-    .all(treeId, memberId);
+       WHERE mt.tree_id = $1 AND mt.member_id = $2
+     ) m
+     ORDER BY COALESCE(m.taken_at, m.created_at) DESC`,
+    [treeId, memberId]
+  );
+  return rows;
 }
 
 // Everywhere this media item is currently linked - shown in the delete
 // confirmation so removing it from one place (or permanently) doesn't
 // silently break other albums/events/person tags that reference it.
-export function getMediaUsage(mediaId) {
-  const db = getDb();
-  const albums = db
-    .prepare(`SELECT a.id, a.name FROM album_media am JOIN albums a ON a.id = am.album_id WHERE am.media_id = ?`)
-    .all(mediaId);
-  const events = db
-    .prepare(`SELECT e.id, e.title FROM event_media em JOIN events e ON e.id = em.event_id WHERE em.media_id = ?`)
-    .all(mediaId);
-  const taggedMemberCount = db.prepare('SELECT COUNT(*) AS count FROM media_tags WHERE media_id = ?').get(mediaId).count;
+export async function getMediaUsage(mediaId) {
+  const { rows: albums } = await query(
+    `SELECT a.id, a.name FROM album_media am JOIN albums a ON a.id = am.album_id WHERE am.media_id = $1`,
+    [mediaId]
+  );
+  const { rows: events } = await query(
+    `SELECT e.id, e.title FROM event_media em JOIN events e ON e.id = em.event_id WHERE em.media_id = $1`,
+    [mediaId]
+  );
+  const taggedResult = await query('SELECT COUNT(*) AS count FROM media_tags WHERE media_id = $1', [mediaId]);
+  const taggedMemberCount = Number(taggedResult.rows[0].count);
   return { albums, events, taggedMemberCount };
 }
 
-export function updateMedia(id, { title, description, takenAt }) {
-  const db = getDb();
-  db.prepare(
-    `UPDATE media SET title = ?, description = ?, taken_at = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(title ?? null, description ?? null, takenAt ?? null, id);
+export async function updateMedia(id, { title, description, takenAt }) {
+  await query(`UPDATE media SET title = $1, description = $2, taken_at = $3, updated_at = NOW() WHERE id = $4`, [
+    title ?? null,
+    description ?? null,
+    takenAt ?? null,
+    id,
+  ]);
   return getMediaById(id);
 }
 
-export function deleteMedia(id) {
-  const db = getDb();
-  return db.prepare('DELETE FROM media WHERE id = ?').run(id);
+export async function deleteMedia(id) {
+  return query('DELETE FROM media WHERE id = $1', [id]);
 }

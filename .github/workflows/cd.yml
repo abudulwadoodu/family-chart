@@ -51,7 +51,6 @@ jobs:
         run: |
           rsync -az --delete \
             --exclude='.env' \
-            --exclude='data/' \
             --exclude='node_modules/' \
             backend/ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ubuntu/family-chart/backend/"
           rsync -az package.json package-lock.json \
@@ -59,12 +58,23 @@ jobs:
 
       - name: Install backend prod dependencies and reload
         run: |
+          # Requires the EC2 instance to have the AWS CLI installed and the
+          # ec2_app IAM instance profile attached (see terraform/rds.tf,
+          # terraform/iam.tf) so it can read+decrypt the postgres/database_url
+          # SSM SecureString without any AWS credentials passed from CI.
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
             set -e
             source ~/.nvm/nvm.sh
             nvm use 24.15.0
             cd /home/ubuntu/family-chart
             npm ci --omit=dev
+            DATABASE_URL=$(aws ssm get-parameter \
+              --name "/familytree/prod/postgres/database_url" \
+              --with-decryption --query "Parameter.Value" --output text \
+              --region ap-south-2)
+            grep -v "^DATABASE_URL=" .env 2>/dev/null > .env.tmp || true
+            mv .env.tmp .env
+            echo "DATABASE_URL=$DATABASE_URL" >> .env
             pm2 reload family-backend --update-env
           '
 

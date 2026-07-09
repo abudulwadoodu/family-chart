@@ -18,7 +18,7 @@ import { eventsRouter } from './routes/events.js';
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
 
-initDb();
+await initDb();
 
 export const app = express();
 

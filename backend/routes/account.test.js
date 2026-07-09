@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -39,7 +39,7 @@ vi.mock('@aws-sdk/client-cognito-identity-provider', () => {
 });
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 const cognitoMock = await import('@aws-sdk/client-cognito-identity-provider');
 
 function authHeader(sub, email) {
@@ -52,12 +52,8 @@ async function asUser(sub, email) {
   return { header: authHeader(sub, email), id: res.body.user.id };
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
   cognitoMock.__sendCalls.length = 0;
 });
 
@@ -69,8 +65,8 @@ describe('DELETE /api/account', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
 
-    const row = getDb().prepare('SELECT id FROM users WHERE id = ?').get(viewer.id);
-    expect(row).toBeUndefined();
+    const { rows } = await query('SELECT id FROM users WHERE id = $1', [viewer.id]);
+    expect(rows[0]).toBeUndefined();
 
     expect(cognitoMock.__sendCalls).toHaveLength(2);
     expect(cognitoMock.__sendCalls[0].input).toMatchObject({ Username: 'viewer@example.com' });
@@ -93,10 +89,11 @@ describe('DELETE /api/account', () => {
     const treeRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner.header);
     expect(treeRes.status).toBe(200);
 
-    const editorPermissionRow = getDb()
-      .prepare('SELECT id FROM tree_permissions WHERE tree_id = ? AND user_id = ?')
-      .get(treeId, editor.id);
-    expect(editorPermissionRow).toBeUndefined();
+    const { rows: editorPermissionRows } = await query(
+      'SELECT id FROM tree_permissions WHERE tree_id = $1 AND user_id = $2',
+      [treeId, editor.id]
+    );
+    expect(editorPermissionRows[0]).toBeUndefined();
   });
 
   it('blocks deletion when the user solely owns a tree, and reports it in blockingTrees', async () => {
@@ -121,8 +118,8 @@ describe('DELETE /api/account', () => {
     ]);
     expect(cognitoMock.__sendCalls).toHaveLength(0);
 
-    const stillThereRow = getDb().prepare('SELECT id FROM users WHERE id = ?').get(owner.id);
-    expect(stillThereRow).toBeDefined();
+    const { rows: stillThereRows } = await query('SELECT id FROM users WHERE id = $1', [owner.id]);
+    expect(stillThereRows[0]).toBeDefined();
   });
 
   it('lists both editors and viewers on a blocking tree', async () => {

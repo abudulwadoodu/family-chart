@@ -16,11 +16,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 mediaRouter.use(requireAuth);
 
-mediaRouter.get('/', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+mediaRouter.get('/', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.treeId);
     const { kind, memberId } = req.query;
-    const items = memberId ? listMediaForMember(treeId, memberId) : listMediaForTree(treeId, { kind });
+    const items = memberId ? await listMediaForMember(treeId, memberId) : await listMediaForTree(treeId, { kind });
     return res.json({ media: withMediaUrls(items) });
   } catch (error) {
     return next(error);
@@ -40,7 +40,7 @@ mediaRouter.post('/', requireTreeRole(['owner', 'editor']), upload.single('file'
     const storageKey = `${treeId}/${Date.now()}-${req.file.originalname}`;
     await storePutObject(storageKey, req.file.buffer, req.file.mimetype);
 
-    const media = createMedia({
+    const media = await createMedia({
       treeId,
       kind,
       storageKey,
@@ -60,7 +60,7 @@ mediaRouter.post('/', requireTreeRole(['owner', 'editor']), upload.single('file'
 
 mediaRouter.get('/:mediaId/file', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
-    const media = getMediaById(Number(req.params.mediaId));
+    const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Media not found' });
     }
@@ -76,15 +76,15 @@ mediaRouter.get('/:mediaId/file', requireTreeRole(['owner', 'editor', 'viewer'])
   }
 });
 
-mediaRouter.patch('/:mediaId', requireTreeRole(['owner', 'editor']), (req, res, next) => {
+mediaRouter.patch('/:mediaId', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
-    const media = getMediaById(Number(req.params.mediaId));
+    const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Media not found' });
     }
 
     const { title, description, takenAt } = req.body || {};
-    const updated = updateMedia(media.id, {
+    const updated = await updateMedia(media.id, {
       title: isNonEmptyString(title, 200) ? title : null,
       description: isNonEmptyString(description, 2000) ? description : null,
       takenAt: takenAt || null,
@@ -96,13 +96,13 @@ mediaRouter.patch('/:mediaId', requireTreeRole(['owner', 'editor']), (req, res, 
   }
 });
 
-mediaRouter.get('/:mediaId/usage', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+mediaRouter.get('/:mediaId/usage', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
-    const media = getMediaById(Number(req.params.mediaId));
+    const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Media not found' });
     }
-    return res.json(getMediaUsage(media.id));
+    return res.json(await getMediaUsage(media.id));
   } catch (error) {
     return next(error);
   }
@@ -110,33 +110,33 @@ mediaRouter.get('/:mediaId/usage', requireTreeRole(['owner', 'editor', 'viewer']
 
 mediaRouter.delete('/:mediaId', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
-    const media = getMediaById(Number(req.params.mediaId));
+    const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Media not found' });
     }
     await storeDeleteObject(media.storage_key);
-    deleteMedia(media.id);
+    await deleteMedia(media.id);
     return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }
 });
 
-mediaRouter.get('/:mediaId/tags', requireTreeRole(['owner', 'editor', 'viewer']), (req, res, next) => {
+mediaRouter.get('/:mediaId/tags', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
-    return res.json({ tags: listTagsForMedia(Number(req.params.mediaId)) });
+    return res.json({ tags: await listTagsForMedia(Number(req.params.mediaId)) });
   } catch (error) {
     return next(error);
   }
 });
 
-mediaRouter.post('/:mediaId/tags', requireTreeRole(['owner', 'editor']), (req, res, next) => {
+mediaRouter.post('/:mediaId/tags', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
     const { memberId, box } = req.body || {};
     if (!isNonEmptyString(memberId, 100)) {
       return res.status(400).json({ error: 'memberId is required' });
     }
-    const tag = tagMember({
+    const tag = await tagMember({
       mediaId: Number(req.params.mediaId),
       treeId: Number(req.params.treeId),
       memberId,
@@ -149,9 +149,9 @@ mediaRouter.post('/:mediaId/tags', requireTreeRole(['owner', 'editor']), (req, r
   }
 });
 
-mediaRouter.delete('/:mediaId/tags/:tagId', requireTreeRole(['owner', 'editor']), (req, res, next) => {
+mediaRouter.delete('/:mediaId/tags/:tagId', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
-    removeTag(Number(req.params.tagId));
+    await removeTag(Number(req.params.tagId));
     return res.json({ ok: true });
   } catch (error) {
     return next(error);

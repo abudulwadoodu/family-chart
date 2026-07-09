@@ -10,22 +10,22 @@ export const adminSettingsRouter = express.Router();
 
 adminSettingsRouter.use(requireAuth, requireAdmin);
 
-adminSettingsRouter.get('/', (_req, res, next) => {
+adminSettingsRouter.get('/', async (_req, res, next) => {
   try {
-    return res.json({ schema: SETTINGS_SCHEMA, values: getAllSettings() });
+    return res.json({ schema: SETTINGS_SCHEMA, values: await getAllSettings() });
   } catch (error) {
     return next(error);
   }
 });
 
-adminSettingsRouter.put('/', requireRole('super_admin'), (req, res, next) => {
+adminSettingsRouter.put('/', requireRole('super_admin'), async (req, res, next) => {
   try {
     const updates = req.body || {};
     const invalidKey = Object.keys(updates).find((key) => !(key in SETTINGS_SCHEMA));
     if (invalidKey) return res.status(400).json({ error: `Unknown setting: ${invalidKey}` });
 
-    const values = updateSettings(updates, req.user.id);
-    recordAuditLog(req, { action: AUDIT_ACTIONS.SETTINGS_CHANGED, targetType: 'settings', targetId: null, details: updates });
+    const values = await updateSettings(updates, req.user.id);
+    await recordAuditLog(req, { action: AUDIT_ACTIONS.SETTINGS_CHANGED, targetType: 'settings', targetId: null, details: updates });
     return res.json({ ok: true, values });
   } catch (error) {
     return next(error);

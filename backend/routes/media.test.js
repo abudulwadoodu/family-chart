@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -18,7 +18,6 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -29,19 +28,8 @@ async function asUser(sub, email) {
   return authHeader(sub, email);
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM event_media');
-  db.exec('DELETE FROM event_participants');
-  db.exec('DELETE FROM events');
-  db.exec('DELETE FROM album_media');
-  db.exec('DELETE FROM albums');
-  db.exec('DELETE FROM media_tags');
-  db.exec('DELETE FROM media');
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 async function createTree(owner) {

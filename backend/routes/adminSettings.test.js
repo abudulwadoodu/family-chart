@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -18,7 +18,7 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -35,15 +35,14 @@ async function asAdmin() {
 
 async function asSupportAdmin() {
   const auth = await asUser('support-admin-sub', 'support-admin@example.com');
-  getDb().prepare("UPDATE users SET is_admin = 1, admin_role = 'support_admin' WHERE email = ?").run('support-admin@example.com');
+  await query("UPDATE users SET is_admin = true, admin_role = 'support_admin' WHERE email = $1", [
+    'support-admin@example.com',
+  ]);
   return auth;
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM settings');
-  db.exec('DELETE FROM audit_logs');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('admin authorization', () => {
@@ -92,7 +91,7 @@ describe('PUT /api/admin/settings', () => {
     const admin = await asAdmin();
     await request(app).put('/api/admin/settings').set('Authorization', admin).send({ maintenanceMode: true });
 
-    const logs = getDb().prepare("SELECT * FROM audit_logs WHERE action = 'settings.changed'").all();
+    const { rows: logs } = await query("SELECT * FROM audit_logs WHERE action = 'settings.changed'");
     expect(logs).toHaveLength(1);
   });
 });

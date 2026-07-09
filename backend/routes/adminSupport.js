@@ -42,22 +42,22 @@ function isTruthy(value) {
   return value === true || value === 'true' || value === '1' || value === 'on';
 }
 
-adminSupportRouter.get('/tickets', (req, res, next) => {
+adminSupportRouter.get('/tickets', async (req, res, next) => {
   try {
     const { search, status, priority, assignedTo, sort, order, page, pageSize } = req.query;
-    const result = listTicketsForAdmin({ search, status, priority, assignedTo, sort, order, page, pageSize });
+    const result = await listTicketsForAdmin({ search, status, priority, assignedTo, sort, order, page, pageSize });
     return res.json(result);
   } catch (error) {
     return next(error);
   }
 });
 
-adminSupportRouter.get('/tickets/:id', (req, res, next) => {
+adminSupportRouter.get('/tickets/:id', async (req, res, next) => {
   try {
-    const ticket = getTicketById(Number(req.params.id));
+    const ticket = await getTicketById(Number(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    const owner = findUserById(ticket.user_id);
-    const messages = listMessagesForTicket(ticket.id, { includeInternal: true });
+    const owner = await findUserById(ticket.user_id);
+    const messages = await listMessagesForTicket(ticket.id, { includeInternal: true });
     return res.json({ ticket, owner: owner ? { id: owner.id, email: owner.email } : null, messages });
   } catch (error) {
     return next(error);
@@ -66,7 +66,7 @@ adminSupportRouter.get('/tickets/:id', (req, res, next) => {
 
 adminSupportRouter.post('/tickets/:id/messages', parseUpload, async (req, res, next) => {
   try {
-    const ticket = getTicketById(Number(req.params.id));
+    const ticket = await getTicketById(Number(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     const isInternal = isTruthy(req.body?.isInternal);
@@ -80,7 +80,7 @@ adminSupportRouter.post('/tickets/:id/messages', parseUpload, async (req, res, n
     const attachmentError = validateAttachment(req.file);
     if (attachmentError) return res.status(400).json({ error: attachmentError });
 
-    const savedMessage = createMessage({
+    const savedMessage = await createMessage({
       ticketId: ticket.id,
       senderType: 'ADMIN',
       senderId: req.user.id,
@@ -88,11 +88,11 @@ adminSupportRouter.post('/tickets/:id/messages', parseUpload, async (req, res, n
       isInternal,
       file: req.file,
     });
-    const updatedTicket = onAdminReply(ticket, { isInternal });
+    const updatedTicket = await onAdminReply(ticket, { isInternal });
 
     if (!isInternal) {
       try {
-        const owner = findUserById(updatedTicket.user_id);
+        const owner = await findUserById(updatedTicket.user_id);
         if (owner) {
           await sendAdminReplyEmail({ ticket: updatedTicket, userEmail: owner.email, message: trimmedMessage, attachment: req.file });
         }
@@ -109,7 +109,7 @@ adminSupportRouter.post('/tickets/:id/messages', parseUpload, async (req, res, n
 
 adminSupportRouter.patch('/tickets/:id', async (req, res, next) => {
   try {
-    let ticket = getTicketById(Number(req.params.id));
+    let ticket = await getTicketById(Number(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     const { status, priority, category, assignedTo } = req.body || {};
@@ -129,20 +129,20 @@ adminSupportRouter.patch('/tickets/:id', async (req, res, next) => {
       if (assignedTo === null) {
         normalizedAssignedTo = null;
       } else {
-        const assignee = findUserById(Number(assignedTo));
+        const assignee = await findUserById(Number(assignedTo));
         if (!assignee?.is_admin) return res.status(400).json({ error: 'Tickets can only be assigned to admins' });
         normalizedAssignedTo = assignee.id;
       }
     }
 
     if (priority !== undefined || category !== undefined || normalizedAssignedTo !== undefined) {
-      ticket = updateTicketFields(ticket.id, { priority, category, assignedTo: normalizedAssignedTo });
+      ticket = await updateTicketFields(ticket.id, { priority, category, assignedTo: normalizedAssignedTo });
     }
 
     if (status !== undefined && status !== ticket.status) {
-      ticket = updateTicketStatus(ticket.id, status);
+      ticket = await updateTicketStatus(ticket.id, status);
       try {
-        const owner = findUserById(ticket.user_id);
+        const owner = await findUserById(ticket.user_id);
         if (owner && status === 'RESOLVED') await sendTicketResolvedEmail({ ticket, userEmail: owner.email });
         if (owner && status === 'CLOSED') await sendTicketClosedEmail({ ticket, userEmail: owner.email });
       } catch (emailError) {
@@ -150,7 +150,7 @@ adminSupportRouter.patch('/tickets/:id', async (req, res, next) => {
       }
     }
 
-    recordAuditLog(req, {
+    await recordAuditLog(req, {
       action: AUDIT_ACTIONS.TICKET_UPDATED,
       targetType: 'ticket',
       targetId: ticket.id,
@@ -163,9 +163,9 @@ adminSupportRouter.patch('/tickets/:id', async (req, res, next) => {
   }
 });
 
-adminSupportRouter.get('/tickets/:id/messages/:messageId/attachment', (req, res, next) => {
+adminSupportRouter.get('/tickets/:id/messages/:messageId/attachment', async (req, res, next) => {
   try {
-    const attachment = getMessageAttachment(Number(req.params.messageId));
+    const attachment = await getMessageAttachment(Number(req.params.messageId));
     if (!attachment || attachment.ticket_id !== Number(req.params.id) || !attachment.attachment_data) {
       return res.status(404).json({ error: 'Attachment not found' });
     }

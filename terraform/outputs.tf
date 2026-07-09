@@ -30,3 +30,13 @@ output "ec2_public_ip" {
 output "ec2_iam_role_arn" {
   value = aws_iam_role.ec2_app.arn
 }
+
+output "postgres_endpoint" {
+  description = "RDS Postgres endpoint (host:port), for reference only - the app reads DATABASE_URL from SSM at deploy time, not this output directly"
+  value       = aws_db_instance.postgres.endpoint
+}
+
+output "postgres_ssm_database_url_param" {
+  description = "SSM parameter name holding the full DATABASE_URL connection string (SecureString)"
+  value       = aws_ssm_parameter.postgres_database_url.name
+}

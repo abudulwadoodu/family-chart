@@ -11,9 +11,9 @@ export const AUDIT_ACTIONS = {
   SETTINGS_CHANGED: 'settings.changed',
 };
 
-export function recordAuditLog(req, { action, targetType, targetId, details }) {
+export async function recordAuditLog(req, { action, targetType, targetId, details }) {
   try {
-    createAuditLog({ adminId: req.user.id, action, targetType, targetId, details });
+    await createAuditLog({ adminId: req.user.id, action, targetType, targetId, details });
   } catch (error) {
     // Auditing must never block the action it's recording.
     console.error('[audit-log] failed to record entry', error);

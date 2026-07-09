@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { query, withTransaction } from '../db/index.js';
 
 export const TICKET_STATUSES = ['NEW', 'IN_PROGRESS', 'WAITING_FOR_USER', 'RESOLVED', 'CLOSED'];
 export const TICKET_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -34,38 +34,38 @@ function ticketNumberFor(id) {
   return `TCK-${String(id).padStart(6, '0')}`;
 }
 
-export function createTicket({ userId, subject, category, priority = 'normal' }) {
-  const db = getDb();
-  const tx = db.transaction(() => {
-    const insertResult = db
-      .prepare(
-        `INSERT INTO support_tickets (ticket_number, user_id, subject, category, priority, status)
-         VALUES ('', ?, ?, ?, ?, 'NEW')`
-      )
-      .run(userId, subject, category, priority);
-    const ticketId = insertResult.lastInsertRowid;
-    db.prepare('UPDATE support_tickets SET ticket_number = ? WHERE id = ?').run(ticketNumberFor(ticketId), ticketId);
-    return ticketId;
+export async function createTicket({ userId, subject, category, priority = 'normal' }) {
+  const ticketId = await withTransaction(async (client) => {
+    const insertResult = await client.query(
+      `INSERT INTO support_tickets (ticket_number, user_id, subject, category, priority, status)
+       VALUES ('', $1, $2, $3, $4, 'NEW') RETURNING id`,
+      [userId, subject, category, priority]
+    );
+    const id = insertResult.rows[0].id;
+    await client.query('UPDATE support_tickets SET ticket_number = $1 WHERE id = $2', [ticketNumberFor(id), id]);
+    return id;
   });
-  const ticketId = tx();
   return getTicketById(ticketId);
 }
 
-export function getTicketById(ticketId) {
-  const db = getDb();
-  return db.prepare(`SELECT ${TICKET_COLUMNS} FROM support_tickets t WHERE t.id = ?`).get(ticketId);
+export async function getTicketById(ticketId) {
+  const { rows } = await query(`SELECT ${TICKET_COLUMNS} FROM support_tickets t WHERE t.id = $1`, [ticketId]);
+  return rows[0];
 }
 
-export function getTicketForUser(ticketId, userId) {
-  const db = getDb();
-  return db.prepare(`SELECT ${TICKET_COLUMNS} FROM support_tickets t WHERE t.id = ? AND t.user_id = ?`).get(ticketId, userId);
+export async function getTicketForUser(ticketId, userId) {
+  const { rows } = await query(`SELECT ${TICKET_COLUMNS} FROM support_tickets t WHERE t.id = $1 AND t.user_id = $2`, [
+    ticketId,
+    userId,
+  ]);
+  return rows[0];
 }
 
-function buildFilters({ status, priority, assignedTo, search, userId }, params) {
+function buildFilters({ status, priority, assignedTo, userId }, params) {
   const clauses = [];
   if (userId) {
-    clauses.push('t.user_id = ?');
     params.push(userId);
+    clauses.push(`t.user_id = $${params.length}`);
   }
   // 'open' is a virtual status (everything except CLOSED) matching exactly
   // how the admin dashboard's openTickets stat is computed, so the card's
@@ -73,105 +73,112 @@ function buildFilters({ status, priority, assignedTo, search, userId }, params) 
   if (status === 'open') {
     clauses.push("t.status != 'CLOSED'");
   } else if (status && TICKET_STATUSES.includes(status)) {
-    clauses.push('t.status = ?');
     params.push(status);
+    clauses.push(`t.status = $${params.length}`);
   }
   if (priority && TICKET_PRIORITIES.includes(priority)) {
-    clauses.push('t.priority = ?');
     params.push(priority);
+    clauses.push(`t.priority = $${params.length}`);
   }
   if (assignedTo === 'unassigned') {
     clauses.push('t.assigned_to IS NULL');
   } else if (assignedTo) {
-    clauses.push('t.assigned_to = ?');
     params.push(Number(assignedTo));
+    clauses.push(`t.assigned_to = $${params.length}`);
   }
   return clauses;
 }
 
-export function listTicketsForUser({ userId, search, status, priority, sort, order, page, pageSize }) {
-  const db = getDb();
+export async function listTicketsForUser({ userId, search, status, priority, sort, order, page, pageSize }) {
   const params = [];
-  const clauses = buildFilters({ status, priority, search, userId }, params);
+  const clauses = buildFilters({ status, priority, userId }, params);
 
   if (search) {
-    clauses.push('(t.ticket_number LIKE ? OR t.subject LIKE ? OR t.category LIKE ?)');
     const like = `%${search}%`;
     params.push(like, like, like);
+    clauses.push(`(t.ticket_number ILIKE $${params.length - 2} OR t.subject ILIKE $${params.length - 1} OR t.category ILIKE $${params.length})`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM support_tickets t ${where}`).get(...params).c;
+  const totalResult = await query(`SELECT COUNT(*) AS c FROM support_tickets t ${where}`, params);
+  const total = Number(totalResult.rows[0].c);
 
   const { limit, offset, page: safePage, pageSize: safePageSize } = resolvePagination(page, pageSize);
-  const tickets = db
-    .prepare(`SELECT ${TICKET_COLUMNS} FROM support_tickets t ${where} ORDER BY ${resolveSort(sort, order)} LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset);
+  const listParams = [...params, limit, offset];
+  const { rows: tickets } = await query(
+    `SELECT ${TICKET_COLUMNS} FROM support_tickets t ${where} ORDER BY ${resolveSort(sort, order)} LIMIT $${
+      listParams.length - 1
+    } OFFSET $${listParams.length}`,
+    listParams
+  );
 
   return { tickets, total, page: safePage, pageSize: safePageSize };
 }
 
-export function listTicketsForAdmin({ search, status, priority, assignedTo, sort, order, page, pageSize }) {
-  const db = getDb();
+export async function listTicketsForAdmin({ search, status, priority, assignedTo, sort, order, page, pageSize }) {
   const params = [];
   const clauses = buildFilters({ status, priority, assignedTo }, params);
 
   if (search) {
-    clauses.push('(t.ticket_number LIKE ? OR t.subject LIKE ? OR t.category LIKE ? OR owner.email LIKE ?)');
     const like = `%${search}%`;
     params.push(like, like, like, like);
+    clauses.push(
+      `(t.ticket_number ILIKE $${params.length - 3} OR t.subject ILIKE $${params.length - 2} OR t.category ILIKE $${
+        params.length - 1
+      } OR owner.email ILIKE $${params.length})`
+    );
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const joins = 'LEFT JOIN users owner ON owner.id = t.user_id LEFT JOIN users admin ON admin.id = t.assigned_to';
 
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM support_tickets t ${joins} ${where}`).get(...params).c;
+  const totalResult = await query(`SELECT COUNT(*) AS c FROM support_tickets t ${joins} ${where}`, params);
+  const total = Number(totalResult.rows[0].c);
 
   const { limit, offset, page: safePage, pageSize: safePageSize } = resolvePagination(page, pageSize);
-  const tickets = db
-    .prepare(
-      `SELECT ${TICKET_COLUMNS}, owner.email AS user_email, admin.email AS assigned_admin_email
-       FROM support_tickets t ${joins} ${where}
-       ORDER BY ${resolveSort(sort, order)} LIMIT ? OFFSET ?`
-    )
-    .all(...params, limit, offset);
+  const listParams = [...params, limit, offset];
+  const { rows: tickets } = await query(
+    `SELECT ${TICKET_COLUMNS}, owner.email AS user_email, admin.email AS assigned_admin_email
+     FROM support_tickets t ${joins} ${where}
+     ORDER BY ${resolveSort(sort, order)} LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+    listParams
+  );
 
   return { tickets, total, page: safePage, pageSize: safePageSize };
 }
 
-export function updateTicketStatus(ticketId, status) {
-  const db = getDb();
-  const closedAt = status === 'CLOSED' ? "datetime('now')" : 'NULL';
-  db.prepare(
-    `UPDATE support_tickets SET status = ?, closed_at = ${closedAt}, updated_at = datetime('now') WHERE id = ?`
-  ).run(status, ticketId);
+export async function updateTicketStatus(ticketId, status) {
+  const closedAtExpr = status === 'CLOSED' ? 'NOW()' : 'NULL';
+  await query(`UPDATE support_tickets SET status = $1, closed_at = ${closedAtExpr}, updated_at = NOW() WHERE id = $2`, [
+    status,
+    ticketId,
+  ]);
   return getTicketById(ticketId);
 }
 
-export function updateTicketFields(ticketId, { priority, category, assignedTo } = {}) {
-  const db = getDb();
+export async function updateTicketFields(ticketId, { priority, category, assignedTo } = {}) {
   const sets = [];
   const params = [];
   if (priority !== undefined) {
-    sets.push('priority = ?');
     params.push(priority);
+    sets.push(`priority = $${params.length}`);
   }
   if (category !== undefined) {
-    sets.push('category = ?');
     params.push(category);
+    sets.push(`category = $${params.length}`);
   }
   if (assignedTo !== undefined) {
-    sets.push('assigned_to = ?');
     params.push(assignedTo);
+    sets.push(`assigned_to = $${params.length}`);
   }
   if (!sets.length) return getTicketById(ticketId);
 
-  sets.push("updated_at = datetime('now')");
-  db.prepare(`UPDATE support_tickets SET ${sets.join(', ')} WHERE id = ?`).run(...params, ticketId);
+  sets.push('updated_at = NOW()');
+  params.push(ticketId);
+  await query(`UPDATE support_tickets SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
   return getTicketById(ticketId);
 }
 
-export function touchUpdatedAt(ticketId) {
-  const db = getDb();
-  db.prepare("UPDATE support_tickets SET updated_at = datetime('now') WHERE id = ?").run(ticketId);
+export async function touchUpdatedAt(ticketId) {
+  await query('UPDATE support_tickets SET updated_at = NOW() WHERE id = $1', [ticketId]);
 }

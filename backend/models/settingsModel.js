@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { query, withTransaction } from '../db/index.js';
 
 // Single source of truth for what settings exist, their type, and default value.
 // The admin Settings page renders one form field per entry here - adding a new
@@ -29,9 +29,8 @@ function coerce(key, rawValue) {
   return rawValue;
 }
 
-export function getAllSettings() {
-  const db = getDb();
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+export async function getAllSettings() {
+  const { rows } = await query('SELECT key, value FROM settings');
   const stored = Object.fromEntries(rows.map((row) => [row.key, row.value]));
 
   return Object.fromEntries(
@@ -42,17 +41,16 @@ export function getAllSettings() {
   );
 }
 
-export function updateSettings(updates, adminId) {
-  const db = getDb();
-  const tx = db.transaction(() => {
+export async function updateSettings(updates, adminId) {
+  await withTransaction(async (client) => {
     for (const [key, value] of Object.entries(updates)) {
       if (!(key in SETTINGS_SCHEMA)) continue;
-      db.prepare(
-        `INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, datetime('now'), ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
-      ).run(key, String(value), adminId);
+      await client.query(
+        `INSERT INTO settings (key, value, updated_at, updated_by) VALUES ($1, $2, NOW(), $3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+        [key, String(value), adminId]
+      );
     }
   });
-  tx();
   return getAllSettings();
 }

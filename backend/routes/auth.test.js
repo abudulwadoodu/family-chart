@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -18,15 +18,14 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 
 function tokenFor(sub, email) {
   return `${sub}::${email}`;
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('GET /api/auth/me', () => {
@@ -49,9 +48,8 @@ describe('GET /api/auth/me', () => {
     expect(res.body.user.email).toBe('first@example.com');
     expect(res.body.user.last_login_at).toBeTruthy();
 
-    const db = getDb();
-    const userCount = db.prepare('SELECT COUNT(*) AS count FROM users WHERE cognito_sub = ?').get('sub-1');
-    expect(userCount.count).toBe(1);
+    const { rows } = await query('SELECT COUNT(*) AS count FROM users WHERE cognito_sub = $1', ['sub-1']);
+    expect(Number(rows[0].count)).toBe(1);
   });
 
   it('reuses the existing local user on subsequent requests with the same sub', async () => {
@@ -61,8 +59,7 @@ describe('GET /api/auth/me', () => {
       .set('Authorization', `Bearer ${tokenFor('sub-2', 'second@example.com')}`);
 
     expect(second.status).toBe(200);
-    const db = getDb();
-    const userCount = db.prepare('SELECT COUNT(*) AS count FROM users WHERE cognito_sub = ?').get('sub-2');
-    expect(userCount.count).toBe(1);
+    const { rows } = await query('SELECT COUNT(*) AS count FROM users WHERE cognito_sub = $1', ['sub-2']);
+    expect(Number(rows[0].count)).toBe(1);
   });
 });

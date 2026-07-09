@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { query } from '../db/index.js';
 import { touchUpdatedAt } from './ticketModel.js';
 
 const MESSAGE_LIST_COLUMNS = `
@@ -6,49 +6,47 @@ const MESSAGE_LIST_COLUMNS = `
   attachment_filename, attachment_mimetype, attachment_size, created_at
 `;
 
-export function createMessage({ ticketId, senderType, senderId, message, isInternal = false, file }) {
-  const db = getDb();
-  const result = db
-    .prepare(
-      `INSERT INTO support_messages
-         (ticket_id, sender_type, sender_id, message, is_internal,
-          attachment_filename, attachment_mimetype, attachment_size, attachment_data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
+export async function createMessage({ ticketId, senderType, senderId, message, isInternal = false, file }) {
+  const { rows } = await query(
+    `INSERT INTO support_messages
+       (ticket_id, sender_type, sender_id, message, is_internal,
+        attachment_filename, attachment_mimetype, attachment_size, attachment_data)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [
       ticketId,
       senderType,
       senderId,
       message,
-      isInternal ? 1 : 0,
+      Boolean(isInternal),
       file?.originalname || null,
       file?.mimetype || null,
       file?.size || null,
-      file?.buffer || null
-    );
-  touchUpdatedAt(ticketId);
-  return getMessageById(result.lastInsertRowid);
+      file?.buffer || null,
+    ]
+  );
+  await touchUpdatedAt(ticketId);
+  return getMessageById(rows[0].id);
 }
 
-export function getMessageById(messageId) {
-  const db = getDb();
-  return db.prepare(`SELECT ${MESSAGE_LIST_COLUMNS} FROM support_messages WHERE id = ?`).get(messageId);
+export async function getMessageById(messageId) {
+  const { rows } = await query(`SELECT ${MESSAGE_LIST_COLUMNS} FROM support_messages WHERE id = $1`, [messageId]);
+  return rows[0];
 }
 
-export function getMessageAttachment(messageId) {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT id, ticket_id, is_internal, attachment_filename, attachment_mimetype, attachment_data
-       FROM support_messages WHERE id = ?`
-    )
-    .get(messageId);
+export async function getMessageAttachment(messageId) {
+  const { rows } = await query(
+    `SELECT id, ticket_id, is_internal, attachment_filename, attachment_mimetype, attachment_data
+     FROM support_messages WHERE id = $1`,
+    [messageId]
+  );
+  return rows[0];
 }
 
-export function listMessagesForTicket(ticketId, { includeInternal = false } = {}) {
-  const db = getDb();
-  const where = includeInternal ? 'ticket_id = ?' : 'ticket_id = ? AND is_internal = 0';
-  return db
-    .prepare(`SELECT ${MESSAGE_LIST_COLUMNS} FROM support_messages WHERE ${where} ORDER BY created_at ASC, id ASC`)
-    .all(ticketId);
+export async function listMessagesForTicket(ticketId, { includeInternal = false } = {}) {
+  const where = includeInternal ? 'ticket_id = $1' : 'ticket_id = $1 AND is_internal = false';
+  const { rows } = await query(
+    `SELECT ${MESSAGE_LIST_COLUMNS} FROM support_messages WHERE ${where} ORDER BY created_at ASC, id ASC`,
+    [ticketId]
+  );
+  return rows;
 }

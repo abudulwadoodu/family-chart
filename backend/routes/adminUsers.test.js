@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
-import { setBaseTestEnv } from '../test/testEnv.js';
+import { setBaseTestEnv, resetDb } from '../test/testEnv.js';
 
 setBaseTestEnv();
 
@@ -18,7 +18,7 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
-const { getDb } = await import('../db/index.js');
+const { query } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -34,29 +34,27 @@ async function asAdmin() {
   return asUser('admin-sub', 'admin@example.com');
 }
 
-function userIdFor(email) {
-  return getDb().prepare('SELECT id FROM users WHERE email = ?').get(email).id;
+async function userIdFor(email) {
+  const { rows } = await query('SELECT id FROM users WHERE email = $1', [email]);
+  return rows[0].id;
 }
 
 async function asSupportAdmin() {
   const auth = await asUser('support-admin-sub', 'support-admin@example.com');
-  getDb().prepare("UPDATE users SET is_admin = 1, admin_role = 'support_admin' WHERE email = ?").run('support-admin@example.com');
+  await query("UPDATE users SET is_admin = true, admin_role = 'support_admin' WHERE email = $1", [
+    'support-admin@example.com',
+  ]);
   return auth;
 }
 
-beforeEach(() => {
-  const db = getDb();
-  db.exec('DELETE FROM audit_logs');
-  db.exec('DELETE FROM tree_permissions');
-  db.exec('DELETE FROM family_data');
-  db.exec('DELETE FROM trees');
-  db.exec('DELETE FROM users');
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('admin authorization', () => {
   it('rejects non-admin users on every admin/users endpoint', async () => {
     const user = await asUser('user-a', 'a@example.com');
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     expect((await request(app).get('/api/admin/users').set('Authorization', user)).status).toBe(403);
     expect((await request(app).get(`/api/admin/users/${targetId}`).set('Authorization', user)).status).toBe(403);
@@ -70,7 +68,7 @@ describe('admin authorization', () => {
   it('rejects support_admin on super_admin-only routes', async () => {
     const supportAdmin = await asSupportAdmin();
     const user = await asUser('user-a', 'a@example.com');
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     const res = await request(app)
       .patch(`/api/admin/users/${targetId}/role`)
@@ -85,7 +83,7 @@ describe('admin authorization', () => {
   it('allows support_admin to suspend/activate but not delete', async () => {
     const supportAdmin = await asSupportAdmin();
     await asUser('user-a', 'a@example.com');
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     const res = await request(app)
       .patch(`/api/admin/users/${targetId}/status`)
@@ -128,7 +126,7 @@ describe('GET /api/admin/users/:id', () => {
     const user = await asUser('user-a', 'a@example.com');
     await request(app).post('/api/trees').set('Authorization', user).send({ name: 'My Tree' });
     const admin = await asAdmin();
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     const res = await request(app).get(`/api/admin/users/${targetId}`).set('Authorization', admin);
     expect(res.status).toBe(200);
@@ -141,7 +139,7 @@ describe('PATCH /api/admin/users/:id/status', () => {
   it('suspends and reactivates a user', async () => {
     await asUser('user-a', 'a@example.com');
     const admin = await asAdmin();
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     const suspend = await request(app)
       .patch(`/api/admin/users/${targetId}/status`)
@@ -161,7 +159,7 @@ describe('PATCH /api/admin/users/:id/status', () => {
   it('blocks a suspended user from authenticating again', async () => {
     await asUser('user-a', 'a@example.com');
     const admin = await asAdmin();
-    const targetId = userIdFor('a@example.com');
+    const targetId = await userIdFor('a@example.com');
 
     await request(app).patch(`/api/admin/users/${targetId}/status`).set('Authorization', admin).send({ status: 'suspended' });
 
@@ -174,12 +172,13 @@ describe('DELETE /api/admin/users/:id', () => {
   it('deletes a user and refuses to delete yourself', async () => {
     await asUser('user-a', 'a@example.com');
     const admin = await asAdmin();
-    const targetId = userIdFor('a@example.com');
-    const adminId = userIdFor('admin@example.com');
+    const targetId = await userIdFor('a@example.com');
+    const adminId = await userIdFor('admin@example.com');
 
     const res = await request(app).delete(`/api/admin/users/${targetId}`).set('Authorization', admin);
     expect(res.status).toBe(200);
-    expect(getDb().prepare('SELECT id FROM users WHERE id = ?').get(targetId)).toBeUndefined();
+    const { rows } = await query('SELECT id FROM users WHERE id = $1', [targetId]);
+    expect(rows[0]).toBeUndefined();
 
     const selfDelete = await request(app).delete(`/api/admin/users/${adminId}`).set('Authorization', admin);
     expect(selfDelete.status).toBe(400);

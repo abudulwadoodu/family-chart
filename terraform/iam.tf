@@ -21,8 +21,8 @@ resource "aws_iam_role" "ec2_app" {
   }
 }
 
-# Least-privilege: only allow reading the specific Cognito config parameters
-# this app needs, nothing else.
+# Least-privilege: only allow reading the specific Cognito and Postgres config
+# parameters this app needs, nothing else.
 data "aws_iam_policy_document" "ec2_ssm_read" {
   statement {
     actions = [
@@ -32,7 +32,16 @@ data "aws_iam_policy_document" "ec2_ssm_read" {
 
     resources = [
       "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/cognito/*",
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/postgres/*",
     ]
+  }
+
+  # SecureString parameters (postgres/password, postgres/database_url) are
+  # encrypted with the default aws/ssm KMS key; decrypt access is required
+  # in addition to ssm:GetParameter to actually read their value.
+  statement {
+    actions   = ["kms:Decrypt"]
+    resources = ["arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alias/aws/ssm"]
   }
 }
 
