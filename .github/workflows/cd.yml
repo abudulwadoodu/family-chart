@@ -87,10 +87,20 @@ jobs:
 
       - name: Health check
         run: |
+          # pm2 restart fully replaces the process (unlike reload's overlap),
+          # and initDb() also runs migrations on every boot - a fixed 2s sleep
+          # isn't always enough for the new process to finish starting and
+          # bind its port before this checks, causing an intermittent false
+          # failure (curl 404/connection-refused) even though the app comes
+          # up fine a moment later. Poll for up to ~20s instead of one shot.
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
-            sleep 2
             curl -fsS http://localhost/ > /dev/null
-            status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/health)
-            echo "backend /api/health status: $status"
-            if [ "$status" -ge 400 ]; then exit 1; fi
+            for i in $(seq 1 10); do
+              status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/health)
+              echo "backend /api/health status: $status (attempt $i)"
+              if [ "$status" = "200" ]; then exit 0; fi
+              sleep 2
+            done
+            echo "backend /api/health never returned 200"
+            exit 1
           '
