@@ -30,26 +30,38 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  egress {
-    description = "HTTPS out (Cognito JWKS, package mirrors, etc.)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "HTTP out (Ubuntu apt mirrors, which are plain HTTP)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # Egress is declared entirely as standalone aws_security_group_rule
+  # resources below (none inlined here). egress on aws_security_group is
+  # Optional+Computed: a single inline block makes Terraform authoritative
+  # over the *whole* list, which would fight with (and revoke) the
+  # Postgres egress rule in rds.tf that has to be a standalone resource
+  # anyway (it references aws_security_group.postgres.id, and inlining it
+  # here would create a dependency cycle between this SG and that one).
 
   tags = {
     Name    = "launch-wizard-2"
     Project = var.project_name
   }
+}
+
+resource "aws_security_group_rule" "app_egress_https" {
+  type              = "egress"
+  security_group_id = aws_security_group.app.id
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  description       = "HTTPS out (Cognito JWKS, package mirrors, etc.)"
+}
+
+resource "aws_security_group_rule" "app_egress_http" {
+  type              = "egress"
+  security_group_id = aws_security_group.app.id
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  description       = "HTTP out (Ubuntu apt mirrors, which are plain HTTP)"
 }
 
 # The existing family-tree EC2 instance, imported into Terraform state.
@@ -71,7 +83,7 @@ resource "aws_instance" "app" {
 
   root_block_device {
     volume_type           = "gp3"
-    volume_size           = 8
+    volume_size           = 15 # matches the live volume (resized outside Terraform at some point); was 8, would have shrunk it on apply
     iops                  = 3000
     throughput            = 125
     delete_on_termination = true

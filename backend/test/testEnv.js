@@ -27,7 +27,7 @@ export async function resetDb() {
   const { query } = await import('../db/index.js');
   await query(`
     TRUNCATE TABLE
-      users, trees, tree_permissions, family_data,
+      users, trees, tree_permissions, tree_join_requests, family_data,
       contact_submissions, support_tickets, support_messages,
       settings, audit_logs, media, media_tags, albums, album_media,
       events, event_participants, event_media

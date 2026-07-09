@@ -10,6 +10,39 @@ import { parseCsvText, buildRawRows, csvRowsToDomain } from '../utils/csv/index.
 import { parseJsonText, jsonExportToDomain, validateJsonPeople, domainToJsonExport } from '../utils/json/index.js';
 import { findUserByEmail } from '../models/userModel.js';
 import { parseGedcom, validateGedcom, gedcomToDomain, writeGedcom } from '../utils/gedcom/index.js';
+import {
+  JoinRequestError,
+  searchDiscoverableTrees,
+  createJoinRequest,
+  createRoleChangeRequest,
+  getPendingRequestsForOwner,
+  getSentRequestsForUser,
+  decideJoinRequest,
+} from '../models/joinRequestModel.js';
+import {
+  sendJoinRequestCreatedEmail,
+  sendJoinRequestDecidedEmail,
+  sendRoleChangeRequestCreatedEmail,
+} from '../utils/joinRequestEmail.js';
+
+const JOIN_REQUEST_ERROR_RESPONSES = {
+  ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
+  ALREADY_PENDING: { status: 409, message: 'You already have a pending request for this tree' },
+  NOT_FOUND: { status: 404, message: 'Join request not found' },
+  FORBIDDEN: { status: 403, message: 'You do not own this tree' },
+  ALREADY_DECIDED: { status: 409, message: 'This request has already been decided' },
+  NOT_A_MEMBER: { status: 403, message: 'You must be a member of this tree to request a different role' },
+  OWNER_CANNOT_REQUEST: { status: 400, message: 'Owners cannot request a role change on their own tree' },
+  SAME_ROLE: { status: 400, message: 'You already have this role' },
+};
+
+function handleJoinRequestError(error, res, next) {
+  if (error instanceof JoinRequestError) {
+    const mapped = JOIN_REQUEST_ERROR_RESPONSES[error.code];
+    if (mapped) return res.status(mapped.status).json({ error: mapped.message });
+  }
+  return next(error);
+}
 
 const ASSIGNABLE_ROLES = ['editor', 'viewer'];
 
@@ -153,6 +186,79 @@ treesRouter.post('/json/preview', upload.single('file'), (req, res, next) => {
   } catch (error) {
     if (error instanceof Error) return res.status(400).json({ error: error.message });
     return next(error);
+  }
+});
+
+// Discoverable-tree search for the "search before you create" flow. Must be
+// registered before GET /:id so Express doesn't treat "search" as a tree id.
+treesRouter.get('/search', async (req, res, next) => {
+  try {
+    const searchTerm = String(req.query.query || '').trim();
+    if (!isNonEmptyString(searchTerm, 120)) {
+      return res.status(400).json({ error: 'A search query is required' });
+    }
+
+    const trees = await searchDiscoverableTrees(searchTerm, req.user.id);
+    return res.json({ trees });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Incoming pending join requests across every tree this user owns. Must also
+// be registered before GET /:id for the same reason as /search above.
+treesRouter.get('/manage-requests', async (req, res, next) => {
+  try {
+    const requests = await getPendingRequestsForOwner(req.user.id);
+    return res.json({ requests });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Every request this user has sent (any status) - lets a requester see
+// whether their request is still pending, was approved, or was rejected,
+// since rejection otherwise leaves no trace in the search results (a
+// rejected tree just goes back to showing "Request to Join"). Must also be
+// registered before GET /:id for the same reason as /search above.
+treesRouter.get('/my-requests', async (req, res, next) => {
+  try {
+    const requests = await getSentRequestsForUser(req.user.id);
+    return res.json({ requests });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Owner decision on a join request (approve/reject). Scoped at the top
+// level (not under /:id) since the request id alone is enough to resolve
+// the tree and ownership check happens inside decideJoinRequest.
+treesRouter.patch('/requests/:id', async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    const { status } = req.body || {};
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be either approved or rejected' });
+    }
+
+    const updated = await decideJoinRequest(requestId, req.user.id, status);
+
+    try {
+      await sendJoinRequestDecidedEmail({
+        senderEmail: updated.sender_email,
+        ownerEmail: req.user.email,
+        treeName: updated.tree_name,
+        roleRequested: updated.role_requested,
+        decision: status,
+        requestType: updated.request_type,
+      });
+    } catch (emailError) {
+      console.error('Failed to send join request decision email:', emailError);
+    }
+
+    return res.json({ ok: true, request: updated });
+  } catch (error) {
+    return handleJoinRequestError(error, res, next);
   }
 });
 
@@ -356,6 +462,100 @@ treesRouter.get('/:id/export-json', requireTreeRole(['owner', 'editor', 'viewer'
     return res.json({ ok: true, envelope });
   } catch (error) {
     return next(error);
+  }
+});
+
+// Any authenticated user may request to join a discoverable tree - unlike
+// the tree-scoped routes above, this deliberately doesn't use
+// requireTreeRole, since the whole point is that the requester isn't a
+// member yet.
+treesRouter.post('/:id/request-join', async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { role, message } = req.body || {};
+
+    if (!ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Role must be either editor or viewer' });
+    }
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const { rows: treeRows } = await query(
+      `SELECT t.id, t.name, t.is_discoverable, u.email AS owner_email
+       FROM trees t JOIN users u ON u.id = t.owner_id
+       WHERE t.id = $1`,
+      [treeId]
+    );
+    const tree = treeRows[0];
+    if (!tree || !tree.is_discoverable) return res.status(404).json({ error: 'Tree not found' });
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const joinRequest = await createJoinRequest(treeId, req.user.id, role, trimmedMessage || null);
+
+    try {
+      await sendJoinRequestCreatedEmail({
+        ownerEmail: tree.owner_email,
+        senderEmail: req.user.email,
+        treeName: tree.name,
+        roleRequested: role,
+        message: trimmedMessage,
+      });
+    } catch (emailError) {
+      console.error('Failed to send join request email:', emailError);
+    }
+
+    return res.status(201).json({ ok: true, request: joinRequest });
+  } catch (error) {
+    return handleJoinRequestError(error, res, next);
+  }
+});
+
+// An existing member asking the owner to change their role (e.g. viewer ->
+// editor). Uses requireTreeRole(['viewer', 'editor']) rather than the
+// membership-lookup-then-404 shape of /request-join above, since here the
+// caller must already be a non-owner member - that's exactly what the
+// middleware already enforces (403 for non-members and owners alike).
+treesRouter.post('/:id/request-role-change', requireTreeRole(['viewer', 'editor']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { role, message } = req.body || {};
+
+    if (!ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Role must be either editor or viewer' });
+    }
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const { rows: treeRows } = await query(
+      `SELECT t.id, t.name, u.email AS owner_email
+       FROM trees t JOIN users u ON u.id = t.owner_id
+       WHERE t.id = $1`,
+      [treeId]
+    );
+    const tree = treeRows[0];
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const roleChangeRequest = await createRoleChangeRequest(treeId, req.user.id, role, trimmedMessage || null);
+
+    try {
+      await sendRoleChangeRequestCreatedEmail({
+        ownerEmail: tree.owner_email,
+        senderEmail: req.user.email,
+        treeName: tree.name,
+        currentRole: req.treePermission.role,
+        roleRequested: role,
+        message: trimmedMessage,
+      });
+    } catch (emailError) {
+      console.error('Failed to send role change request email:', emailError);
+    }
+
+    return res.status(201).json({ ok: true, request: roleChangeRequest });
+  } catch (error) {
+    return handleJoinRequestError(error, res, next);
   }
 });
 

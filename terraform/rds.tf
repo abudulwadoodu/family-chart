@@ -41,18 +41,17 @@ resource "aws_db_subnet_group" "postgres" {
 
 # Dedicated security group for the RDS instance: only allows Postgres (5432)
 # ingress from the app EC2 instance's security group, nothing else.
+#
+# The ingress-from-app and the app's egress-to-postgres rules are declared as
+# standalone aws_security_group_rule resources (not inline ingress/egress
+# blocks on either aws_security_group) because each one's security_groups
+# reference points at the *other* SG's id - inlining both would make
+# aws_security_group.app and aws_security_group.postgres depend on each
+# other's id, which Terraform can't resolve (a dependency cycle).
 resource "aws_security_group" "postgres" {
   name        = "${var.project_name}-${var.environment}-postgres"
   description = "Allow Postgres access from the app EC2 instance only"
   vpc_id      = var.vpc_id
-
-  ingress {
-    description     = "Postgres from app EC2 instance"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
-  }
 
   egress {
     description = "Allow all outbound"
@@ -66,6 +65,26 @@ resource "aws_security_group" "postgres" {
     Name    = "${var.project_name}-${var.environment}-postgres-sg"
     Project = var.project_name
   }
+}
+
+resource "aws_security_group_rule" "postgres_ingress_from_app" {
+  type                     = "ingress"
+  security_group_id        = aws_security_group.postgres.id
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+  description              = "Postgres from app EC2 instance"
+}
+
+resource "aws_security_group_rule" "app_egress_to_postgres" {
+  type                     = "egress"
+  security_group_id        = aws_security_group.app.id
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.postgres.id
+  description              = "Postgres out to the RDS instance"
 }
 
 resource "random_password" "postgres_master" {

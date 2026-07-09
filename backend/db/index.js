@@ -5,13 +5,30 @@ const { Pool } = pg;
 
 let pool;
 
+// RDS's default parameter group sets rds.force_ssl=1, so a plain (non-SSL)
+// connection is rejected by Postgres itself at the pg_hba.conf layer before
+// auth even runs. Local Docker Postgres has no such requirement and has no
+// TLS listener at all, so SSL must be opt-in per environment rather than
+// always-on. `rejectUnauthorized: false` is used (rather than a CA bundle)
+// because RDS's certificate is signed by Amazon's regional CA, which isn't
+// in Node's default trust store; this still gets encryption in transit, just
+// without verifying the server certificate chain.
+function shouldUseSsl(connectionString) {
+  if (process.env.DATABASE_SSL === 'false') return false;
+  if (process.env.DATABASE_SSL === 'true') return true;
+  return !/localhost|127\.0\.0\.1/.test(connectionString);
+}
+
 export function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error('DATABASE_URL environment variable is not set.');
     }
-    pool = new Pool({ connectionString });
+    pool = new Pool({
+      connectionString,
+      ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : false,
+    });
   }
   return pool;
 }
