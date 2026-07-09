@@ -133,8 +133,12 @@
   --bg-surface-hover-strong: #e5e7eb;
   --bg-surface-hover-strongest: #d9dce1;
   --bg-inset: #f1f3f5;
-  --bg-overlay: rgba(31, 41, 55, 0.4);
-  --bg-overlay-light: rgba(31, 41, 55, 0.3);
+  /* 0.4 read as nearly invisible against the light page background in
+     testing (modal/dialog backdrops looked "missing" even though they were
+     technically rendering) - bumped darker to match dark theme's clearer
+     dimming effect. */
+  --bg-overlay: rgba(17, 24, 39, 0.55);
+  --bg-overlay-light: rgba(17, 24, 39, 0.4);
   --border-subtle: #e5e7eb;
   --border-default: #d1d5db;
   --border-strong: #b6bcc6;
@@ -617,10 +621,17 @@ h1, h2, h3 {
   background: transparent;
   border: none;
   border-radius: 7px;
-  color: var(--text-secondary);
+  /* --text-secondary against --bg-inset falls under WCAG AA contrast in
+     light theme (~3.9:1, sub-4.5:1) - full --text-primary at reduced
+     opacity keeps the same "receded until selected" hierarchy but stays
+     legible in both themes instead of relying on a token whose contrast
+     against this particular background isn't guaranteed. */
+  color: var(--text-primary);
+  opacity: 0.62;
   font-weight: 600;
   font-size: 0.85rem;
-  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .auth-method-tab .icon {
@@ -630,12 +641,12 @@ h1, h2, h3 {
 
 .auth-method-tab:hover {
   background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  opacity: 1;
 }
 
 .auth-method-tab[aria-selected='true'] {
   background: var(--bg-surface-raised);
-  color: var(--text-primary);
+  opacity: 1;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
@@ -1008,6 +1019,7 @@ button.secondary:active,
 }
 
 .chip:hover {
+  background: var(--bg-surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -3207,9 +3219,38 @@ a.contact-info-value:hover {
   color: var(--text-secondary);
 }
 
+/* Soft tinted banner instead of bare colored text - paired with a toast at
+   every call site (see handleSignIn etc. in main.js), so this only needs to
+   read as calm, persistent, accessible context rather than compete with the
+   toast for attention. */
 .error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
   color: var(--danger);
+  font-size: 0.85rem;
+  line-height: 1.4;
   grid-column: 1 / -1;
+}
+
+.error::before {
+  content: '!';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--text-on-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 /* Collapse the (always-present) error placeholder when there's no message,
@@ -3219,8 +3260,22 @@ a.contact-info-value:hover {
 }
 
 .success {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
   color: var(--success);
+  font-size: 0.85rem;
+  line-height: 1.4;
   grid-column: 1 / -1;
+}
+
+.success:empty {
+  display: none;
 }
 
 .mfa-status-badge {
@@ -3262,31 +3317,82 @@ a.contact-info-value:hover {
 
 /* ------------------------------------------------------------------ */
 /* Modals                                                              */
+/*                                                                      */
+/* Built on native <dialog> (see appUX.js's appModal) rather than a     */
+/* manually-managed overlay div: showModal()/close() give us focus     */
+/* trapping, Escape-to-close, and top-layer stacking for free, and the */
+/* ::backdrop pseudo-element replaces what used to be a separate       */
+/* .modal-overlay wrapper. The dialog element itself keeps the         */
+/* .modal-overlay class name so unrelated code that already probes for */
+/* "is a modal open?" (see focusMode.js) keeps working unmodified.     */
 /* ------------------------------------------------------------------ */
 
-.modal-overlay {
+/* Only resets sizing/positioning UA defaults on <dialog> - must NOT set
+   `background`, `border`, or `padding` here. The dialog element always also
+   carries the `.card` class (see appUX.js's appModal), which is what
+   actually paints the visible surface (background/border/border-radius/
+   padding); dialog.modal-overlay has higher specificity than .card alone
+   (0,1,1 vs 0,1,0) and silently wins the cascade over any property both
+   rules declare, so this rule must stay disjoint from .card's properties
+   rather than trying to "reset" them - that's exactly what caused the
+   dialog to render with no border, no padding, and (previously) no
+   background even though .card declared all three. */
+dialog.modal-overlay {
   position: fixed;
-  inset: 0;
   z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--sp-4);
+  margin: auto;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+
+dialog.modal-overlay::backdrop {
   background: var(--bg-overlay);
   backdrop-filter: blur(2px);
 }
 
 .modal-dialog {
   position: relative;
-  width: min(100%, 440px);
+  width: min(90vw, 440px);
   margin: 0;
   max-height: min(80vh, 640px);
   overflow-y: auto;
+  /* .card doesn't carry a shadow (it's also used for flush in-page surfaces
+     like toolbar/tree cards where elevation wouldn't make sense) - a floating
+     modal needs one to read as elevated above the dimmed backdrop instead of
+     looking like a flat rectangle pasted on top of it. */
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity var(--transition-base), transform var(--transition-base), overlay var(--transition-base) allow-discrete,
+    display var(--transition-base) allow-discrete;
+}
+
+dialog.modal-overlay[open] {
+  opacity: 1;
+  transform: none;
+}
+
+@starting-style {
+  dialog.modal-overlay[open] {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-dialog {
+    transition: none;
+  }
 }
 
 .modal-dialog.modal-share,
 .modal-dialog.modal-danger {
-  width: min(100%, 520px);
+  width: min(90vw, 520px);
+}
+
+.modal-dialog.modal-warning {
+  width: min(90vw, 480px);
 }
 
 .modal-dialog h3 {
@@ -3397,17 +3503,29 @@ a.contact-info-value:hover {
 
 /* ------------------------------------------------------------------ */
 /* Toasts                                                              */
+/*                                                                      */
+/* Toasts stack inside a single fixed container (bottom-right) instead */
+/* of positioning each toast independently, so appToast.show() can     */
+/* cap visible toasts at 3 and queue the rest (see appUX.js) without    */
+/* every toast needing to know about its siblings' offsets.            */
 /* ------------------------------------------------------------------ */
 
-.toast {
+.toast-container {
   position: fixed;
   bottom: var(--sp-6);
   right: var(--sp-6);
   z-index: 1100;
   display: flex;
-  align-items: center;
-  gap: var(--sp-3);
+  flex-direction: column-reverse;
+  gap: var(--sp-2);
   max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
@@ -3416,6 +3534,7 @@ a.contact-info-value:hover {
   opacity: 0;
   transform: translateY(8px);
   transition: opacity var(--transition-base), transform var(--transition-base);
+  pointer-events: auto;
 }
 
 .toast-show {
@@ -3428,12 +3547,78 @@ a.contact-info-value:hover {
   transform: translateY(8px);
 }
 
+.toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  align-self: center;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
 .toast-success {
   border-color: var(--success-border);
 }
 
+.toast-success .toast-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
 .toast-error {
   border-color: var(--danger-border);
+}
+
+.toast-error .toast-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.toast-warning {
+  border-color: var(--warning-border);
+}
+
+.toast-warning .toast-icon {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.toast-info {
+  border-color: var(--info-border);
+}
+
+.toast-info .toast-icon {
+  background: var(--info-soft);
+  color: var(--info-on-soft);
 }
 
 .toast-message {
@@ -5654,4 +5839,168 @@ button.admin-stat-card {
    visibly shift position on hover along with `.card-inner`. */
 .f3 div.card > .f3-svg-circle-hover {
   transform: none !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tooltips                                                             */
+/*                                                                      */
+/* Pure CSS, activated by a `data-tooltip="label"` attribute - no JS    */
+/* required to show/hide (appUX.js's appTooltip.init() only handles     */
+/* edge-of-viewport flipping via data-tooltip-position). Add            */
+/* `data-tooltip-position="bottom|left|right"` to override the default  */
+/* top placement. Prefer this over the native title="" attribute for    */
+/* any icon-only control - title's delay/styling isn't consistent      */
+/* across browsers and it can't be themed.                              */
+/* ------------------------------------------------------------------ */
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1200;
+  bottom: calc(100% + var(--sp-2));
+  left: 50%;
+  transform: translate(-50%, 4px);
+  width: max-content;
+  max-width: 220px;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 0.25s;
+}
+
+[data-tooltip][data-tooltip-position='bottom']::after {
+  bottom: auto;
+  top: calc(100% + var(--sp-2));
+  transform: translate(-50%, -4px);
+}
+
+[data-tooltip][data-tooltip-position='bottom']:hover::after,
+[data-tooltip][data-tooltip-position='bottom']:focus-visible::after {
+  transform: translate(-50%, 0);
+}
+
+[data-tooltip][data-tooltip-position='left']::after {
+  bottom: auto;
+  left: auto;
+  top: 50%;
+  right: calc(100% + var(--sp-2));
+  transform: translate(4px, -50%);
+}
+
+[data-tooltip][data-tooltip-position='left']:hover::after,
+[data-tooltip][data-tooltip-position='left']:focus-visible::after {
+  transform: translate(0, -50%);
+}
+
+[data-tooltip][data-tooltip-position='right']::after {
+  bottom: auto;
+  left: calc(100% + var(--sp-2));
+  top: 50%;
+  transform: translate(-4px, -50%);
+}
+
+[data-tooltip][data-tooltip-position='right']:hover::after,
+[data-tooltip][data-tooltip-position='right']:focus-visible::after {
+  transform: translate(0, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-tooltip]::after {
+    transition: none;
+    transition-delay: 0s;
+  }
+}
+
+/* Small inline "i" affordance for pairing a [data-tooltip] trigger with a
+   label, e.g. `<label>Birthday <span data-tooltip="...">{dot}</span></label>` -
+   see examples/familyRecordForm.example.js. */
+.field-info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-hover-strong);
+  color: var(--text-tertiary);
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
+/* ------------------------------------------------------------------ */
+/* Form Validation micro-copy                                          */
+/*                                                                      */
+/* Pairs with .field-error (defined earlier, used by the Contact form)  */
+/* - this adds a neutral "helper text" state so the same slot below an  */
+/* input can carry calm guidance and then transition smoothly into a    */
+/* warning state on blur/invalid, instead of validation text just       */
+/* appearing out of nowhere.                                            */
+/* ------------------------------------------------------------------ */
+
+.field-hint {
+  display: block;
+  margin-top: var(--sp-1);
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  min-height: 1.1em;
+  transition: color var(--transition-fast);
+}
+
+.field-hint:empty {
+  display: none;
+}
+
+.field-hint.field-hint-invalid {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.field-hint.field-hint-valid {
+  color: var(--success);
+}
+
+/* Subtle shake to draw the eye the moment a field turns invalid, without
+   being obnoxious on every keystroke - triggered once via appUX.js by
+   toggling this class and removing it after the animation completes. */
+@keyframes field-invalid-shake {
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+.field-shake {
+  animation: field-invalid-shake 0.12s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-shake {
+    animation: none;
+  }
 }

@@ -36,6 +36,7 @@ import { renderDuplicateManagerMode } from './duplicateManager/components.js';
 import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
 import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
+import { appToast } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
@@ -2488,11 +2489,17 @@ function renderChart() {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
 
-      const addIconIcon = (rightOffset, iconHtml, onClick) => {
+      // data-tooltip drives the CSS-only tooltip (see the "Tooltips" section
+      // of styles.css) - positioned below the icon since these sit flush
+      // against the top edge of the card, where a top-positioned tooltip
+      // would get clipped by whatever tree row is rendered above it.
+      const addIconIcon = (rightOffset, iconHtml, onClick, tooltipLabel) => {
         d3.select(cardEl)
           .append('div')
           .attr('class', 'f3-svg-circle-hover')
           .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: 0; right: ${rightOffset}px;`)
+          .attr('data-tooltip', tooltipLabel)
+          .attr('data-tooltip-position', 'bottom')
           .html(iconHtml)
           .select('svg')
           .style('padding', '0')
@@ -2530,7 +2537,7 @@ function renderChart() {
         cancelAddRelative();
         state.chart.updateMainId(d.data.id);
         state.editor.addRelativeInstance.activate(d.data);
-      });
+      }, 'Add relative');
 
       // Edit icon: the only action that opens the full editable profile form.
       // Placed next to the add-relative icon since both are edit actions.
@@ -2539,7 +2546,7 @@ function renderChart() {
         state.editor.setEditFirst(true);
         state.editor.open(d.data);
         card.onCardClickDefault(e, d);
-      });
+      }, 'Edit');
 
       // View icon: opens the same profile panel read-only (fields as text,
       // with its own in-form pencil to switch to edit if needed). Kept apart
@@ -2549,7 +2556,7 @@ function renderChart() {
         state.editor.setEditFirst(false);
         state.editor.open(d.data);
         card.onCardClickDefault(e, d);
-      });
+      }, 'View');
     });
 
     // Viewing/editing/adding-relatives is now handled entirely by the hover
@@ -3855,6 +3862,12 @@ initTheme((theme) => {
     renderAllNodesMode();
   }
 });
+
+// Lets any code (including non-module inline snippets and fetch error
+// handlers that don't import appToast directly) surface a toast by
+// dispatching a CustomEvent, e.g.
+//   document.dispatchEvent(new CustomEvent('app:toast', { detail: { message, type } }))
+appToast.attachToastEventBridge();
 
 // /terms and /privacy render immediately, without waiting on the auth check
 // below, since they're public. Every other route keeps the existing
