@@ -6415,6 +6415,35 @@ button.admin-stat-card {
   transition: background-color 0.2s ease-in-out, transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
+/* The "more" icon (addCardIcon's non-'center' horizontalPosition - the
+   drilldown icon uses 'center' and keeps the neutral white circle above) is
+   a secondary action, so instead of the neutral gray it picks up the same
+   --male-color/--female-color tokens the card itself is colored by (see
+   `.f3 div.card-male .card-inner`/`.card-female .card-inner` above), tying
+   it visually to its card while staying distinct from the primary drilldown
+   icon. White icon glyph for contrast against the tinted fill. */
+.f3 .f3-svg-circle-hover:not(.f3-svg-circle-hover-center) {
+  background: var(--genderless-color) !important;
+  color: #ffffff !important;
+  box-shadow: none;
+}
+
+/* !important here (and above) since `.f3 div.card:hover > .f3-svg-circle-hover`
+   further below sets its own background for the card-hover animation and,
+   despite appearing later, isn't more specific than these - without
+   !important these gender tints would only show at rest and flip to gray
+   on hover. Darkened via color-mix (not the raw --male-color/--female-color)
+   because the card body itself is already that exact color - an
+   undarkened icon would blend straight into the card instead of reading as
+   a distinct circle. */
+.f3 div.card-male > .f3-svg-circle-hover:not(.f3-svg-circle-hover-center) {
+  background: color-mix(in srgb, var(--male-color) 70%, black) !important;
+}
+
+.f3 div.card-female > .f3-svg-circle-hover:not(.f3-svg-circle-hover-center) {
+  background: color-mix(in srgb, var(--female-color) 70%, black) !important;
+}
+
 /* `.f3 div.card:hover > div` (library CSS) applies a -2px hover transform to
    every direct child of `.card` on card hover. These icons get their own
    card-hover-driven transform below instead, so pin the base (non-hover,
@@ -6437,6 +6466,13 @@ button.admin-stat-card {
   background: #f3f4f6;
   transform: translateY(-2px) scale(1.12) !important;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Keep the "more" icon's hover state on its own gender-tinted fill too,
+   instead of jumping to the drilldown icon's neutral white hover fill -
+   just add the shared lift/scale, no color/shadow change. */
+.f3 div.card:hover > .f3-svg-circle-hover:not(.f3-svg-circle-hover-center) {
+  box-shadow: none;
 }
 
 .f3 div.card:hover > .f3-svg-circle-hover.f3-svg-circle-hover-center {
