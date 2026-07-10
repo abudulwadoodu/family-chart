@@ -12,20 +12,27 @@ export function listMedia(api, treeId, { kind, memberId } = {}) {
   return api(`/api/trees/${treeId}/media${qs ? `?${qs}` : ''}`);
 }
 
-export function uploadMedia(api, treeId, { file, kind, title, description, takenAt }) {
+export function uploadMedia(api, treeId, { file, kind, title, description, takenAt, visibility, shareUserIds }) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('kind', kind);
   if (title) formData.append('title', title);
   if (description) formData.append('description', description);
   if (takenAt) formData.append('takenAt', takenAt);
+  if (visibility) formData.append('visibility', visibility);
+  if (shareUserIds) formData.append('shareUserIds', JSON.stringify(shareUserIds));
   return api(`/api/trees/${treeId}/media`, { method: 'POST', body: formData });
 }
 
-export function updateMedia(api, treeId, mediaId, { title, description, takenAt }) {
+export function updateMedia(api, treeId, mediaId, { title, description, takenAt, visibility, shareUserIds }) {
+  const body = { title, description, takenAt };
+  if (visibility !== undefined) {
+    body.visibility = visibility;
+    body.shareUserIds = shareUserIds;
+  }
   return api(`/api/trees/${treeId}/media/${mediaId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ title, description, takenAt }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -98,10 +105,15 @@ export function listEvents(api, treeId, { memberId } = {}) {
   return api(`/api/trees/${treeId}/events${qs}`);
 }
 
-export function createEvent(api, treeId, { title, eventType, description, eventDate, datePrecision, location }) {
+export function createEvent(api, treeId, { title, eventType, description, eventDate, datePrecision, location, visibility, shareUserIds }) {
+  const body = { title, eventType, description, eventDate, datePrecision, location };
+  if (visibility !== undefined) {
+    body.visibility = visibility;
+    body.shareUserIds = shareUserIds;
+  }
   return api(`/api/trees/${treeId}/events`, {
     method: 'POST',
-    body: JSON.stringify({ title, eventType, description, eventDate, datePrecision, location }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -109,10 +121,15 @@ export function getEvent(api, treeId, eventId) {
   return api(`/api/trees/${treeId}/events/${eventId}`);
 }
 
-export function updateEvent(api, treeId, eventId, { title, eventType, description, eventDate, datePrecision, location }) {
+export function updateEvent(api, treeId, eventId, { title, eventType, description, eventDate, datePrecision, location, visibility, shareUserIds }) {
+  const body = { title, eventType, description, eventDate, datePrecision, location };
+  if (visibility !== undefined) {
+    body.visibility = visibility;
+    body.shareUserIds = shareUserIds;
+  }
   return api(`/api/trees/${treeId}/events/${eventId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ title, eventType, description, eventDate, datePrecision, location }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -142,4 +159,8 @@ export function detachMediaFromEvent(api, treeId, eventId, mediaId) {
 
 export function deleteEvent(api, treeId, eventId) {
   return api(`/api/trees/${treeId}/events/${eventId}`, { method: 'DELETE' });
+}
+
+export function listCollaborators(api, treeId) {
+  return api(`/api/trees/${treeId}/permissions`);
 }

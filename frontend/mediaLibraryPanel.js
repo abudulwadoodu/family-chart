@@ -7,8 +7,15 @@ import { showToast, showConfirmDialog } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 import * as mediaApi from './mediaApi.js';
-import { openMediaLightbox } from './mediaLightbox.js';
+import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
+import {
+  createVisibilityPickerState,
+  loadCollaborators,
+  renderVisibilityPickerHtml,
+  attachVisibilityPickerListeners,
+  getVisibilityPayload,
+} from './visibilityPicker.js';
 
 const KIND_FILTERS = [
   { value: '', label: 'All' },
@@ -45,14 +52,18 @@ export function createMediaLibraryPageState() {
   return {
     loaded: false,
     kindFilter: '',
+    mineOnly: false,
     albums: [],
     activeAlbumId: null,
     media: [],
+    pendingFile: null,
+    visibilityPicker: createVisibilityPickerState(),
   };
 }
 
-export function renderMediaLibraryPageContent(pageState, { readOnly }) {
-  const { kindFilter, albums, activeAlbumId, media, loaded } = pageState;
+export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
+  const { kindFilter, mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
+  const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
 
   return `
     <div class="media-library-page">
@@ -82,6 +93,7 @@ export function renderMediaLibraryPageContent(pageState, { readOnly }) {
               (f) =>
                 `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
             ).join('')}
+            <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
             ${
               readOnly
                 ? ''
@@ -89,6 +101,19 @@ export function renderMediaLibraryPageContent(pageState, { readOnly }) {
                    <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
             }
           </div>
+
+          ${
+            pendingFile
+              ? `<div class="media-library-pending-upload">
+                   <p class="modal-message">Uploading <strong>${escapeHtml(pendingFile.name)}</strong></p>
+                   ${renderVisibilityPickerHtml(pageState.visibilityPicker, { idPrefix: 'media-library-upload' })}
+                   <div class="modal-actions row">
+                     <button type="button" class="btn-secondary" id="media-library-pending-cancel-btn">Cancel</button>
+                     <button type="button" class="btn btn-primary" id="media-library-pending-confirm-btn">Upload</button>
+                   </div>
+                 </div>`
+              : ''
+          }
 
           ${
             media.length
@@ -146,7 +171,7 @@ async function reloadMedia(pageState, { api, treeId }, rerender) {
 // `onBack` navigates back to the tree viewer; `rerender` re-invokes the
 // page's own render (main.js's render()), which calls renderMediaLibraryPageContent
 // again with the same pageState and then re-runs this attach function.
-export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, readOnly = false }, rerender, onBack) {
+export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, currentUserId, readOnly = false }, rerender, onBack) {
   const root = document.querySelector('.media-library-page');
   if (!root) return;
 
@@ -162,6 +187,13 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
       );
     });
   });
+
+  root.querySelector('#media-library-mine-toggle')?.addEventListener('click', () => {
+    pageState.mineOnly = !pageState.mineOnly;
+    rerender();
+  });
+
+  attachVisibilityPickerListeners(root, pageState.visibilityPicker, rerender);
 
   root.querySelectorAll('.media-library-album-row').forEach((row) => {
     row.addEventListener('click', (event) => {
@@ -223,12 +255,25 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
     btn.addEventListener('click', () => {
       const item = pageState.media.find((m) => m.id === Number(btn.dataset.mediaId));
       if (!item) return;
+      if (item.access === 'stub') {
+        openMediaStubModal({
+          api,
+          treeId,
+          media: item,
+          onDeleted: (mediaId) => {
+            pageState.media = pageState.media.filter((m) => m.id !== mediaId);
+            rerender();
+          },
+        });
+        return;
+      }
       const activeAlbum = pageState.activeAlbumId ? pageState.albums.find((a) => a.id === pageState.activeAlbumId) : null;
       openMediaLightbox({
         api,
         treeId,
         media: item,
         memberIndex,
+        currentUserId,
         readOnly,
         context: activeAlbum ? { type: 'album', id: activeAlbum.id, name: activeAlbum.name } : null,
         onDeleted: (mediaId) => {
@@ -262,14 +307,34 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
   });
 
   const uploadInput = root.querySelector('#media-library-upload-input');
-  uploadInput?.addEventListener('change', async () => {
+  uploadInput?.addEventListener('change', () => {
     const file = uploadInput.files?.[0];
     if (!file) return;
+    pageState.pendingFile = file;
+    pageState.visibilityPicker = createVisibilityPickerState();
+    rerender();
+    loadCollaborators(pageState.visibilityPicker, { api, treeId, currentUserId }).then(rerender);
+  });
+
+  root.querySelector('#media-library-pending-cancel-btn')?.addEventListener('click', () => {
+    pageState.pendingFile = null;
+    rerender();
+  });
+
+  root.querySelector('#media-library-pending-confirm-btn')?.addEventListener('click', async () => {
+    const file = pageState.pendingFile;
+    if (!file) return;
     try {
-      const { media } = await mediaApi.uploadMedia(api, treeId, { file, kind: kindForFile(file), title: file.name });
+      const { media } = await mediaApi.uploadMedia(api, treeId, {
+        file,
+        kind: kindForFile(file),
+        title: file.name,
+        ...getVisibilityPayload(pageState.visibilityPicker),
+      });
       if (pageState.activeAlbumId) {
         await mediaApi.addMediaToAlbum(api, treeId, pageState.activeAlbumId, media.id);
       }
+      pageState.pendingFile = null;
       await reloadMedia(pageState, { api, treeId }, rerender);
       showToast('Uploaded');
     } catch (error) {
