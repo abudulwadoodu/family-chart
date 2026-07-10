@@ -323,10 +323,15 @@ const GOOGLE_LOGO_SVG = `
 `;
 
 // Dropdown menus are closed by default on every render, so a single delegated
-// listener registered once is enough to close whichever one is open.
+// listener registered once is enough to close whichever one is open. Tree
+// card "more" menus (.f3-card-more-menu, see renderChart's openCardMoreMenu)
+// share this same listener instead of adding a second one: they're removed
+// from the DOM entirely rather than toggled, since they're one-off nodes
+// appended per-card rather than static page markup.
 document.addEventListener('click', (event) => {
   if (event.target.closest('.dropdown-menu') || event.target.closest('[data-menu-trigger]')) return;
   document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+  document.querySelectorAll('.f3-card-more-menu').forEach((menu) => menu.remove());
 });
 
 // Same delegated-listener approach as the dropdown menus above: registered
@@ -2268,38 +2273,11 @@ function attachMemberSearchListeners() {
   const clearBtn = document.querySelector('#member-search-clear-btn');
   if (!container || !input || !resultsEl || !clearBtn) return;
 
-  // Idle (unfocused + empty) collapses to an icon-only pill via CSS keyed
-  // off .member-search-expanded - :focus-within alone would collapse it the
-  // instant focus moves to a result button inside #member-search-results,
-  // so this class also has to stay on while there's a typed query.
-  const collapseIfIdle = () => {
-    if (!input.value && document.activeElement !== input) {
-      container.classList.remove('member-search-expanded');
-    }
-  };
-
-  container.addEventListener('mousedown', (event) => {
-    // Clicking the collapsed pill focuses the (currently invisible) input
-    // rather than relying on the label's implicit click-to-focus, since the
-    // input is opacity:0 + pointer-events:none while collapsed.
-    if (container.classList.contains('member-search-expanded') || document.activeElement === input) return;
-    event.preventDefault();
-    container.classList.add('member-search-expanded');
-    input.focus();
-  });
-
   input.addEventListener('focus', () => {
-    container.classList.add('member-search-expanded');
     // Build (or rebuild) the index lazily on first interaction so it always
     // reflects the latest edits, without recomputing it on every keystroke.
     state.memberSearchIndex = buildMemberSearchIndex(state.selectedTreeData);
     if (input.value.trim()) runMemberSearch(input.value);
-  });
-
-  input.addEventListener('blur', () => {
-    // Deferred so a click on the clear button or a result item (which blurs
-    // the input first) still lands before we decide whether to collapse.
-    setTimeout(collapseIfIdle, 0);
   });
 
   input.addEventListener('input', () => {
@@ -2421,12 +2399,6 @@ function selectSearchedMember(id) {
     input.value = '';
     const clearBtn = document.querySelector('#member-search-clear-btn');
     if (clearBtn) clearBtn.hidden = true;
-    // Clicking a result button already moved focus off the input, so the
-    // idle collapse condition (empty + unfocused) is met here - collapse
-    // back to the icon pill now that the search is done, same as blur.
-    if (document.activeElement !== input) {
-      document.querySelector('#member-search')?.classList.remove('member-search-expanded');
-    }
   }
 
   if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager') {
@@ -2904,6 +2876,51 @@ function clearSelectedTreeView() {
   state.timeline = createTimelinePageState();
 }
 
+// Appends one of the small circular hover-icon buttons tree cards use (e.g.
+// drilldown, more) to `cardEl`, positioned along its top edge. Shared by both
+// the editor and viewer card-rendering paths in renderChart() below.
+// `horizontalPosition` is either a number (right offset in px, anchored to
+// the right edge - used for icons that sit alongside each other, like the
+// more icon) or the string 'center' (centered on the card's top edge via
+// left:50%/translateX(-50%) - used for the standalone drilldown icon).
+// `topOffset` defaults to 0 (flush with the card's top edge); pass a
+// negative value (e.g. -10, half the icon's own height) to straddle the
+// card's border so half the icon sits outside the card and half inside.
+// data-tooltip drives the CSS-only tooltip (see the "Tooltips" section of
+// styles.css) - positioned below the icon since these sit flush against the
+// top edge of the card, where a top-positioned tooltip would get clipped by
+// whatever tree row is rendered above it.
+function addCardIcon(cardEl, horizontalPosition, iconHtml, onClick, tooltipLabel, topOffset = 0) {
+  const isCentered = horizontalPosition === 'center';
+  // Centering needs a `translateX(-50%)` transform, but the library's own
+  // `.f3 div.card:hover > div` rule applies a -2px hover transform to every
+  // direct child of `.card`, which styles.css resets back to `none` via
+  // `.f3 div.card > .f3-svg-circle-hover { transform: none !important }` -
+  // that reset would otherwise clobber the inline centering transform too.
+  // f3-svg-circle-hover-center gets its own, more specific override instead
+  // (see styles.css) so both the hover-reset and the centering can coexist.
+  const positionStyle = isCentered
+    ? 'left: 50%;'
+    : `right: ${horizontalPosition}px;`;
+  d3.select(cardEl)
+    .append('div')
+    .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''}`)
+    .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: ${topOffset}px; ${positionStyle}`)
+    .attr('data-tooltip', tooltipLabel)
+    .attr('data-tooltip-position', 'bottom')
+    .html(iconHtml)
+    .select('svg')
+    .style('padding', '0')
+    .on('click', onClick);
+}
+
+// Closes the tree card "more" popover (see openCardMoreMenu in renderChart
+// below), if one is open. Pure DOM cleanup with no render-specific state, so
+// it lives at module scope rather than being redefined on every renderChart().
+function closeCardMoreMenu() {
+  document.querySelectorAll('.f3-card-more-menu').forEach((m) => m.remove());
+}
+
 function renderChart() {
   cleanupAllNodesGraph();
   if (state.viewMode === 'duplicate-manager') {
@@ -2977,14 +2994,16 @@ function renderChart() {
       state.escapeCancelsAddRelativeBound = true;
     }
 
-    // Hover icons give an explicit way to view/edit/add-relative for any
-    // card, so a plain tap can just drill down the tree instead of also
-    // popping the profile panel open (that double-effect was confusing on
-    // mobile: one tap looked like it opened a profile instead of re-rooting
-    // the tree). Icons are appended to `.card` itself, as siblings of
-    // `.card-inner`, not inside it: `.card:hover > div` in the library CSS
-    // applies a -2px hover transform to every direct child of `.card`, so an
-    // icon appended inside `.card-inner` would shift on hover along with it.
+    // Card body click now opens the person's profile directly (view-first;
+    // the form itself has its own pencil to switch to edit). Drilldown and
+    // the add-relative/edit actions move to two always-visible icons in the
+    // card's top-right corner so they don't collide with the click target:
+    // a tree icon for re-rooting, and a "more" (⋯) icon that opens a small
+    // popover with Edit / Add relative. Icons are appended to `.card`
+    // itself, as siblings of `.card-inner`, not inside it: `.card:hover > div`
+    // in the library CSS applies a -2px hover transform to every direct
+    // child of `.card`, so an icon appended inside `.card-inner` would shift
+    // on hover along with it.
     card.setOnCardUpdate(function cardUpdate(d) {
       if (d.data._new_rel_data) return;
       if (state.editor.isRemovingRelative()) return;
@@ -2992,45 +3011,58 @@ function renderChart() {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
 
-      // data-tooltip drives the CSS-only tooltip (see the "Tooltips" section
-      // of styles.css) - positioned below the icon since these sit flush
-      // against the top edge of the card, where a top-positioned tooltip
-      // would get clipped by whatever tree row is rendered above it.
-      const addIconIcon = (rightOffset, iconHtml, onClick, tooltipLabel) => {
-        d3.select(cardEl)
-          .append('div')
-          .attr('class', 'f3-svg-circle-hover')
-          .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: 0; right: ${rightOffset}px;`)
-          .attr('data-tooltip', tooltipLabel)
-          .attr('data-tooltip-position', 'bottom')
-          .html(iconHtml)
-          .select('svg')
-          .style('padding', '0')
-          .on('click', onClick);
-      };
-
-      // Add-relative icon: jumps straight into add-relative placeholder mode
-      // without ever rendering the full edit form first. Clicking it again
-      // for the same person toggles the placeholder boxes back off.
-      //
-      // The tree layout is always computed relative to the current main_id
-      // (ancestry/progeny hierarchy is walked from that person), so we must
-      // re-root onto the person being activated, or their newly created
-      // father/mother/spouse placeholders can end up outside the rendered
-      // hierarchy and simply never appear even though they exist in the data.
-      //
-      // We must also explicitly cancel any add-relative session that's
-      // still active for a DIFFERENT person before re-rooting. AddRelative's
-      // own activate() cancels the previous session internally, but that
-      // cancel's callback (EditTree's cancelCallback) calls
-      // store.updateMainId(oldDatum.id) — if we call updateMainId(newDatum)
-      // first and then activate(), that internal cancel silently clobbers
-      // main_id back to the OLD person before the new placeholders are
-      // computed, which is exactly what caused clicking one member's
-      // add-icon right after another's (without Escape in between) to only
-      // show a couple of placeholder boxes.
-      addIconIcon(0, f3.icons.userPlusSvgIcon(), (e) => {
+      // Drilldown icon: pure navigation, re-root the tree on this person.
+      // No-op if everything about them is already displayed (e.g. no
+      // subtree, or it's already expanded) since there's nothing new to
+      // reveal.
+      addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
         e.stopPropagation();
+        if (d.all_rels_displayed) return;
+        state.editor.closeForm();
+        card.onCardClickDefault(e, d);
+      }, 'Drill down', -10);
+
+      // More icon: opens a small popover with Edit and Add relative. Built
+      // directly here (not the app's shared dropdownMenu()) since that
+      // helper targets static page markup and app-icon set, not per-card
+      // D3-driven re-renders using f3.icons' inline SVGs.
+      addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
+        e.stopPropagation();
+        openCardMoreMenu(cardEl, d);
+      }, 'More');
+    });
+
+    // Popover for the "more" icon. Reuses the app's .dropdown-menu/.dropdown-item
+    // classes for visual consistency, but is built by hand (not
+    // components.js's dropdownMenu()) since it's driven by f3's per-card
+    // TreeDatum rather than static page state, and needs direct click
+    // handlers rather than the data-action dispatch used elsewhere.
+    function openCardMoreMenu(cardEl, d) {
+      const alreadyOpenForThisCard = cardEl.querySelector('.f3-card-more-menu');
+      closeCardMoreMenu();
+      if (alreadyOpenForThisCard) return;
+
+      const menu = document.createElement('div');
+      menu.className = 'dropdown-menu open f3-card-more-menu';
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'dropdown-item';
+      editBtn.innerHTML = `${f3.icons.userEditSvgIcon()}<span>Edit</span>`;
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeCardMoreMenu();
+        state.editor.setEditFirst(true);
+        state.editor.open(d.data);
+      });
+
+      const addRelativeBtn = document.createElement('button');
+      addRelativeBtn.type = 'button';
+      addRelativeBtn.className = 'dropdown-item';
+      addRelativeBtn.innerHTML = `${f3.icons.userPlusSvgIcon()}<span>Add relative</span>`;
+      addRelativeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeCardMoreMenu();
         const alreadyActiveForThisPerson =
           state.editor.isAddingRelative() && state.editor.addRelativeInstance.datum?.id === d.data.id;
         if (alreadyActiveForThisPerson) {
@@ -3040,59 +3072,52 @@ function renderChart() {
         cancelAddRelative();
         state.chart.updateMainId(d.data.id);
         state.editor.addRelativeInstance.activate(d.data);
-      }, 'Add relative');
+      });
 
-      // Edit icon: the only action that opens the full editable profile form.
-      // Placed next to the add-relative icon since both are edit actions.
-      addIconIcon(23, f3.icons.userEditSvgIcon(), (e) => {
-        e.stopPropagation();
-        state.editor.setEditFirst(true);
-        state.editor.open(d.data);
-        card.onCardClickDefault(e, d);
-      }, 'Edit');
+      menu.appendChild(editBtn);
+      menu.appendChild(addRelativeBtn);
+      cardEl.appendChild(menu);
+    }
 
-      // View icon: opens the same profile panel read-only (fields as text,
-      // with its own in-form pencil to switch to edit if needed). Kept apart
-      // from the two edit actions above since it's a different kind of action.
-      addIconIcon(46, f3.icons.infoSvgIcon(), (e) => {
-        e.stopPropagation();
-        state.editor.setEditFirst(false);
-        state.editor.open(d.data);
-        card.onCardClickDefault(e, d);
-      }, 'View');
-    });
-
-    // Viewing/editing/adding-relatives is now handled entirely by the hover
-    // icons above, so a plain card click is pure navigation: re-root
-    // (drill down) only if this person has relatives not yet shown in the
-    // tree. If everything about them is already displayed (e.g. no
-    // subtree, or it's already expanded), the click is a no-op instead of
-    // re-rooting on a card that wouldn't reveal anything new.
+    // Plain card click opens the profile panel (view-first: setEditFirst(false)
+    // means fields render as text, with the form's own pencil to switch into
+    // edit mode). Re-rooting the tree is handled by the drilldown icon above,
+    // not bundled into this click, so opening a profile doesn't also
+    // unexpectedly move the tree around.
     card.setOnCardClick((e, d) => {
+      closeCardMoreMenu();
       if (state.editor.isAddingRelative()) {
         if (d.data._new_rel_data) {
           state.editor.open(d.data);
-        } else {
-          cancelAddRelative();
-          card.onCardClickDefault(e, d);
+          return;
         }
-      } else if (state.editor.isRemovingRelative()) {
-        state.editor.open(d.data);
-      } else if (d.all_rels_displayed) {
-        // no subtree to drill into
-      } else {
-        state.editor.closeForm();
-        card.onCardClickDefault(e, d);
+        cancelAddRelative();
       }
+      if (state.editor.isRemovingRelative()) {
+        state.editor.open(d.data);
+        return;
+      }
+      state.editor.setEditFirst(false);
+      state.editor.open(d.data);
     });
   } else {
     state.editor = null;
-    // Viewers never get editTree(), so the card's default click (re-center
-    // the tree on that person) is preserved here and a read-only Media/
-    // Events modal is opened alongside it.
+    // Viewers never get editTree(). Card click opens the read-only Media/
+    // Events profile modal; a separate drilldown icon (matching the editor
+    // pattern) handles re-rooting the tree, so the two actions don't happen
+    // together on a single tap.
+    card.setOnCardUpdate(function cardUpdate(d) {
+      const cardEl = this.querySelector('.card');
+      if (!cardEl) return;
+
+      addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
+        e.stopPropagation();
+        if (d.all_rels_displayed) return;
+        card.onCardClickDefault(e, d);
+      }, 'Drill down', -10);
+    });
+
     card.setOnCardClick((e, d) => {
-      state.chart.updateMainId(d.data.id);
-      state.chart.updateTree({});
       openReadOnlyPersonModal({
         api,
         treeId: state.selectedTreeId,

@@ -2241,24 +2241,11 @@ button.secondary:active,
 /* Member search (tree toolbar)                                       */
 /* ------------------------------------------------------------------ */
 
-/* Collapses to an icon-only pill when idle (unfocused and empty) so it
-   doesn't permanently eat toolbar width next to the view-mode chips, and
-   expands to the full input on focus/click - see member-search-expanded
-   in main.js for the "keep it open while there's a typed query" rule that
-   CSS :focus-within alone can't express (blurring to click a result inside
-   #member-search-results shouldn't collapse it mid-search). */
+/* Always shown as the full input - stays open regardless of focus/query
+   state instead of collapsing to an icon-only pill when idle. */
 .member-search {
   position: relative;
-  flex: 0 0 auto;
-  min-width: 0;
-  width: 38px;
-  transition: width var(--transition-base);
-}
-
-.member-search.member-search-expanded,
-.member-search:focus-within {
   flex: 1;
-  width: auto;
   min-width: 220px;
   max-width: 360px;
 }
@@ -2267,26 +2254,7 @@ button.secondary:active,
   min-width: 0;
   max-width: none;
   width: 100%;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.member-search.member-search-expanded .member-search-box,
-.member-search:focus-within .member-search-box {
   cursor: text;
-}
-
-.member-search:not(.member-search-expanded):not(:focus-within) .member-search-box input,
-.member-search:not(.member-search-expanded):not(:focus-within) .member-search-clear {
-  opacity: 0;
-  pointer-events: none;
-  min-width: 0;
-  width: 0;
-  padding: 0;
-}
-
-.member-search-box input {
-  transition: opacity var(--transition-fast);
 }
 
 .member-search-clear {
@@ -6235,20 +6203,31 @@ button.admin-stat-card {
   font-size: 0.85rem;
 }
 
+/* The app-wide .card class (dashboard panels, settings sections - see
+   `.card` around line 801) sets background/border/padding with no scope
+   restriction, so it was leaking onto the tree library's own unrelated
+   div.card (member cards) wherever family-chart.css doesn't set those same
+   properties itself (it only styles .card-inner, not .card). That showed up
+   as an unwanted white padded box wrapping every member card. */
+.f3 div.card {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* White round pill behind each icon (drilldown, more) so they read clearly
+   against any card color (male/female/genderless tint) in both themes,
+   instead of relying on a transparent circle + white/gray icon glyph. */
 .f3 .f3-svg-circle-hover {
-  color: #ffffff !important;
-}
-
-[data-theme='light'] .f3 .f3-svg-circle-hover {
   color: #4b5563 !important;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: background-color 0.2s ease-in-out;
 }
 
-.f3 .f3-svg-circle-hover circle {
-  transition: fill 0.2s ease-in-out;
-}
-
-.f3 .f3-svg-circle-hover:hover circle {
-  fill: rgba(0, 0, 0, 0.2) !important;
+.f3 .f3-svg-circle-hover:hover {
+  background: #f3f4f6;
 }
 
 /* `.f3 div.card:hover > div` (library CSS) applies a -2px hover transform to
@@ -6256,6 +6235,38 @@ button.admin-stat-card {
    visibly shift position on hover along with `.card-inner`. */
 .f3 div.card > .f3-svg-circle-hover {
   transform: none !important;
+}
+
+/* The drilldown icon (see addCardIcon's 'center' horizontalPosition in
+   main.js) needs to stay horizontally centered via translateX(-50%) even
+   though the rule above resets transform to none - this selector is more
+   specific (two classes vs one) so it wins the cascade instead. */
+.f3 div.card > .f3-svg-circle-hover.f3-svg-circle-hover-center {
+  transform: translateX(-50%) !important;
+}
+
+/* Popover opened by the card's "more" (⋯) icon - reuses .dropdown-menu/
+   .dropdown-item for visual consistency with the rest of the app. Narrower
+   than the default dropdown-menu min-width since it only ever holds
+   Edit/Add relative, and needs a higher z-index than a page dropdown-menu
+   since it must sit above sibling tree cards, not just page content. */
+.f3 div.card > .f3-card-more-menu.dropdown-menu {
+  min-width: 140px;
+  z-index: 40;
+  transform: none !important;
+}
+
+/* The menu's Edit/Add relative icons come from f3.icons' *SvgIcon()
+   wrappers (family-chart library's own icon set, no width/height or
+   `.icon` class), unlike the app's other dropdown menus which use
+   frontend/icons.js's `.icon` (sized via the 1em rule at the top of this
+   file). Size and align them explicitly here so they match that 1em
+   footprint and the button's own font-size instead of rendering at the
+   SVG's unstyled intrinsic size. */
+.f3-card-more-menu.dropdown-menu .dropdown-item svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
 }
 
 /* ------------------------------------------------------------------ */

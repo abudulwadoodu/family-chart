@@ -174,6 +174,29 @@ export function infoIcon() {
   `)
 }
 
+export function drilldownIcon() {
+  return (`
+    <g data-icon="drilldown">
+      ${bgCircle()}
+      <circle cx="12" cy="7.5" r="2.25" />
+      <circle cx="7" cy="17" r="2.25" />
+      <circle cx="17" cy="17" r="2.25" />
+      <path d="M12,9.75V13M12,13L7,14.75M12,13L17,14.75" stroke="currentColor" stroke-width="1.75" fill="none" />
+    </g>
+  `)
+}
+
+export function moreIcon() {
+  return (`
+    <g data-icon="more">
+      ${bgCircle()}
+      <circle cx="6" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="18" cy="12" r="2" />
+    </g>
+  `)
+}
+
 export function userSvgIcon() { return svgWrapper(userIcon()) }
 export function userEditSvgIcon() { return svgWrapper(userEditIcon()) }
 export function userPlusSvgIcon() { return svgWrapper(userPlusIcon()) }
@@ -192,6 +215,8 @@ export function chevronDownSvgIcon() { return svgWrapper(chevronDownIcon()) }
 export function chevronUpSvgIcon() { return svgWrapper(chevronUpIcon()) }
 export function linkOffSvgIcon() { return svgWrapper(linkOffIcon()) }
 export function infoSvgIcon() { return svgWrapper(infoIcon()) }
+export function drilldownSvgIcon() { return svgWrapper(drilldownIcon()) }
+export function moreSvgIcon() { return svgWrapper(moreIcon()) }
 
 function svgWrapper(icon: string, viewBox='0 0 24 24') {
   const match = icon.match(/data-icon="([^"]+)"/);
