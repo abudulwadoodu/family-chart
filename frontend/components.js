@@ -38,7 +38,8 @@ export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
 
 export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, collapsed }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
-  const isTicketsActive = activeView === 'myTickets' || activeView === 'ticketDetail';
+  const isRequestsActive = activeView === 'myRequests' || activeView === 'pendingRequests';
+  const isSupportActive = activeView === 'contact' || activeView === 'myTickets' || activeView === 'ticketDetail';
 
   return `
     <aside class="sidebar" id="sidebar">
@@ -56,17 +57,11 @@ export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, coll
         <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn" title="Security Settings">
           ${icon('shield')}<span class="nav-label">Security Settings</span>
         </button>
-        <button type="button" class="nav-item ${activeView === 'contact' ? 'nav-item-active' : ''}" id="nav-contact-btn" title="Contact Us">
-          ${icon('mail')}<span class="nav-label">Contact Us</span>
+        <button type="button" class="nav-item ${isRequestsActive ? 'nav-item-active' : ''}" id="nav-requests-btn" title="Requests">
+          ${icon('list')}<span class="nav-label">Requests</span>
         </button>
-        <button type="button" class="nav-item ${isTicketsActive ? 'nav-item-active' : ''}" id="nav-tickets-btn" title="My Support Tickets">
-          ${icon('clock')}<span class="nav-label">My Support Tickets</span>
-        </button>
-        <button type="button" class="nav-item ${activeView === 'pendingRequests' ? 'nav-item-active' : ''}" id="nav-pending-requests-btn" title="Pending Requests">
-          ${icon('mail')}<span class="nav-label">Pending Requests</span>
-        </button>
-        <button type="button" class="nav-item ${activeView === 'myRequests' ? 'nav-item-active' : ''}" id="nav-my-requests-btn" title="My Requests">
-          ${icon('list')}<span class="nav-label">My Requests</span>
+        <button type="button" class="nav-item ${isSupportActive ? 'nav-item-active' : ''}" id="nav-support-btn" title="Support">
+          ${icon('mail')}<span class="nav-label">Support</span>
         </button>
         ${
           isAdmin
@@ -76,24 +71,37 @@ export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, coll
             : ''
         }
       </nav>
+      <button
+        type="button"
+        id="sidebar-collapse-btn"
+        class="sidebar-collapse-btn"
+        title="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+        aria-pressed="${Boolean(collapsed)}"
+        aria-label="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+      >${icon('chevronRight')}</button>
       <div class="sidebar-foot">
-        <button
-          type="button"
-          id="sidebar-collapse-btn"
-          class="nav-item sidebar-collapse-btn"
-          title="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
-          aria-pressed="${Boolean(collapsed)}"
-        >${icon('panelLeft')}<span class="nav-label">${collapsed ? 'Expand' : 'Collapse'}</span></button>
-        <div class="sidebar-theme-toggle">
-          ${renderThemeToggle({ activeTheme, idPrefix: 'sidebar-theme-toggle' })}
+        <div class="sidebar-profile">
+          <button
+            type="button"
+            id="sidebar-profile-btn"
+            class="sidebar-profile-trigger"
+            data-menu-trigger="sidebar-profile-menu"
+            title="${escapeHtml(email)}"
+            aria-haspopup="true"
+          >
+            <span class="user-avatar">${escapeHtml(initial)}</span>
+            <span class="user-email">${escapeHtml(email)}</span>
+            ${icon('chevronDown')}
+          </button>
+          <div class="dropdown-menu sidebar-profile-menu" id="sidebar-profile-menu" data-menu-id="sidebar-profile-menu">
+            <div class="sidebar-profile-menu-theme">
+              ${renderThemeToggle({ activeTheme, idPrefix: 'sidebar-theme-toggle' })}
+            </div>
+            <button type="button" id="logout-btn" class="dropdown-item dropdown-item-danger" title="Logout">
+              ${icon('logout')}<span>Logout</span>
+            </button>
+          </div>
         </div>
-        <div class="sidebar-user" title="${escapeHtml(email)}">
-          <span class="user-avatar">${escapeHtml(initial)}</span>
-          <span class="user-email">${escapeHtml(email)}</span>
-        </div>
-        <button type="button" id="logout-btn" class="nav-item nav-item-logout" title="Logout">
-          ${icon('logout')}<span class="nav-label">Logout</span>
-        </button>
       </div>
     </aside>
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -151,6 +159,32 @@ export function renderPageHeader({
         }
       </div>
     </header>
+  `;
+}
+
+// Underline tab row switching between sibling views inside one sidebar nav
+// item's section (e.g. Requests -> My Requests / Pending Requests). Each tab
+// is `{ id, label, icon }`; `activeId` picks the pressed one. Sits above the
+// section's own page header/content, which is left untouched.
+export function renderSectionTabs({ tabs, activeId, idPrefix = 'section-tab' }) {
+  return `
+    <div class="section-tabs" role="tablist">
+      ${tabs
+        .map(
+          (tab) => `
+        <button
+          type="button"
+          class="section-tab"
+          role="tab"
+          id="${idPrefix}-${tab.id}"
+          data-tab-id="${tab.id}"
+          aria-selected="${tab.id === activeId}"
+          tabindex="${tab.id === activeId ? '0' : '-1'}"
+        >${tab.icon ? icon(tab.icon) : ''}<span>${escapeHtml(tab.label)}</span></button>
+      `
+        )
+        .join('')}
+    </div>
   `;
 }
 

@@ -1043,6 +1043,7 @@ button.secondary:active,
 }
 
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
@@ -1054,12 +1055,38 @@ button.secondary:active,
   transition: width var(--transition-base);
 }
 
+/* Small semicircular tab anchored to the sidebar's right border seam,
+   vertically centered - lets the whole rail collapse/expand without eating
+   space in the nav or footer flow. */
 .sidebar-collapse-btn {
-  flex-shrink: 0;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-surface-raised);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
 }
 
 .sidebar-collapse-btn .icon {
+  width: 14px;
+  height: 14px;
+  transform: rotate(180deg);
   transition: transform var(--transition-base);
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
 }
 
 /* Icon-rail collapse only applies at desktop widths (distinct from the
@@ -1072,6 +1099,11 @@ button.secondary:active,
 @media (min-width: 1101px) {
   .app-shell.sidebar-collapsed .sidebar {
     width: 72px;
+    /* Less horizontal padding than the expanded rail's 16px - with labels
+       gone there's no text to protect from the edge, so that space is
+       better spent letting icons sit bigger/closer to true-centered. */
+    padding-left: var(--sp-2);
+    padding-right: var(--sp-2);
   }
 
   .app-shell.sidebar-collapsed .sidebar-head {
@@ -1081,12 +1113,12 @@ button.secondary:active,
   .app-shell.sidebar-collapsed .sidebar-wordmark,
   .app-shell.sidebar-collapsed .nav-label,
   .app-shell.sidebar-collapsed .user-email,
-  .app-shell.sidebar-collapsed .theme-toggle-option span:not(.icon) {
+  .app-shell.sidebar-collapsed .sidebar-profile-trigger .icon {
     display: none;
   }
 
   .app-shell.sidebar-collapsed .nav-item,
-  .app-shell.sidebar-collapsed .sidebar-user {
+  .app-shell.sidebar-collapsed .sidebar-profile-trigger {
     justify-content: center;
   }
 
@@ -1095,23 +1127,27 @@ button.secondary:active,
     padding-right: 0;
   }
 
-  .app-shell.sidebar-collapsed .sidebar-collapse-btn .icon {
-    transform: rotate(180deg);
+  .app-shell.sidebar-collapsed .nav-item .icon {
+    width: 20px;
+    height: 20px;
   }
 
-  /* The labeled two-option pill (min-width ~130px) can't fit in the 72px
-     rail, so collapse it into two stacked icon-only squares instead of
-     trying to shrink the same layout down. */
-  .app-shell.sidebar-collapsed .theme-toggle {
-    flex-direction: column;
-    width: auto;
-    padding: 3px;
-  }
-
-  .app-shell.sidebar-collapsed .theme-toggle-option {
-    flex: none;
+  .app-shell.sidebar-collapsed .sidebar-logo,
+  .app-shell.sidebar-collapsed .sidebar-logo .icon {
     width: 28px;
-    padding: 0;
+    height: 28px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-collapse-btn .icon {
+    transform: rotate(0deg);
+  }
+
+  /* The profile popover is absolutely positioned (not part of the rail's
+     flex flow), so it keeps its full labeled width even when the rail is
+     narrowed - it just opens over the content instead of inline. */
+  .app-shell.sidebar-collapsed .sidebar-profile-menu {
+    left: 0;
+    right: auto;
   }
 }
 
@@ -1132,9 +1168,21 @@ button.secondary:active,
 
 .sidebar-logo {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 26px;
   height: 26px;
   color: var(--accent);
+}
+
+/* The icon glyph itself renders at 1em (see .icon), which is smaller than
+   this span's 26px box - without an explicit size here it's centered by the
+   flex rules above but stays visually small/off relative to the box's
+   intended footprint, most noticeable once the wordmark next to it disappears
+   in the collapsed rail. Fill the box so it reads as one 26px mark. */
+.sidebar-logo .icon {
+  width: 26px;
+  height: 26px;
 }
 
 .sidebar-close {
@@ -1186,18 +1234,8 @@ button.secondary:active,
 
 .sidebar-foot {
   margin-top: auto;
-  display: grid;
-  gap: var(--sp-3);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--border-subtle);
-}
-
-.sidebar-user {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: 4px 4px;
-  min-width: 0;
 }
 
 .user-avatar {
@@ -1228,8 +1266,65 @@ button.secondary:active,
   white-space: nowrap;
 }
 
-.nav-item-logout {
+/* ------------------------------------------------------------------ */
+/* Sidebar profile card + popover                                     */
+/* ------------------------------------------------------------------ */
+
+.sidebar-profile {
+  position: relative;
+}
+
+.sidebar-profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-width: 0;
+  padding: var(--sp-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+
+.sidebar-profile-trigger:hover {
+  background: var(--bg-surface-hover);
+}
+
+.sidebar-profile-trigger .user-email {
+  flex: 1;
+  text-align: left;
+}
+
+.sidebar-profile-trigger .icon {
+  width: 14px;
+  height: 14px;
   color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.sidebar-profile .sidebar-profile-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  min-width: 0;
+  gap: var(--sp-1);
+}
+
+.sidebar-profile-menu-theme {
+  padding: var(--sp-1) var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-profile-menu-theme .theme-toggle {
+  width: 100%;
+  justify-content: stretch;
+}
+
+.sidebar-profile-menu-theme .theme-toggle-option {
+  flex: 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1277,19 +1372,6 @@ button.secondary:active,
   box-shadow: var(--shadow-sm);
 }
 
-.sidebar-theme-toggle {
-  justify-content: center;
-}
-
-.sidebar-theme-toggle .theme-toggle {
-  width: 100%;
-  justify-content: stretch;
-}
-
-.sidebar-theme-toggle .theme-toggle-option {
-  flex: 1;
-}
-
 /* Compact icon-only variant used in the floating Focus Mode toolbar and the
    mobile topbar, where there's no room for the labeled segmented control. */
 .theme-toggle-icon-btn .icon {
@@ -1334,6 +1416,58 @@ button.secondary:active,
   display: flex;
   gap: var(--sp-3);
   flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Section tabs                                                       */
+/*                                                                      */
+/* Underline tab row switching between the sibling views merged under   */
+/* one sidebar nav item (Requests: My Requests/Pending Requests;        */
+/* Support: Contact Us/My Support Tickets). Deliberately lighter than   */
+/* .auth-method-tabs' filled segmented pill - it sits above a page's    */
+/* own header/content rather than replacing a single form's mode.       */
+/* ------------------------------------------------------------------ */
+
+.section-tabs {
+  display: flex;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-6);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.section-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-1);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  margin-bottom: -1px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.section-tab .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.section-tab:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.section-tab[aria-selected='true'] {
+  background: transparent;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.section-tab[aria-selected='true']:hover {
+  background: transparent;
 }
 
 .page-title {
@@ -5226,6 +5360,16 @@ button.admin-stat-card {
 .app-footer-link:hover {
   color: var(--accent-hover);
   text-decoration: underline;
+}
+
+/* Dashboard footer sits inside .main-area, which already stops at the
+   sidebar's edge - unlike the marketing/legal pages, there's no separate
+   wide canvas to center a narrower block within, so its content should
+   simply fill .app-footer's existing padding instead of being additionally
+   capped at 1280px and centered inside it. */
+.app-footer-dashboard .app-footer-inner {
+  max-width: none;
+  margin: 0;
 }
 
 .app-footer-auth {

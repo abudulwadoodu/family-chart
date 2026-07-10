@@ -89,6 +89,7 @@ import {
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
   renderMyRequestsPageMarkup,
+  renderSectionTabs,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
@@ -1327,12 +1328,39 @@ function renderDashboard() {
     !isTimelineView &&
     Boolean(state.selectedTreeId);
 
+  // "Requests" and "Support" are each a single sidebar nav item covering two
+  // sibling views - render the underline tab row above whichever one is
+  // active so the other stays reachable. ticketDetail is a drill-in from My
+  // Support Tickets (it has its own back-link), so it doesn't get tabs.
+  const isRequestsSection = isPendingRequestsView || isMyRequestsView;
+  const isSupportSection = isContactView || isMyTicketsView;
+  const sectionTabs = isRequestsSection
+    ? renderSectionTabs({
+        idPrefix: 'requests-tab',
+        activeId: isPendingRequestsView ? 'pendingRequests' : 'myRequests',
+        tabs: [
+          { id: 'myRequests', label: 'My Requests', icon: 'list' },
+          { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
+        ],
+      })
+    : isSupportSection
+      ? renderSectionTabs({
+          idPrefix: 'support-tab',
+          activeId: isMyTicketsView ? 'myTickets' : 'contact',
+          tabs: [
+            { id: 'contact', label: 'Contact Us', icon: 'mail' },
+            { id: 'myTickets', label: 'My Support Tickets', icon: 'clock' },
+          ],
+        })
+      : '';
+
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme, collapsed: state.sidebarCollapsed })}
       <div class="main-area">
         ${renderMobileTopbar()}
         <main class="content">
+          ${sectionTabs}
           ${
             isSecurityView
               ? renderSecuritySettingsMarkup()
@@ -1368,6 +1396,8 @@ function renderDashboard() {
       </div>
     </div>
   `;
+
+  if (isRequestsSection || isSupportSection) attachSectionTabListeners();
 
   attachShellListeners();
 
@@ -1478,23 +1508,12 @@ function attachShellListeners() {
     render();
     loadMfaStatus();
   });
-  document.querySelector('#nav-contact-btn').addEventListener('click', () => {
+  document.querySelector('#nav-support-btn').addEventListener('click', () => {
     state.dashboardView = 'contact';
     setSidebarOpen(false);
     render();
   });
-  document.querySelector('#nav-tickets-btn').addEventListener('click', () => {
-    state.dashboardView = 'myTickets';
-    setSidebarOpen(false);
-    render();
-    loadMyTickets(state, render);
-  });
-  document.querySelector('#nav-pending-requests-btn').addEventListener('click', () => {
-    state.dashboardView = 'pendingRequests';
-    setSidebarOpen(false);
-    render();
-  });
-  document.querySelector('#nav-my-requests-btn').addEventListener('click', () => {
+  document.querySelector('#nav-requests-btn').addEventListener('click', () => {
     state.dashboardView = 'myRequests';
     setSidebarOpen(false);
     render();
@@ -1510,7 +1529,36 @@ function attachShellListeners() {
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-collapse-btn')?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
+  bindDropdownTriggers(document.querySelector('.sidebar'));
   attachThemeToggleListeners();
+}
+
+// Switches dashboardView within the current section (Requests or Support) -
+// the next render()'s own isMyTicketsView/isPendingRequestsView/etc. guards
+// already call the right loadX() when that view isn't loaded yet, so this
+// only needs to flip state.dashboardView. Arrow-key roving tabindex mirrors
+// attachAuthMethodTabListeners' pattern above.
+function attachSectionTabListeners() {
+  const tabs = document.querySelectorAll('.section-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const view = tab.dataset.tabId;
+      if (view === state.dashboardView) return;
+      state.dashboardView = view;
+      render();
+    });
+  });
+  const tabList = document.querySelector('.section-tabs');
+  tabList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const list = Array.from(tabs);
+    const currentIndex = list.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const next = list[(currentIndex + delta + list.length) % list.length];
+    next.click();
+    next.focus();
+  });
 }
 
 // Wires up every theme-toggle control currently in the DOM (sidebar, and
