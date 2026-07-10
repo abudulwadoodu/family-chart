@@ -2891,6 +2891,46 @@ button.secondary:active,
 }
 
 /* ------------------------------------------------------------------ */
+/* Tree settings (owner-only view mode)                               */
+/* ------------------------------------------------------------------ */
+
+.tree-settings-shell {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}
+
+.tree-settings-section {
+  max-width: 560px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+}
+
+.tree-settings-title {
+  margin: 0 0 var(--sp-2);
+  font-size: 1.05rem;
+}
+
+.tree-settings-desc {
+  margin: 0 0 var(--sp-3);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.tree-settings-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.tree-settings-select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* Focus Mode (maximize the tree)                                     */
 /* ------------------------------------------------------------------ */
 

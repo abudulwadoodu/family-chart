@@ -452,6 +452,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
     { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
   ];
   if (tree.role === 'owner') {
+    items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
   }
@@ -601,13 +602,18 @@ export function renderTreeViewerHeader({ treeName, role }) {
   `;
 }
 
-export function renderViewModeToggle({ viewMode, canEdit }) {
+export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
   return `
     <div class="view-mode-toggle">
       <button type="button" id="focused-mode-btn" class="chip ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
       <button type="button" id="all-nodes-mode-btn" class="chip ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
       <button type="button" id="relationship-manager-mode-btn" class="chip ${viewMode === 'relationship-manager' ? 'chip-active' : ''}" ${viewMode === 'relationship-manager' ? 'disabled' : ''}>Relationships</button>
       <button type="button" id="duplicate-manager-mode-btn" class="chip ${viewMode === 'duplicate-manager' ? 'chip-active' : ''}" ${viewMode === 'duplicate-manager' ? 'disabled' : ''}>Duplicates</button>
+      ${
+        isOwner
+          ? `<button type="button" id="tree-settings-mode-btn" class="chip ${viewMode === 'settings' ? 'chip-active' : ''}" ${viewMode === 'settings' ? 'disabled' : ''}>Settings</button>`
+          : ''
+      }
     </div>
   `;
 }
@@ -616,6 +622,20 @@ export function renderResetViewButton() {
   return `
     <button type="button" id="reset-view-btn" class="chip reset-view-btn" title="Reset to the tree's default view">
       ${icon('home')}<span>Reset View</span>
+    </button>
+  `;
+}
+
+export function renderFullTreeToggleButton({ fullTreeMode }) {
+  return `
+    <button
+      type="button"
+      id="full-tree-toggle-btn"
+      class="chip ${fullTreeMode ? 'chip-active' : ''}"
+      title="${fullTreeMode ? 'Showing every generation - click to limit again' : 'Show every connected generation, not just the nearby ones'}"
+      aria-pressed="${fullTreeMode ? 'true' : 'false'}"
+    >
+      ${icon('trees')}<span>Full Tree</span>
     </button>
   `;
 }

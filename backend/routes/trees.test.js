@@ -182,3 +182,76 @@ describe('tree sharing and permissions', () => {
     expect(deleteRes.status).toBe(403);
   });
 });
+
+describe('tree settings (default focus person)', () => {
+  it('lets the owner set the default focus person to an existing member and returns it from GET', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({ json_data: [{ id: 'p1', data: { 'first name': 'Jane', gender: 'F' }, rels: {} }] });
+
+    const settingsRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_main_id: 'p1' });
+    expect(settingsRes.status).toBe(200);
+    expect(settingsRes.body.default_main_id).toBe('p1');
+
+    const getRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(getRes.body.tree.default_main_id).toBe('p1');
+  });
+
+  it('rejects a default_main_id that is not a member of the tree', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_main_id: 'not-a-real-person' });
+    expect(res.status).toBe(400);
+  });
+
+  it('lets the owner clear the default focus person by sending null', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({ json_data: [{ id: 'p1', data: { 'first name': 'Jane', gender: 'F' }, rels: {} }] });
+    await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_main_id: 'p1' });
+
+    const clearRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_main_id: null });
+    expect(clearRes.status).toBe(200);
+    expect(clearRes.body.default_main_id).toBeNull();
+  });
+
+  it('blocks non-owners from changing tree settings', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const editor = await asUser('editor-sub', 'editor@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .post(`/api/trees/${treeId}/share`)
+      .set('Authorization', owner)
+      .send({ email: 'editor@example.com', role: 'editor' });
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', editor)
+      .send({ default_main_id: null });
+    expect(res.status).toBe(403);
+  });
+});

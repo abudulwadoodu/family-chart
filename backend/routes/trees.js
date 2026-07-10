@@ -265,7 +265,10 @@ treesRouter.patch('/requests/:id', async (req, res, next) => {
 treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { rows: treeRows } = await query('SELECT id, name, owner_id, created_at FROM trees WHERE id = $1', [treeId]);
+    const { rows: treeRows } = await query(
+      'SELECT id, name, owner_id, created_at, default_main_id FROM trees WHERE id = $1',
+      [treeId]
+    );
     const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
 
     const tree = treeRows[0];
@@ -310,6 +313,37 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), async (req, res, next) => 
     await query('UPDATE trees SET name = $1 WHERE id = $2', [trimmedName, treeId]);
 
     return res.json({ ok: true, name: trimmedName });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Owner-only tree settings distinct from the name-only PATCH /:id above -
+// currently just the default focus person (Focused mode's initial main_id
+// for anyone opening the tree), kept on its own route so the settings tab
+// doesn't need to resend the tree name just to change one setting, and vice
+// versa for the rename form.
+treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { default_main_id: defaultMainId } = req.body || {};
+
+    if (defaultMainId !== null && !isNonEmptyString(defaultMainId, 200)) {
+      return res.status(400).json({ error: 'default_main_id must be a person id or null' });
+    }
+
+    if (defaultMainId !== null) {
+      const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
+      const people = familyDataRows[0]?.json_data ?? [];
+      const exists = Array.isArray(people) && people.some((person) => person.id === defaultMainId);
+      if (!exists) {
+        return res.status(400).json({ error: 'default_main_id must refer to a member of this tree' });
+      }
+    }
+
+    await query('UPDATE trees SET default_main_id = $1 WHERE id = $2', [defaultMainId, treeId]);
+
+    return res.json({ ok: true, default_main_id: defaultMainId });
   } catch (error) {
     return next(error);
   }
