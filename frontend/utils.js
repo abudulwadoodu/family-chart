@@ -10,9 +10,9 @@ export function escapeHtml(value) {
 }
 
 export function formatRelativeTime(isoString) {
-  if (!isoString) return 'Unknown';
+  if (!isoString) return 'Last updated: Unknown';
   const date = new Date(`${isoString.replace(' ', 'T')}Z`);
-  if (Number.isNaN(date.getTime())) return 'Unknown';
+  if (Number.isNaN(date.getTime())) return 'Last updated: Unknown';
 
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.round(diffMs / 1000);

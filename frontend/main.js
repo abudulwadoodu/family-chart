@@ -225,6 +225,10 @@ const state = {
     loading: false,
     searched: false,
     results: [],
+    // Compact toolbar variant starts collapsed behind a text link so it
+    // doesn't compete visually with the primary "Search trees by name..."
+    // box; clicking the link swaps it for the actual search form.
+    expanded: false,
   },
   // "Pending Requests" dashboard view (incoming join requests for trees this
   // user owns).
@@ -330,6 +334,55 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('#member-search')) return;
   closeMemberSearchResults();
 });
+
+// Blurs the compact "Discover other family branches" box on any outside
+// click so it can collapse back to its idle text-link state (see
+// attachCompactJoinSearchCollapseListeners' blur handler) - clicking a
+// non-focusable element (e.g. plain page background) doesn't naturally blur
+// a focused input on its own. No d3-zoom canvas sits on this page (that's
+// only inside an open tree), so a plain bubble-phase click is enough here,
+// unlike the member-search capture-phase listener below.
+//
+// Also has to ignore clicks on #join-search-reveal-btn itself: that button's
+// own click handler synchronously expands the box and focuses the new input
+// (via renderTreeGrid's innerHTML swap) *before* this delegated listener
+// runs (it's still the same click event, bubbling from the button up to
+// document). Without this guard, this listener would see "click landed
+// outside #join-search-form" (true - the reveal button was never inside the
+// form) plus "the input is now focused" (also true, we just focused it) and
+// immediately blur it back off, collapsing the box before the user ever
+// sees it open.
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#join-search-form') || event.target.closest('#join-search-reveal-btn')) return;
+  const joinSearchInput = document.querySelector('#join-search-input');
+  if (joinSearchInput && state.joinSearch.expanded && document.activeElement === joinSearchInput) {
+    joinSearchInput.blur();
+  }
+});
+
+// Blurs the member-search input on any outside pointer-down so it can
+// collapse back to its icon-only idle state (see attachMemberSearchListeners'
+// blur handler). This has to be a CAPTURE-phase mousedown, not a bubble-phase
+// click: the family-chart canvas has d3-zoom attached directly to its <svg>,
+// and d3-zoom (a) calls stopImmediatePropagation on every mousedown there
+// (so a bubble-phase document click/mousedown listener never even sees it),
+// and (b) after any gesture with the slightest pointer movement - which a
+// "click" on a pannable chart very often is - d3-drag's yesdrag() swallows
+// the resulting click entirely via a one-time CAPTURE-phase listener on
+// window (see node_modules/d3-drag/src/nodrag.js). A capture-phase mousedown
+// on document fires before either of those, so it's the only reliable way to
+// detect "the user is interacting with the chart" here.
+document.addEventListener(
+  'mousedown',
+  (event) => {
+    if (event.target.closest('#member-search')) return;
+    const memberSearchInput = document.querySelector('#member-search-input');
+    if (memberSearchInput && document.activeElement === memberSearchInput) {
+      memberSearchInput.blur();
+    }
+  },
+  { capture: true }
+);
 
 // Minimal SPA router for the public legal pages (no router library exists in
 // this app - see maybeOpenDeepLinkedTicket's note on the ?ticket= param).
@@ -1658,6 +1711,36 @@ function attachJoinResultListeners() {
   });
 }
 
+// Collapses the compact "Discover other family branches" box back to its
+// idle text-link state (see renderCompactJoinSearch's `expanded` branch) -
+// only wired when state.joinSearch.expanded is true, i.e. only for the
+// compact toolbar variant on the active (non-empty) trees grid. The
+// full-page search on the zero-trees empty state (renderTreesEmptyStateMarkup)
+// reuses the same #join-search-input/#join-search-form ids but has no
+// expand/collapse concept at all, so this must never run there.
+function attachCompactJoinSearchCollapseListeners() {
+  const input = document.querySelector('#join-search-input');
+  if (!input) return;
+
+  const collapseIfIdle = () => {
+    if (!input.value.trim() && document.activeElement !== input) {
+      state.joinSearch.expanded = false;
+      renderTreeGrid();
+    }
+  };
+
+  input.addEventListener('blur', () => setTimeout(collapseIfIdle, 0));
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    if (input.value) {
+      input.value = '';
+    } else {
+      input.blur();
+    }
+  });
+}
+
 async function handleJoinSearch(event) {
   event.preventDefault();
   const query = String(new FormData(event.target).get('query') || '').trim();
@@ -1798,7 +1881,7 @@ function renderTreeGrid() {
     ${renderTreesToolbarRow({
       search: state.treeSearch,
       sort: state.treeSort,
-      discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query }),
+      discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query, expanded: state.joinSearch.expanded }),
     })}
     <div id="discover-search-results">${renderCompactJoinSearchResults(state.joinSearch)}</div>
     <div id="tree-grid" class="tree-grid"></div>
@@ -1812,10 +1895,45 @@ function renderTreeGrid() {
     state.treeSort = event.target.value;
     renderActiveTreeGrid();
   });
-  document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
+
+  if (state.joinSearch.expanded) {
+    document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
+    attachCompactJoinSearchCollapseListeners();
+    // The input's `autofocus` attribute (renderCompactJoinSearch) only fires
+    // reliably on elements present at initial page parse - browsers don't
+    // consistently honor it on markup injected later via innerHTML, which is
+    // exactly what happens here after clicking the reveal link. Focus it
+    // explicitly so the box doesn't render expanded-but-unfocused (which
+    // would then never collapse, since collapseIfIdle requires blur to fire
+    // and there was nothing focused to blur from).
+    document.querySelector('#join-search-input')?.focus();
+  } else {
+    document.querySelector('#join-search-reveal-btn').addEventListener('click', () => {
+      state.joinSearch.expanded = true;
+      renderTreeGrid();
+    });
+  }
   attachJoinResultListeners();
 
   renderActiveTreeGrid();
+}
+
+// Toggles #tree-grid between the "No trees match your search" message and
+// the actual card grid based on the array that's about to be rendered, so
+// the two states can never both be in the DOM at once - the message is only
+// ever written when the array driving the grid is empty.
+function toggleTreesEmptyState(container, sortedTrees) {
+  if (sortedTrees.length === 0) {
+    container.innerHTML = renderEmptyState({ mode: 'no-results' });
+    document.querySelector('#empty-clear-search-btn')?.addEventListener('click', () => {
+      state.treeSearch = '';
+      const searchInput = document.querySelector('#tree-search-input');
+      if (searchInput) searchInput.value = '';
+      renderActiveTreeGrid();
+    });
+    return true;
+  }
+  return false;
 }
 
 // Just the personal tree-card grid (or its filtered-empty state), scoped
@@ -1830,16 +1948,7 @@ function renderActiveTreeGrid() {
   const filtered = term ? state.trees.filter((tree) => tree.name.toLowerCase().includes(term)) : state.trees;
   const sorted = sortTrees(filtered, state.treeSort);
 
-  if (sorted.length === 0) {
-    container.innerHTML = renderEmptyState({ mode: 'no-results' });
-    document.querySelector('#empty-clear-search-btn')?.addEventListener('click', () => {
-      state.treeSearch = '';
-      const searchInput = document.querySelector('#tree-search-input');
-      if (searchInput) searchInput.value = '';
-      renderActiveTreeGrid();
-    });
-    return;
-  }
+  if (toggleTreesEmptyState(container, sorted)) return;
 
   container.innerHTML = sorted
     .map((tree) => renderTreeCard(tree, { renaming: state.renamingTreeId === tree.id }))
@@ -1847,9 +1956,34 @@ function renderActiveTreeGrid() {
   bindTreeGridListeners(container);
 }
 
+// Elements inside a tree card that must NOT trigger the card's own
+// open-tree click handler - the kebab menu/dropdown, the rename form and its
+// buttons, and the "Open" button (which already opens the tree itself).
+const TREE_CARD_INTERACTIVE_SELECTOR =
+  '.tree-card-menu-wrap, .tree-rename-form, .tree-open-btn, .tree-card-title';
+
 function bindTreeGridListeners(container) {
   container.querySelectorAll('.tree-open-btn, .tree-card-title').forEach((el) => {
     el.addEventListener('click', () => loadTree(Number(el.dataset.treeId)));
+  });
+
+  // Whole-card click/keyboard-activation to open the tree, per the
+  // role="button" tabindex="0" article markup in renderTreeCard - skipped
+  // when the click originated inside a nested interactive control (those
+  // already have their own handlers above) or while the card is mid-rename.
+  container.querySelectorAll('.tree-card-clickable').forEach((card) => {
+    card.addEventListener('click', (event) => {
+      if (event.target.closest(TREE_CARD_INTERACTIVE_SELECTOR)) return;
+      if (card.querySelector('.tree-rename-form')) return;
+      loadTree(Number(card.dataset.treeId));
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (event.target.closest(TREE_CARD_INTERACTIVE_SELECTOR)) return;
+      if (card.querySelector('.tree-rename-form')) return;
+      event.preventDefault();
+      loadTree(Number(card.dataset.treeId));
+    });
   });
 
   bindDropdownTriggers(container);
@@ -2080,16 +2214,44 @@ function attachTreeViewerListeners() {
 // ---------------------------------------------------------------------------
 
 function attachMemberSearchListeners() {
+  const container = document.querySelector('#member-search');
   const input = document.querySelector('#member-search-input');
   const resultsEl = document.querySelector('#member-search-results');
   const clearBtn = document.querySelector('#member-search-clear-btn');
-  if (!input || !resultsEl || !clearBtn) return;
+  if (!container || !input || !resultsEl || !clearBtn) return;
+
+  // Idle (unfocused + empty) collapses to an icon-only pill via CSS keyed
+  // off .member-search-expanded - :focus-within alone would collapse it the
+  // instant focus moves to a result button inside #member-search-results,
+  // so this class also has to stay on while there's a typed query.
+  const collapseIfIdle = () => {
+    if (!input.value && document.activeElement !== input) {
+      container.classList.remove('member-search-expanded');
+    }
+  };
+
+  container.addEventListener('mousedown', (event) => {
+    // Clicking the collapsed pill focuses the (currently invisible) input
+    // rather than relying on the label's implicit click-to-focus, since the
+    // input is opacity:0 + pointer-events:none while collapsed.
+    if (container.classList.contains('member-search-expanded') || document.activeElement === input) return;
+    event.preventDefault();
+    container.classList.add('member-search-expanded');
+    input.focus();
+  });
 
   input.addEventListener('focus', () => {
+    container.classList.add('member-search-expanded');
     // Build (or rebuild) the index lazily on first interaction so it always
     // reflects the latest edits, without recomputing it on every keystroke.
     state.memberSearchIndex = buildMemberSearchIndex(state.selectedTreeData);
     if (input.value.trim()) runMemberSearch(input.value);
+  });
+
+  input.addEventListener('blur', () => {
+    // Deferred so a click on the clear button or a result item (which blurs
+    // the input first) still lands before we decide whether to collapse.
+    setTimeout(collapseIfIdle, 0);
   });
 
   input.addEventListener('input', () => {
@@ -2211,6 +2373,12 @@ function selectSearchedMember(id) {
     input.value = '';
     const clearBtn = document.querySelector('#member-search-clear-btn');
     if (clearBtn) clearBtn.hidden = true;
+    // Clicking a result button already moved focus off the input, so the
+    // idle collapse condition (empty + unfocused) is met here - collapse
+    // back to the icon pill now that the search is done, same as blur.
+    if (document.activeElement !== input) {
+      document.querySelector('#member-search')?.classList.remove('member-search-expanded');
+    }
   }
 
   if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager') {

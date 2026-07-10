@@ -205,19 +205,23 @@ export function renderTreesEmptyStateMarkup({ query, loading, searched, results 
   `;
 }
 
-// Compact, single-line variant of the same discover-search shown once the
-// account already has trees - sits in the toolbar row next to the personal
-// "Search trees by name..." filter. Styled with the accent color
+// Discover-search shown once the account already has trees. Collapsed by
+// default to a plain text link (so it doesn't visually compete with the
+// primary "Search trees by name..." box in the toolbar row); clicking it
+// swaps in the actual search form, still styled with the accent color
 // (discover-search-box) so it reads as "search everyone's trees" rather
-// than "filter my trees", even though the two boxes sit side by side.
-export function renderCompactJoinSearch({ query }) {
+// than "filter my trees".
+export function renderCompactJoinSearch({ query, expanded }) {
+  if (!expanded) {
+    return `<button type="button" id="join-search-reveal-btn" class="link-btn discover-search-link">${icon('search')}<span>Discover other family branches</span></button>`;
+  }
+
   return `
     <form id="join-search-form" class="discover-search-form">
       <label class="search-box discover-search-box" title="Search the entire database for other family trees, not just yours">
         ${icon('search')}
         <input id="join-search-input" type="search" name="query" placeholder="Discover other family branches..." maxlength="120" value="${escapeHtml(query)}" />
       </label>
-      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
     </form>
   `;
 }
@@ -468,9 +472,10 @@ export function renderTreeCard(tree, { renaming } = {}) {
     : `<h3 class="tree-card-title" data-tree-id="${tree.id}">${escapeHtml(tree.name)}</h3>`;
 
   const memberLabel = `${tree.member_count} member${tree.member_count === 1 ? '' : 's'}`;
+  const updatedLabel = formatRelativeTime(tree.updated_at);
 
   return `
-    <article class="tree-card" data-tree-id="${tree.id}">
+    <article class="tree-card tree-card-clickable" data-tree-id="${tree.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
       <div class="tree-card-top">
         <div class="tree-card-icon">${icon('trees')}</div>
         <div class="tree-card-menu-wrap">
@@ -481,7 +486,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
       <div class="tree-card-body">
         ${titleBlock}
         <p class="tree-card-meta">${escapeHtml(memberLabel)}</p>
-        <p class="tree-card-meta tree-card-meta-muted">${escapeHtml(formatRelativeTime(tree.updated_at))}</p>
+        <p class="tree-card-meta tree-card-meta-muted">${escapeHtml(updatedLabel)}</p>
       </div>
       <div class="tree-card-foot">
         <span class="badge badge-role-${tree.role}">${ROLE_LABELS[tree.role] || tree.role}</span>

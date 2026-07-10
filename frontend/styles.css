@@ -1170,10 +1170,18 @@ button.secondary:active,
   color: var(--text-primary);
 }
 
+/* Solid accent fill with white text/icon (rather than the soft accent tint
+   used elsewhere for badges/icons) so the active nav item reads at a glance
+   against the light-blue sidebar background, and keeps AA contrast in both
+   themes without depending on --accent-on-soft's weaker tinted contrast. */
 .nav-item-active,
 .nav-item-active:hover {
-  background: var(--accent-soft);
-  color: var(--accent-on-soft);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.nav-item-active .icon {
+  color: #ffffff;
 }
 
 .sidebar-foot {
@@ -1555,8 +1563,23 @@ button.secondary:active,
   white-space: nowrap;
 }
 
+/* Native <select> arrows sit flush against the box's right edge with no
+   dedicated padding of their own (padding-right pushes the option text too,
+   not just the arrow) and render inconsistently across browsers, so the
+   native arrow is swapped for a custom chevron with its own controlled
+   inset instead of trying to pad around the browser's built-in one. */
 .sort-box select {
   min-width: 170px;
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2379829a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+}
+
+[data-theme='light'] .sort-box select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a94a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 /* Compact "discover other family branches" search shown in the active-state
@@ -1568,6 +1591,30 @@ button.secondary:active,
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* Collapsed state of the discover-search: a plain text link so it reads as
+   a secondary action next to the primary "Search trees by name..." box,
+   instead of a second input box competing for attention in the same row. */
+.discover-search-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.discover-search-link .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.discover-search-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
 }
 
 .discover-search-box {
@@ -1621,6 +1668,18 @@ button.secondary:active,
   transform: translateY(-2px);
 }
 
+/* The whole card opens the tree now (see .tree-open-btn's click handler in
+   main.js), so it needs its own affordances - pointer cursor and a visible
+   focus ring for keyboard users tabbing to the [role="button"] article. */
+.tree-card-clickable {
+  cursor: pointer;
+}
+
+.tree-card-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .tree-card-top {
   display: flex;
   align-items: center;
@@ -1649,11 +1708,11 @@ button.secondary:active,
 
 .tree-card-body {
   margin-top: var(--sp-4);
-  flex: 1;
+  margin-bottom: auto;
 }
 
 .tree-card-title {
-  margin: 0 0 var(--sp-2);
+  margin: 0 0 var(--sp-1);
   font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
@@ -1667,13 +1726,17 @@ button.secondary:active,
   margin: 0;
   font-size: 0.82rem;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.45;
 }
 
 .tree-card-meta-muted {
   color: var(--text-tertiary);
 }
 
+/* Pushed to the card's bottom edge via margin-bottom: auto on .tree-card-body
+   above (not flex:1 on the body itself) - that way the body's height stays
+   intentional (tight to its content, with a guaranteed --sp-4 gap before the
+   separator) instead of stretching to fill the card unpredictably. */
 .tree-card-foot {
   display: flex;
   align-items: center;
@@ -2044,16 +2107,52 @@ button.secondary:active,
 /* Member search (tree toolbar)                                       */
 /* ------------------------------------------------------------------ */
 
+/* Collapses to an icon-only pill when idle (unfocused and empty) so it
+   doesn't permanently eat toolbar width next to the view-mode chips, and
+   expands to the full input on focus/click - see member-search-expanded
+   in main.js for the "keep it open while there's a typed query" rule that
+   CSS :focus-within alone can't express (blurring to click a result inside
+   #member-search-results shouldn't collapse it mid-search). */
 .member-search {
   position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 38px;
+  transition: width var(--transition-base);
+}
+
+.member-search.member-search-expanded,
+.member-search:focus-within {
   flex: 1;
+  width: auto;
   min-width: 220px;
   max-width: 360px;
 }
 
 .member-search-box {
+  min-width: 0;
   max-width: none;
   width: 100%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.member-search.member-search-expanded .member-search-box,
+.member-search:focus-within .member-search-box {
+  cursor: text;
+}
+
+.member-search:not(.member-search-expanded):not(:focus-within) .member-search-box input,
+.member-search:not(.member-search-expanded):not(:focus-within) .member-search-clear {
+  opacity: 0;
+  pointer-events: none;
+  min-width: 0;
+  width: 0;
+  padding: 0;
+}
+
+.member-search-box input {
+  transition: opacity var(--transition-fast);
 }
 
 .member-search-clear {
@@ -2065,6 +2164,13 @@ button.secondary:active,
   padding: 2px;
   color: var(--text-tertiary);
   cursor: pointer;
+}
+
+/* Author `display: flex` above otherwise beats the UA stylesheet's
+   `[hidden] { display: none }`, so the `hidden` attribute set/cleared in
+   main.js (clearBtn.hidden = !input.value) would do nothing without this. */
+.member-search-clear[hidden] {
+  display: none;
 }
 
 .member-search-clear:hover {
