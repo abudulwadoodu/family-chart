@@ -8,19 +8,54 @@ import { icon } from './icons.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import * as mediaApi from './mediaApi.js';
 import { hydrateMediaSources } from './mediaSrc.js';
+import {
+  createVisibilityPickerState,
+  setVisibilityPickerValue,
+  loadCollaborators,
+  renderVisibilityPickerHtml,
+  attachVisibilityPickerListeners,
+  getVisibilityPayload,
+} from './visibilityPicker.js';
 
 function memberLabel(memberIndex, memberId) {
   return memberIndex.find((m) => m.id === memberId)?.label || memberId;
 }
 
-function editForm({ title, description }) {
+// Compact "who can see this" summary shown in view mode, independent of the
+// title/description pencil-edit - visibility was previously only reachable
+// by clicking that pencil, which read as "edit title" and buried the
+// sharing control where people didn't think to look for it.
+function visibilitySummary(media, shareCount) {
+  if (media.visibility !== 'private') {
+    return { icon: 'eye', label: 'Everyone with tree access' };
+  }
+  if (!shareCount) {
+    return { icon: 'lock', label: 'Only me' };
+  }
+  return { icon: 'lock', label: `Shared with ${shareCount} ${shareCount === 1 ? 'person' : 'people'}` };
+}
+
+function visibilityBadge(media, shareCount, readOnly) {
+  const summary = visibilitySummary(media, shareCount);
+  if (readOnly) {
+    return `
+      <p class="lightbox-visibility-badge lightbox-visibility-static">
+        ${icon(summary.icon)}<span>${escapeHtml(summary.label)}</span>
+      </p>
+    `;
+  }
+  return `
+    <button type="button" class="lightbox-visibility-badge" id="lightbox-visibility-btn">
+      ${icon(summary.icon)}<span>${escapeHtml(summary.label)}</span>${icon('pencil')}
+    </button>
+  `;
+}
+
+function editForm({ title }) {
   return `
     <div class="lightbox-edit-form">
       <label>Title
         <input type="text" id="lightbox-edit-title" value="${escapeHtml(title)}" maxlength="200" placeholder="Untitled" />
-      </label>
-      <label>Description
-        <textarea id="lightbox-edit-description" maxlength="2000" placeholder="Add a description&hellip;" rows="3">${escapeHtml(description)}</textarea>
       </label>
       <div class="modal-actions row">
         <button type="button" class="btn-secondary" id="lightbox-edit-cancel-btn">Cancel</button>
@@ -30,9 +65,57 @@ function editForm({ title, description }) {
   `;
 }
 
-function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, editing, editDraft, context }) {
+function descriptionEditForm(description) {
+  return `
+    <div class="lightbox-edit-form">
+      <label>Description
+        <textarea id="lightbox-edit-description" maxlength="2000" placeholder="Add a description&hellip;" rows="3">${escapeHtml(description)}</textarea>
+      </label>
+      <div class="modal-actions row">
+        <button type="button" class="btn-secondary" id="lightbox-description-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="lightbox-description-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+// Description row shown in view mode, independent of the title pencil - an
+// item uploaded without a description (uploads don't collect one upfront)
+// previously rendered nothing at all here, giving no hint you could add one.
+function descriptionRow(media, readOnly) {
+  if (readOnly) {
+    return media.description ? `<p class="modal-message lightbox-description">${escapeHtml(media.description)}</p>` : '';
+  }
+  return media.description
+    ? `
+      <div class="lightbox-description-row">
+        <p class="modal-message lightbox-description">${escapeHtml(media.description)}</p>
+        <button type="button" class="icon-btn" id="lightbox-description-btn" aria-label="Edit description">${icon('pencil')}</button>
+      </div>
+    `
+    : `
+      <button type="button" class="lightbox-description-add-btn" id="lightbox-description-btn">
+        ${icon('pencil')}<span>Add a description&hellip;</span>
+      </button>
+    `;
+}
+
+function visibilityEditForm(visibilityPicker) {
+  return `
+    <div class="lightbox-edit-form">
+      ${renderVisibilityPickerHtml(visibilityPicker, { idPrefix: 'lightbox-edit-media' })}
+      <div class="modal-actions row">
+        <button type="button" class="btn-secondary" id="lightbox-visibility-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="lightbox-visibility-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, editing, editDraft, editingVisibility, visibilityPicker, shareCount, editingDescription, descriptionDraft, context }) {
   const isImage = media.kind === 'photo';
   const isVideo = media.kind === 'video';
+  const showingForm = editing || editingVisibility || editingDescription;
 
   const preview = isImage
     ? `<img class="lightbox-media" data-media-src="${media.id}" alt="${escapeHtml(media.title || 'Photo')}" />`
@@ -48,15 +131,22 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
         : `
       <div class="lightbox-title-row">
         ${media.title ? `<h3>${escapeHtml(media.title)}</h3>` : '<h3 class="muted">Untitled</h3>'}
-        ${readOnly ? '' : `<button type="button" class="icon-btn" id="lightbox-edit-btn" aria-label="Edit">${icon('pencil')}</button>`}
+        ${readOnly ? '' : `<button type="button" class="icon-btn" id="lightbox-edit-btn" aria-label="Edit title">${icon('pencil')}</button>`}
       </div>
     `
     }
+    ${
+      editingVisibility
+        ? visibilityEditForm(visibilityPicker)
+        : editing
+          ? ''
+          : visibilityBadge(media, shareCount, readOnly)
+    }
     ${preview}
-    ${!editing && media.description ? `<p class="modal-message">${escapeHtml(media.description)}</p>` : ''}
+    ${editingDescription ? descriptionEditForm(descriptionDraft) : editing || editingVisibility ? '' : descriptionRow(media, readOnly)}
 
     ${
-      editing
+      showingForm
         ? ''
         : `
     <div class="lightbox-tags">
@@ -126,14 +216,71 @@ function describeOtherUsage(usage, context) {
   return `This will also remove it from ${parts.join(' and ')}.`;
 }
 
-export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = false, context, onDeleted, onRemovedFromContext, onTagsChanged, onUpdated }) {
+// Moderation-only view for a 'stub' row (backend/models/mediaModel.js's
+// shapeForAccess): the tree owner viewing a private item shared with someone
+// else, but not with them. Carries no storage_key, so there's no real
+// content to preview - just enough metadata (uploader, date, kind) to decide
+// whether to delete it. `DELETE /:mediaId` already allows this (see
+// media.js's route comment), it's the read paths that are locked down.
+function stubBody({ media }) {
+  const uploadedDate = media.created_at ? new Date(media.created_at).toLocaleDateString() : 'Unknown date';
+  return `
+    <button type="button" class="icon-btn modal-close" id="lightbox-close-btn" aria-label="Close">${icon('close')}</button>
+    <div class="lightbox-stub">
+      <div class="lightbox-stub-icon">${icon('lock')}</div>
+      <h3>Shared with specific people</h3>
+      <p class="modal-message">
+        This ${escapeHtml(media.kind || 'item')} was shared with select collaborators, not the whole tree.
+        As owner you can see who uploaded it and remove it, but not view its contents.
+      </p>
+      <p class="modal-message"><strong>Uploaded:</strong> ${escapeHtml(uploadedDate)}</p>
+      <div class="modal-actions row">
+        <button type="button" class="btn-danger" id="lightbox-stub-delete-btn">${icon('trash')}<span>Delete</span></button>
+      </div>
+    </div>
+  `;
+}
+
+export function openMediaStubModal({ api, treeId, media, onDeleted }) {
+  const modal = showModal({ bodyHtml: stubBody({ media }), className: 'modal-media-lightbox' });
+
+  modal.root.querySelector('#lightbox-close-btn').addEventListener('click', () => modal.close());
+
+  modal.root.querySelector('#lightbox-stub-delete-btn').addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Delete Media',
+      message: 'This item is only visible to you as a moderation stub - are you sure you want to permanently delete it?',
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        try {
+          await mediaApi.deleteMedia(api, treeId, media.id);
+          onDeleted?.(media.id);
+          modal.close();
+          showToast('Media deleted');
+        } catch (error) {
+          showToast(error.message || 'Could not delete media', { type: 'error' });
+          throw error;
+        }
+      },
+    });
+  });
+
+  return modal;
+}
+
+export function openMediaLightbox({ api, treeId, media, memberIndex, currentUserId, readOnly = false, context, onDeleted, onRemovedFromContext, onTagsChanged, onUpdated }) {
   const state = {
     media,
     tags: [],
     tagQuery: '',
     tagResults: [],
     editing: false,
-    editDraft: { title: '', description: '' },
+    editDraft: { title: '' },
+    editingVisibility: false,
+    visibilityPicker: createVisibilityPickerState(),
+    shareCount: 0,
+    editingDescription: false,
+    descriptionDraft: '',
   };
 
   const modal = showModal({ bodyHtml: '<p>Loading&hellip;</p>', className: 'modal-media-lightbox' });
@@ -149,6 +296,11 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
         tagResults: state.tagResults,
         editing: state.editing,
         editDraft: state.editDraft,
+        editingVisibility: state.editingVisibility,
+        visibilityPicker: state.visibilityPicker,
+        shareCount: state.shareCount,
+        editingDescription: state.editingDescription,
+        descriptionDraft: state.descriptionDraft,
         context,
       })
     );
@@ -156,10 +308,69 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
     hydrateMediaSources(modal.root, new Map([[state.media.id, state.media]]));
   };
 
+  // Loads the current share list once up front (not just when entering
+  // visibility-edit mode) so the badge can show an accurate "Shared with N
+  // people" count without the requester needing to click into edit first.
+  async function loadShareCount() {
+    if (state.media.visibility !== 'private') {
+      state.shareCount = 0;
+      return;
+    }
+    try {
+      const usage = await mediaApi.getMediaUsage(api, treeId, state.media.id);
+      state.shareCount = (usage.shareUserIds || []).length;
+    } catch (_error) {
+      state.shareCount = 0;
+    }
+  }
+
   function bindListeners() {
     modal.root.querySelector('#lightbox-close-btn').addEventListener('click', () => modal.close());
 
     if (readOnly) return;
+
+    if (state.editingVisibility) {
+      attachVisibilityPickerListeners(modal.root, state.visibilityPicker, render);
+
+      modal.root.querySelector('#lightbox-visibility-cancel-btn').addEventListener('click', () => {
+        state.editingVisibility = false;
+        render();
+      });
+
+      modal.root.querySelector('#lightbox-visibility-save-btn').addEventListener('click', async () => {
+        try {
+          const { media } = await mediaApi.updateMedia(api, treeId, state.media.id, {
+            title: state.media.title || '',
+            description: state.media.description || '',
+            ...getVisibilityPayload(state.visibilityPicker),
+          });
+          state.media = media;
+          state.editingVisibility = false;
+          onUpdated?.(media);
+          render();
+          loadShareCount().then(render);
+          showToast('Sharing updated');
+        } catch (error) {
+          showToast(error.message || 'Could not update sharing', { type: 'error' });
+        }
+      });
+      return;
+    }
+
+    modal.root.querySelector('#lightbox-visibility-btn')?.addEventListener('click', async () => {
+      state.visibilityPicker = createVisibilityPickerState();
+      let shareUserIds = [];
+      try {
+        const usage = await mediaApi.getMediaUsage(api, treeId, state.media.id);
+        shareUserIds = usage.shareUserIds || [];
+      } catch (_error) {
+        // Fall through with an empty share list rather than blocking edit entirely.
+      }
+      setVisibilityPickerValue(state.visibilityPicker, { visibility: state.media.visibility, shareUserIds });
+      state.editingVisibility = true;
+      render();
+      loadCollaborators(state.visibilityPicker, { api, treeId, currentUserId }).then(render);
+    });
 
     if (state.editing) {
       const bindCaretPreservingInput = (id, draftKey) => {
@@ -174,7 +385,6 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
         });
       };
       bindCaretPreservingInput('lightbox-edit-title', 'title');
-      bindCaretPreservingInput('lightbox-edit-description', 'description');
 
       modal.root.querySelector('#lightbox-edit-cancel-btn').addEventListener('click', () => {
         state.editing = false;
@@ -185,7 +395,7 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
         try {
           const { media } = await mediaApi.updateMedia(api, treeId, state.media.id, {
             title: state.editDraft.title.trim(),
-            description: state.editDraft.description.trim(),
+            description: state.media.description || '',
           });
           state.media = media;
           state.editing = false;
@@ -199,9 +409,44 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
       return;
     }
 
+    if (state.editingDescription) {
+      const descTextarea = modal.root.querySelector('#lightbox-edit-description');
+      descTextarea?.addEventListener('input', () => {
+        state.descriptionDraft = descTextarea.value;
+      });
+
+      modal.root.querySelector('#lightbox-description-cancel-btn').addEventListener('click', () => {
+        state.editingDescription = false;
+        render();
+      });
+
+      modal.root.querySelector('#lightbox-description-save-btn').addEventListener('click', async () => {
+        try {
+          const { media } = await mediaApi.updateMedia(api, treeId, state.media.id, {
+            title: state.media.title || '',
+            description: state.descriptionDraft.trim(),
+          });
+          state.media = media;
+          state.editingDescription = false;
+          onUpdated?.(media);
+          render();
+          showToast('Description updated');
+        } catch (error) {
+          showToast(error.message || 'Could not update description', { type: 'error' });
+        }
+      });
+      return;
+    }
+
     modal.root.querySelector('#lightbox-edit-btn')?.addEventListener('click', () => {
-      state.editDraft = { title: state.media.title || '', description: state.media.description || '' };
+      state.editDraft = { title: state.media.title || '' };
       state.editing = true;
+      render();
+    });
+
+    modal.root.querySelector('#lightbox-description-btn')?.addEventListener('click', () => {
+      state.descriptionDraft = state.media.description || '';
+      state.editingDescription = true;
       render();
     });
 
@@ -303,6 +548,8 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, readOnly = 
       state.tags = [];
       render();
     });
+
+  loadShareCount().then(render);
 
   return modal;
 }

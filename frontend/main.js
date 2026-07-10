@@ -1413,11 +1413,13 @@ function renderDashboard() {
                             : isMediaLibraryView
                               ? renderMediaLibraryPageContent(state.mediaLibrary, {
                                   readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                                  currentUserId: state.user?.id,
                                 })
                               : isTimelineView
                                 ? renderTimelinePageContent(state.timeline, {
                                     memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
                                     readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                                    currentUserId: state.user?.id,
                                   })
                                 : isViewerView
                                   ? renderTreeViewerMarkup()
@@ -1481,6 +1483,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
       render,
@@ -1502,6 +1505,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
       render,

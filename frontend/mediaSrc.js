@@ -13,8 +13,20 @@ const objectUrlCache = new Map();
 
 // Shared thumbnail markup for a media item's grid tile - used by
 // mediaLibraryPanel.js and timelinePanel.js so the photo/video/document
-// treatment only needs to be defined once.
+// treatment only needs to be defined once. A 'stub' row (backend's
+// moderation-only shape for a private-and-shared item viewed by the tree
+// owner - see backend/models/mediaModel.js's shapeForAccess) carries no
+// storage_key/url, so it renders a locked placeholder instead of trying to
+// load a real thumbnail.
 export function mediaThumbHtml(item) {
+  if (item.access === 'stub') {
+    return `
+      <div class="media-thumb-stub">
+        ${icon('lock')}
+        <span class="media-thumb-stub-label">Shared item</span>
+      </div>
+    `;
+  }
   if (item.kind === 'photo') {
     return `<img data-media-src="${item.id}" alt="${escapeHtml(item.title || 'Photo')}" loading="lazy" />`;
   }
