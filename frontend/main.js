@@ -3012,15 +3012,16 @@ function renderChart() {
       if (!cardEl) return;
 
       // Drilldown icon: pure navigation, re-root the tree on this person.
-      // No-op if everything about them is already displayed (e.g. no
-      // subtree, or it's already expanded) since there's nothing new to
-      // reveal.
-      addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
-        e.stopPropagation();
-        if (d.all_rels_displayed) return;
-        state.editor.closeForm();
-        card.onCardClickDefault(e, d);
-      }, 'Drill down', -10);
+      // Only shown when there's actually a subtree left to reveal - hidden
+      // entirely (not just a no-op click) once everything about this person
+      // is already displayed.
+      if (!d.all_rels_displayed) {
+        addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
+          e.stopPropagation();
+          state.editor.closeForm();
+          card.onCardClickDefault(e, d);
+        }, 'Drill down', -10);
+      }
 
       // More icon: opens a small popover with Edit and Add relative. Built
       // directly here (not the app's shared dropdownMenu()) since that
@@ -3110,11 +3111,12 @@ function renderChart() {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
 
-      addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
-        e.stopPropagation();
-        if (d.all_rels_displayed) return;
-        card.onCardClickDefault(e, d);
-      }, 'Drill down', -10);
+      if (!d.all_rels_displayed) {
+        addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
+          e.stopPropagation();
+          card.onCardClickDefault(e, d);
+        }, 'Drill down', -10);
+      }
     });
 
     card.setOnCardClick((e, d) => {

@@ -6215,34 +6215,59 @@ button.admin-stat-card {
   padding: 0;
 }
 
-/* White round pill behind each icon (drilldown, more) so they read clearly
-   against any card color (male/female/genderless tint) in both themes,
-   instead of relying on a transparent circle + white/gray icon glyph. */
+/* Override family-chart.css's `.f3 div.card:hover > div { transform:
+   translate(0, -2px) }` and matching shadow bump (family-chart.css ~L547-551,
+   `.f3 div.card-main .card-inner, .f3 div.card:hover .card-inner { box-shadow:
+   0 0 20px 0 rgba(0,0,0,0.8) }`) - the card itself stays visually static on
+   hover (no lift, no shadow/border glow at all); the drilldown/more icons
+   (`.f3-svg-circle-hover`, below) carry the hover animation instead,
+   triggered by hovering the card (not the icons themselves). */
+.f3 div.card:hover > div {
+  transform: none;
+}
+
+.f3 div.card:hover .card-inner {
+  box-shadow: none;
+}
+
+/* Card itself no longer lifts/glows on hover (see the `.f3 div.card:hover`
+   overrides above) - the drilldown/more icons carry the hover animation
+   instead, triggered by `.f3 div.card:hover` below rather than the icon's
+   own `:hover`, so moving the mouse anywhere over the card animates them. */
 .f3 .f3-svg-circle-hover {
   color: #4b5563 !important;
   background: #ffffff;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  transition: background-color 0.2s ease-in-out;
-}
-
-.f3 .f3-svg-circle-hover:hover {
-  background: #f3f4f6;
+  transition: background-color 0.2s ease-in-out, transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
 /* `.f3 div.card:hover > div` (library CSS) applies a -2px hover transform to
-   every direct child of `.card`, which would otherwise make these icons
-   visibly shift position on hover along with `.card-inner`. */
+   every direct child of `.card` on card hover. These icons get their own
+   card-hover-driven transform below instead, so pin the base (non-hover,
+   non-card-hover) transform to none here. */
 .f3 div.card > .f3-svg-circle-hover {
-  transform: none !important;
+  transform: none;
 }
 
 /* The drilldown icon (see addCardIcon's 'center' horizontalPosition in
-   main.js) needs to stay horizontally centered via translateX(-50%) even
-   though the rule above resets transform to none - this selector is more
-   specific (two classes vs one) so it wins the cascade instead. */
+   main.js) needs to stay horizontally centered via translateX(-50%) even at
+   rest - this selector is more specific (two classes vs one) so it wins the
+   cascade instead of the plain centering reset above. */
 .f3 div.card > .f3-svg-circle-hover.f3-svg-circle-hover-center {
-  transform: translateX(-50%) !important;
+  transform: translateX(-50%);
+}
+
+/* Hovering anywhere on the card (not just the icon itself) animates both
+   icons together - background highlight + lift/scale. */
+.f3 div.card:hover > .f3-svg-circle-hover {
+  background: #f3f4f6;
+  transform: translateY(-2px) scale(1.12) !important;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+.f3 div.card:hover > .f3-svg-circle-hover.f3-svg-circle-hover-center {
+  transform: translateX(-50%) translateY(-2px) scale(1.12) !important;
 }
 
 /* Popover opened by the card's "more" (⋯) icon - reuses .dropdown-menu/
