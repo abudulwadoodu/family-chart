@@ -266,7 +266,7 @@ treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (r
   try {
     const treeId = Number(req.params.id);
     const { rows: treeRows } = await query(
-      'SELECT id, name, owner_id, created_at, default_main_id FROM trees WHERE id = $1',
+      'SELECT id, name, owner_id, created_at, default_main_id, default_generation_depth FROM trees WHERE id = $1',
       [treeId]
     );
     const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
@@ -318,21 +318,40 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), async (req, res, next) => 
   }
 });
 
+const MIN_GENERATION_DEPTH = 1;
+const MAX_GENERATION_DEPTH = 20;
+
+function isValidGenerationDepth(value) {
+  return Number.isInteger(value) && value >= MIN_GENERATION_DEPTH && value <= MAX_GENERATION_DEPTH;
+}
+
 // Owner-only tree settings distinct from the name-only PATCH /:id above -
-// currently just the default focus person (Focused mode's initial main_id
-// for anyone opening the tree), kept on its own route so the settings tab
-// doesn't need to resend the tree name just to change one setting, and vice
-// versa for the rename form.
+// the default focus person (Focused mode's initial main_id for anyone
+// opening the tree) and the default generation depth (how many generations
+// of ancestry/progeny Focused mode renders before trimming - see
+// setAncestryDepth/setProgenyDepth in frontend/main.js's renderChart()).
+// Kept on its own route so the settings tab doesn't need to resend the tree
+// name just to change one setting, and vice versa for the rename form.
+//
+// Each setting is independently optional: a key that's absent from the body
+// is left untouched, so the frontend (or any other caller) can update just
+// one without having to know/resend the other's current value. `null` is a
+// meaningful value for both (no default person / unlimited depth), so
+// "absent" and "explicitly null" are deliberately different.
 treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { default_main_id: defaultMainId } = req.body || {};
+    const body = req.body || {};
+    const hasDefaultMainId = Object.prototype.hasOwnProperty.call(body, 'default_main_id');
+    const hasGenerationDepth = Object.prototype.hasOwnProperty.call(body, 'default_generation_depth');
+    const defaultMainId = body.default_main_id;
+    const defaultGenerationDepth = body.default_generation_depth;
 
-    if (defaultMainId !== null && !isNonEmptyString(defaultMainId, 200)) {
+    if (hasDefaultMainId && defaultMainId !== null && !isNonEmptyString(defaultMainId, 200)) {
       return res.status(400).json({ error: 'default_main_id must be a person id or null' });
     }
 
-    if (defaultMainId !== null) {
+    if (hasDefaultMainId && defaultMainId !== null) {
       const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
       const people = familyDataRows[0]?.json_data ?? [];
       const exists = Array.isArray(people) && people.some((person) => person.id === defaultMainId);
@@ -341,9 +360,26 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
       }
     }
 
-    await query('UPDATE trees SET default_main_id = $1 WHERE id = $2', [defaultMainId, treeId]);
+    if (hasGenerationDepth && defaultGenerationDepth !== null && !isValidGenerationDepth(defaultGenerationDepth)) {
+      return res
+        .status(400)
+        .json({ error: `default_generation_depth must be an integer between ${MIN_GENERATION_DEPTH} and ${MAX_GENERATION_DEPTH}, or null` });
+    }
 
-    return res.json({ ok: true, default_main_id: defaultMainId });
+    if (!hasDefaultMainId && !hasGenerationDepth) {
+      return res.status(400).json({ error: 'At least one setting (default_main_id or default_generation_depth) is required' });
+    }
+
+    const { rows } = await query(
+      `UPDATE trees SET
+         default_main_id = CASE WHEN $1 THEN $2 ELSE default_main_id END,
+         default_generation_depth = CASE WHEN $3 THEN $4 ELSE default_generation_depth END
+       WHERE id = $5
+       RETURNING default_main_id, default_generation_depth`,
+      [hasDefaultMainId, defaultMainId ?? null, hasGenerationDepth, defaultGenerationDepth ?? null, treeId]
+    );
+
+    return res.json({ ok: true, ...rows[0] });
   } catch (error) {
     return next(error);
   }

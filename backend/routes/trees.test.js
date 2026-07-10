@@ -254,4 +254,88 @@ describe('tree settings (default focus person)', () => {
       .send({ default_main_id: null });
     expect(res.status).toBe(403);
   });
+
+  it('lets the owner set default_generation_depth independently of default_main_id, and null means unlimited', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    // A tree nobody has configured yet reads back as null (unlimited), not
+    // some hardcoded default - see backend/routes/trees.js.
+    const initialGetRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(initialGetRes.body.tree.default_generation_depth).toBeNull();
+
+    const depthRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: 6 });
+    expect(depthRes.status).toBe(200);
+    expect(depthRes.body.default_generation_depth).toBe(6);
+
+    const getRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(getRes.body.tree.default_generation_depth).toBe(6);
+
+    const clearRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: null });
+    expect(clearRes.status).toBe(200);
+    expect(clearRes.body.default_generation_depth).toBeNull();
+  });
+
+  it('rejects an out-of-range or non-integer default_generation_depth', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const tooLow = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: 0 });
+    expect(tooLow.status).toBe(400);
+
+    const tooHigh = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: 21 });
+    expect(tooHigh.status).toBe(400);
+
+    const notInteger = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: 3.5 });
+    expect(notInteger.status).toBe(400);
+  });
+
+  it('updating one setting leaves the other untouched', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({ json_data: [{ id: 'p1', data: { 'first name': 'Jane', gender: 'F' }, rels: {} }] });
+
+    await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_main_id: 'p1' });
+    await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ default_generation_depth: 5 });
+
+    const getRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(getRes.body.tree.default_main_id).toBe('p1');
+    expect(getRes.body.tree.default_generation_depth).toBe(5);
+  });
+
+  it('requires at least one setting in the request body', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const res = await request(app).patch(`/api/trees/${treeId}/settings`).set('Authorization', owner).send({});
+    expect(res.status).toBe(400);
+  });
 });

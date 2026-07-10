@@ -35,7 +35,12 @@ import { createDuplicateManagerState } from './duplicateManager/state.js';
 import { renderDuplicateManagerMode } from './duplicateManager/components.js';
 import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
 import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
-import { renderTreeSettingsPanel } from './treeSettingsPanel.js';
+import {
+  renderTreeSettingsPanel,
+  MIN_GENERATION_DEPTH,
+  MAX_GENERATION_DEPTH,
+  DEFAULT_GENERATION_DEPTH,
+} from './treeSettingsPanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { appToast } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
@@ -207,11 +212,17 @@ const state = {
   // which is just "whichever person Reset View should return to" for the
   // current session. See loadTree() and the Settings view mode.
   treeDefaultMainId: null,
+  // The owner-configured "generations to show" loaded from the tree's own
+  // settings (trees.default_generation_depth) - null means unlimited. See
+  // loadTree(), the Settings view mode, and ancestryDepth/progenyDepth below.
+  treeDefaultGenerationDepth: DEFAULT_GENERATION_DEPTH,
   // How many generations of ancestors/descendants to render out from the
   // focused person before trimming the tree, so large families don't
-  // render an unbounded (slow, cluttered) hierarchy on every re-root.
-  ancestryDepth: 4,
-  progenyDepth: 4,
+  // render an unbounded (slow, cluttered) hierarchy on every re-root. Seeded
+  // from treeDefaultGenerationDepth on every loadTree(); null means
+  // unlimited (see renderChart()).
+  ancestryDepth: DEFAULT_GENERATION_DEPTH,
+  progenyDepth: DEFAULT_GENERATION_DEPTH,
   // "Full Tree" toolbar toggle - true lifts the ancestry/progeny depth cap
   // above for the current session (Focused mode only). Not persisted; large
   // trees pay the full unbounded-render cost while it's on.
@@ -2833,11 +2844,13 @@ function renderChart() {
     // report.
     .setShowSiblingsOfMain(true);
 
-  // "Full Tree" toggle (toolbar) lifts the generation cap for this session -
-  // just skip setAncestryDepth/setProgenyDepth entirely rather than passing
-  // some sentinel "unlimited" value, since calculateTree only applies a cap
-  // when state.ancestry_depth/progeny_depth is not undefined.
-  if (!state.fullTreeMode) {
+  // "Full Tree" toggle (toolbar) lifts the generation cap for this session,
+  // and the tree owner can separately configure "unlimited" as the default
+  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. Either
+  // way, just skip setAncestryDepth/setProgenyDepth entirely rather than
+  // passing some sentinel "unlimited" value, since calculateTree only
+  // applies a cap when state.ancestry_depth/progeny_depth is not undefined.
+  if (!state.fullTreeMode && state.ancestryDepth !== null && state.progenyDepth !== null) {
     state.chart.setAncestryDepth(state.ancestryDepth).setProgenyDepth(state.progenyDepth);
   }
 
@@ -4181,6 +4194,13 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   // owner-only tab.
   state.viewMode = viewMode === 'settings' && payload.role !== 'owner' ? 'focused' : viewMode;
   state.treeDefaultMainId = payload.tree.default_main_id ?? null;
+  // NULL always means "unlimited" here - both for a tree nobody has ever
+  // configured a depth for, and for one where the owner explicitly chose
+  // Unlimited. There's no separate "unset" state to distinguish from that.
+  state.treeDefaultGenerationDepth = payload.tree.default_generation_depth ?? null;
+  state.ancestryDepth = state.treeDefaultGenerationDepth;
+  state.progenyDepth = state.treeDefaultGenerationDepth;
+  state.fullTreeMode = false;
 
   // Prefer the owner-configured default focus person; fall back to the
   // largest-connected-component heuristic if it's unset, or if it points at
@@ -4277,20 +4297,36 @@ function renderTreeSettingsViewMode() {
   const container = document.querySelector('#FamilyChart');
   container.innerHTML = renderTreeSettingsPanel(state.selectedTreeData, {
     currentDefaultMainId: state.treeDefaultMainId,
+    currentGenerationDepth: state.treeDefaultGenerationDepth,
   });
 
-  document.querySelector('#tree-settings-save-btn')?.addEventListener('click', handleSaveTreeDefaultFocus);
+  const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
+  const depthInput = document.querySelector('#tree-settings-generation-depth-input');
+  unlimitedCheckbox?.addEventListener('change', () => {
+    if (depthInput) depthInput.disabled = unlimitedCheckbox.checked;
+  });
+
+  document.querySelector('#tree-settings-save-btn')?.addEventListener('click', handleSaveTreeSettings);
   syncSaveButtonAvailability();
 }
 
-async function handleSaveTreeDefaultFocus() {
+async function handleSaveTreeSettings() {
   const select = document.querySelector('#tree-settings-default-main-select');
+  const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
+  const depthInput = document.querySelector('#tree-settings-generation-depth-input');
   const errorEl = document.querySelector('#tree-settings-error');
   const saveBtn = document.querySelector('#tree-settings-save-btn');
-  if (!select || !saveBtn) return;
+  if (!select || !unlimitedCheckbox || !depthInput || !saveBtn) return;
 
-  const value = select.value || null;
+  const defaultMainId = select.value || null;
+  const defaultGenerationDepth = unlimitedCheckbox.checked ? null : Number(depthInput.value);
+
   errorEl.textContent = '';
+  if (!unlimitedCheckbox.checked && (!Number.isInteger(defaultGenerationDepth) || defaultGenerationDepth < MIN_GENERATION_DEPTH || defaultGenerationDepth > MAX_GENERATION_DEPTH)) {
+    errorEl.textContent = `Generations to show must be a whole number between ${MIN_GENERATION_DEPTH} and ${MAX_GENERATION_DEPTH}.`;
+    return;
+  }
+
   saveBtn.disabled = true;
   const originalLabel = saveBtn.textContent;
   saveBtn.textContent = 'Saving...';
@@ -4298,13 +4334,21 @@ async function handleSaveTreeDefaultFocus() {
   try {
     const result = await api(`/api/trees/${state.selectedTreeId}/settings`, {
       method: 'PATCH',
-      body: JSON.stringify({ default_main_id: value }),
+      body: JSON.stringify({ default_main_id: defaultMainId, default_generation_depth: defaultGenerationDepth }),
     });
     state.treeDefaultMainId = result.default_main_id;
-    showToast('Default focus person updated.');
+    state.treeDefaultGenerationDepth = result.default_generation_depth;
+    // Only re-applies live if the current session hasn't already overridden
+    // it via the "Full Tree" toggle - matches the same "session choice wins"
+    // precedence renderChart() itself uses.
+    if (!state.fullTreeMode) {
+      state.ancestryDepth = state.treeDefaultGenerationDepth;
+      state.progenyDepth = state.treeDefaultGenerationDepth;
+    }
+    showToast('Tree settings updated.');
   } catch (error) {
-    errorEl.textContent = error.message || 'Could not save this setting.';
-    showToast(error.message || 'Could not save this setting.', { type: 'error' });
+    errorEl.textContent = error.message || 'Could not save these settings.';
+    showToast(error.message || 'Could not save these settings.', { type: 'error' });
   } finally {
     saveBtn.disabled = false;
     saveBtn.textContent = originalLabel;
