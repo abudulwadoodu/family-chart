@@ -42,6 +42,26 @@ describe('schema_migrations tracking (real backend/db/migrations)', () => {
     );
     expect(rows).toHaveLength(0);
   });
+
+  it('applies 007_media_event_visibility.sql: visibility columns default to tree, and *_shares tables exist', async () => {
+    const { rows: applied } = await getPool().query('SELECT name FROM schema_migrations ORDER BY name');
+    expect(applied.map((r) => r.name)).toContain('007_media_event_visibility.sql');
+
+    const { rows: mediaColumns } = await getPool().query(
+      `SELECT column_default FROM information_schema.columns WHERE table_name = 'media' AND column_name = 'visibility'`
+    );
+    expect(mediaColumns[0].column_default).toContain('tree');
+
+    const { rows: eventColumns } = await getPool().query(
+      `SELECT column_default FROM information_schema.columns WHERE table_name = 'events' AND column_name = 'visibility'`
+    );
+    expect(eventColumns[0].column_default).toContain('tree');
+
+    const { rows: sharesTables } = await getPool().query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('media_shares', 'event_shares')`
+    );
+    expect(sharesTables.map((r) => r.table_name).sort()).toEqual(['event_shares', 'media_shares']);
+  });
 });
 
 describe('runMigrations against a scratch migration directory', () => {

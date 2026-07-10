@@ -5595,11 +5595,10 @@ button.admin-stat-card {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Media / albums / events (person tabs, lightbox, library, timeline)      */
+/* Media / albums / events (lightbox, library, timeline)                   */
 /* ---------------------------------------------------------------------- */
 
-.modal-dialog.modal-media-lightbox,
-.modal-dialog.modal-person-media {
+.modal-dialog.modal-media-lightbox {
   width: min(100%, 720px);
   max-height: min(88vh, 760px);
 }
@@ -5795,79 +5794,6 @@ button.admin-stat-card {
 
 .lightbox-tag-suggestions li:hover {
   background: var(--bg-surface-hover);
-}
-
-/* Person media/events tabs, injected into the family-chart edit panel */
-
-.person-media-tabs-root {
-  margin-top: var(--sp-4);
-  border-top: 1px solid var(--border-subtle);
-  padding-top: var(--sp-3);
-}
-
-.person-tab-bar {
-  display: flex;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-3);
-}
-
-.person-tab-btn {
-  padding: 6px var(--sp-3);
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.person-tab-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-on-soft);
-}
-
-.person-media-dropzone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  text-align: center;
-}
-
-.person-media-dropzone:hover {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-
-.person-events-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--sp-2);
-}
-
-.person-event-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  font-size: 0.88rem;
-}
-
-.person-event-date {
-  color: var(--text-secondary);
-  min-width: 90px;
 }
 
 /* Media library */

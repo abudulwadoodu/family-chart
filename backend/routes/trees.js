@@ -629,7 +629,13 @@ treesRouter.post('/:id/request-role-change', requireTreeRole(['viewer', 'editor'
   }
 });
 
-treesRouter.get('/:id/permissions', requireTreeRole(['owner']), async (req, res, next) => {
+// Loosened from owner-only to owner+editor: editors need this to populate
+// the media/event visibility picker's "specific people" checklist. Viewers
+// don't get it - they can't create media/events at all (POST routes are
+// owner/editor-only), so never need to pick who to share with. The
+// owner-only management actions (share/role-change/remove below) are
+// untouched - only this read stays loosened.
+treesRouter.get('/:id/permissions', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const { rows: permissions } = await query(
@@ -730,7 +736,16 @@ treesRouter.delete('/:id/share/:userId', requireTreeRole(['owner']), async (req,
       return res.status(400).json({ error: 'Owners cannot remove their own access' });
     }
 
-    await query('DELETE FROM tree_permissions WHERE id = $1', [target.id]);
+    // A removed collaborator can no longer reach any media/events endpoint
+    // for this tree (requireTreeRole 403s them regardless), so these rows
+    // are already unreachable - purged anyway so a "who has access" view
+    // over media_shares/event_shares never shows a stale grant to someone
+    // with no tree access at all.
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM tree_permissions WHERE id = $1', [target.id]);
+      await client.query('DELETE FROM media_shares WHERE tree_id = $1 AND user_id = $2', [treeId, targetUserId]);
+      await client.query('DELETE FROM event_shares WHERE tree_id = $1 AND user_id = $2', [treeId, targetUserId]);
+    });
     return res.json({ ok: true });
   } catch (error) {
     return next(error);

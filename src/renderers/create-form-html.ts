@@ -22,68 +22,89 @@ export function getHtmlNew(form_creator: NewRelFormCreator) {
 }
 
 export function getHtmlEdit(form_creator: EditDatumFormCreator) {
-  return (` 
+  return (`
     <form id="familyForm" class="f3-form ${form_creator.editable ? '' : 'non-editable'}">
-      ${closeBtn()}
-      <div style="text-align: right; display: 'block'">
-        ${!form_creator.no_edit ? addRelativeBtn(form_creator) : ''}
-        ${form_creator.no_edit ? spaceDiv() : editBtn(form_creator)}
+      <div class="f3-form-header">
+        ${closeBtn()}
+        <div class="f3-form-header-name">${displayName(form_creator)}</div>
+        ${avatarFrame(form_creator)}
       </div>
 
-      ${genderRadio(form_creator)}
+      <div class="f3-form-action-row">
+        ${!form_creator.no_edit ? addRelativeBtn(form_creator) : ''}
+        ${form_creator.no_edit ? '' : editBtn(form_creator)}
+        ${form_creator.no_edit ? '' : removeRelativeBtn(form_creator)}
+        ${form_creator.no_edit ? '' : deleteBtn(form_creator)}
+      </div>
 
-      ${fields(form_creator)}
-      
+      <div class="f3-form-body">
+        ${genderRadio(form_creator)}
+
+        ${fields(form_creator)}
+
+        ${form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''}
+      </div>
+
       <div class="f3-form-buttons">
         <button type="button" class="f3-cancel-btn">Cancel</button>
-        <button type="submit">Submit</button>
+        <button type="submit">Save and close</button>
       </div>
-
-      ${form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''}
-
-      <hr>
-      ${deleteBtn(form_creator)}
-
-      ${removeRelativeBtn(form_creator)}
     </form>
   `)
 
-  
+
+}
+
+function displayName(form_creator: EditDatumFormCreator) {
+  const name = form_creator.fields
+    .filter(field => field.id === 'first name' || field.id === 'last name')
+    .map(field => field.initial_value)
+    .filter(Boolean)
+    .join(' ')
+  return name || 'Unnamed'
+}
+
+function avatarFrame(form_creator: EditDatumFormCreator) {
+  const avatar_field = form_creator.fields.find(field => field.id === 'avatar')
+  const avatar_url = avatar_field?.initial_value
+  return (`
+    <div class="f3-form-avatar-frame">
+      ${avatar_url
+        ? `<img class="f3-form-avatar-img" data-avatar-src="${avatar_url}" alt="${displayName(form_creator)}">`
+        : `<div class="f3-form-avatar-placeholder">${displayName(form_creator).slice(0, 1).toUpperCase()}</div>`}
+    </div>
+  `)
 }
 
 function deleteBtn(form_creator: EditDatumFormCreator) {
   return (`
-    <div>
-      <button type="button" class="f3-delete-btn" ${form_creator.can_delete ? '' : 'disabled'}>
-        Delete
-      </button>
-    </div>
+    <button type="button" class="f3-action-btn f3-delete-btn" title="Delete" ${form_creator.can_delete ? '' : 'disabled'}>
+      ${icons.trashSvgIcon()}
+    </button>
   `)
 }
 
 function removeRelativeBtn(form_creator: EditDatumFormCreator) {
   return (`
-    <div>
-      <button type="button" class="f3-remove-relative-btn${form_creator.removeRelativeActive ? ' active' : ''}">
-        ${form_creator.removeRelativeActive ? 'Cancel Remove Relation' : 'Remove Relation'}
-      </button>
-    </div>
+    <button type="button" class="f3-action-btn f3-remove-relative-btn${form_creator.removeRelativeActive ? ' active' : ''}" title="${form_creator.removeRelativeActive ? 'Cancel remove relation' : 'Remove relation'}">
+      ${icons.linkOffSvgIcon()}
+    </button>
   `)
 }
 
 function addRelativeBtn(form_creator: EditDatumFormCreator) {
   return (`
-    <span class="f3-add-relative-btn">
+    <button type="button" class="f3-action-btn f3-add-relative-btn" title="Add relative">
       ${form_creator.addRelativeActive ? icons.userPlusCloseSvgIcon() : icons.userPlusSvgIcon()}
-    </span>
+    </button>
   `)
 }
 
 function editBtn(form_creator: EditDatumFormCreator) {
   return (`
-    <span class="f3-edit-btn">
+    <button type="button" class="f3-action-btn f3-edit-btn" title="${form_creator.editable ? 'Stop editing' : 'Edit'}">
       ${form_creator.editable ? icons.pencilOffSvgIcon() : icons.pencilSvgIcon()}
-    </span>
+    </button>
   `)
 }
 
@@ -109,26 +130,27 @@ function fields(form_creator: EditDatumFormCreator | NewRelFormCreator) {
   if (!form_creator.editable) return infoField()
   let fields_html = ''
   form_creator.fields.forEach(field => {
+    if (field.id === 'avatar') return
     if (field.type === 'text') {
       fields_html += `
-      <div class="f3-form-field">
+      <div class="f3-form-field" data-field-id="${field.id}">
         <label>${field.label}</label>
-        <input type="${field.type}" 
-          name="${field.id}" 
+        <input type="${field.type}"
+          name="${field.id}"
           value="${field.initial_value || ''}"
           placeholder="${field.label}">
       </div>`
     } else if (field.type === 'textarea') {
       fields_html += `
-      <div class="f3-form-field">
+      <div class="f3-form-field" data-field-id="${field.id}">
         <label>${field.label}</label>
-        <textarea name="${field.id}" 
+        <textarea name="${field.id}"
           placeholder="${field.label}">${field.initial_value || ''}</textarea>
       </div>`
     } else if (field.type === 'select') {
       const select_field = field as SelectField
       fields_html += `
-      <div class="f3-form-field">
+      <div class="f3-form-field" data-field-id="${field.id}">
         <label>${select_field.label}</label>
         <select name="${select_field.id}" value="${select_field.initial_value || ''}">
           <option value="">${select_field.placeholder || `Select ${select_field.label}`}</option>
@@ -137,24 +159,26 @@ function fields(form_creator: EditDatumFormCreator | NewRelFormCreator) {
       </div>`
     } else if (field.type === 'rel_reference') {
       fields_html += `
-      <div class="f3-form-field">
+      <div class="f3-form-field" data-field-id="${field.id}">
         <label>${field.label} - <i>${field.rel_label}</i></label>
-        <input type="text" 
-          name="${field.id}" 
+        <input type="text"
+          name="${field.id}"
           value="${field.initial_value || ''}"
           placeholder="${field.label}">
       </div>`
     }
   })
+  fields_html += avatarField(form_creator)
   return fields_html
 
   function infoField() {
     let fields_html = ''
     form_creator.fields.forEach(field => {
+      if (field.id === 'first name' || field.id === 'last name') return
       if (field.type === 'rel_reference') {
         if (!field.initial_value) return
         fields_html += `
-        <div class="f3-info-field">
+        <div class="f3-info-field" data-field-id="${field.id}">
           <span class="f3-info-field-label">${field.label} - <i>${field.rel_label}</i></span>
           <span class="f3-info-field-value">${field.initial_value || ''}</span>
         </div>`
@@ -162,13 +186,13 @@ function fields(form_creator: EditDatumFormCreator | NewRelFormCreator) {
         const select_field = field as SelectField
         if (!field.initial_value) return
         fields_html += `
-        <div class="f3-info-field">
+        <div class="f3-info-field" data-field-id="${field.id}">
           <span class="f3-info-field-label">${select_field.label}</span>
           <span class="f3-info-field-value">${select_field.options.find(option => option.value === select_field.initial_value)?.label || ''}</span>
         </div>`
       } else {
         fields_html += `
-        <div class="f3-info-field">
+        <div class="f3-info-field" data-field-id="${field.id}">
           <span class="f3-info-field-label">${field.label}</span>
           <span class="f3-info-field-value">${field.initial_value || ''}</span>
         </div>`
@@ -176,6 +200,21 @@ function fields(form_creator: EditDatumFormCreator | NewRelFormCreator) {
     })
     return fields_html
   }
+}
+
+function avatarField(form_creator: EditDatumFormCreator | NewRelFormCreator) {
+  const avatar_field = form_creator.fields.find(field => field.id === 'avatar')
+  if (!avatar_field) return ''
+  return (`
+    <div class="f3-form-field f3-form-field-photo-url" data-field-id="avatar">
+      <label>${avatar_field.label}</label>
+      <input type="text"
+        name="avatar"
+        value="${avatar_field.initial_value || ''}"
+        placeholder="${avatar_field.label}">
+      <a href="#" class="f3-upload-link">Upload</a>
+    </div>
+  `)
 }
 
 function addLinkExistingRelative(form_creator: EditDatumFormCreator | NewRelFormCreator) {
@@ -199,12 +238,8 @@ function addLinkExistingRelative(form_creator: EditDatumFormCreator | NewRelForm
 
 function closeBtn() {
   return (`
-    <span class="f3-close-btn">
-      ×
+    <span class="f3-close-btn" title="Close">
+      ${icons.closeSvgIcon()}
     </span>
   `)
-}
-
-function spaceDiv() {
-  return `<div style="height: 24px;"></div>`
 }

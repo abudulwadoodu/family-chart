@@ -12,8 +12,8 @@ import { icon } from './icons.js';
 const objectUrlCache = new Map();
 
 // Shared thumbnail markup for a media item's grid tile - used by
-// mediaLibraryPanel.js, personMediaPanel.js, and timelinePanel.js so the
-// photo/video/document treatment only needs to be defined once.
+// mediaLibraryPanel.js and timelinePanel.js so the photo/video/document
+// treatment only needs to be defined once.
 export function mediaThumbHtml(item) {
   if (item.kind === 'photo') {
     return `<img data-media-src="${item.id}" alt="${escapeHtml(item.title || 'Photo')}" loading="lazy" />`;

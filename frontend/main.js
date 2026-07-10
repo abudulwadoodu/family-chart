@@ -52,7 +52,7 @@ import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
-import { attachPersonMediaTabs, openReadOnlyPersonModal } from './personMediaPanel.js';
+import { hydrateAvatarPreview, attachAvatarUpload } from './avatarUpload.js';
 import {
   createMediaLibraryPageState,
   renderMediaLibraryPageContent,
@@ -2876,16 +2876,18 @@ function renderChart() {
   if (canEdit) {
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
       .setEditFirst(true)
       .setOnFormCreation(({ cont, form_creator }) => {
-        attachPersonMediaTabs({
-          cont,
-          datum: form_creator.datum,
-          api,
-          treeId: state.selectedTreeId,
-          memberIndex: state.memberSearchIndex || [],
-        });
+        hydrateAvatarPreview(cont);
+        // attachAvatarUpload needs the full datum (not just datum_id) to tag
+        // the uploaded photo to the right person - form_creator only carries
+        // datum_id (src/types/form.ts), not the full datum, so look it up
+        // from the chart's store instead of reading a `.datum` property that
+        // doesn't exist on FormCreator.
+        const datum = state.chart.store.getDatum(form_creator.datum_id);
+        if (!datum) return;
+        attachAvatarUpload({ cont, datum, api, treeId: state.selectedTreeId });
       });
 
     // Canceling add-relative mode (EditTree's internal cancelCallback) always
@@ -3017,19 +3019,25 @@ function renderChart() {
       }
     });
   } else {
-    state.editor = null;
-    // Viewers never get editTree(), so the card's default click (re-center
-    // the tree on that person) is preserved here and a read-only Media/
-    // Events modal is opened alongside it.
+    // Viewers get the same profile panel as editors, just permanently
+    // read-only: setNoEdit() forces editable=false regardless of
+    // setEditFirst() and (per src/renderers/create-form-html.ts) hides the
+    // Add relative/Edit/Remove relation/Delete actions, leaving only the
+    // read-only field grid.
+    state.editor = state.chart
+      .editTree()
+      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setNoEdit()
+      .setEditFirst(false)
+      .setOnFormCreation(({ cont }) => hydrateAvatarPreview(cont));
+
+    // Card click opens the read-only panel and re-roots the tree on that
+    // person via onCardClickDefault (same pattern as the editor path's View
+    // hover-icon handler above - onCardClickDefault already does the
+    // updateMainId/updateTree re-centering, so it isn't duplicated here).
     card.setOnCardClick((e, d) => {
-      state.chart.updateMainId(d.data.id);
-      state.chart.updateTree({});
-      openReadOnlyPersonModal({
-        api,
-        treeId: state.selectedTreeId,
-        datum: d.data,
-        memberIndex: state.memberSearchIndex || [],
-      });
+      state.editor.open(d.data);
+      card.onCardClickDefault(e, d);
     });
   }
 

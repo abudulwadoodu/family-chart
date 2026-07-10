@@ -29,8 +29,8 @@ export async function resetDb() {
     TRUNCATE TABLE
       users, trees, tree_permissions, tree_join_requests, family_data,
       contact_submissions, support_tickets, support_messages,
-      settings, audit_logs, media, media_tags, albums, album_media,
-      events, event_participants, event_media
+      settings, audit_logs, media, media_tags, media_shares, albums, album_media,
+      events, event_participants, event_media, event_shares
     CASCADE
   `);
 }

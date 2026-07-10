@@ -103,18 +103,26 @@ describe('tree sharing and permissions', () => {
     expect(res.status).toBe(400);
   });
 
-  it('blocks non-owners from managing permissions', async () => {
+  it('lets an editor list permissions (needed to populate the media/event visibility picker) but still blocks them from managing permissions, and blocks a viewer from listing entirely', async () => {
     const owner = await asUser('owner-sub', 'owner@example.com');
     const editor = await asUser('editor-sub', 'editor@example.com');
+    const viewer = await asUser('viewer-sub', 'viewer@example.com');
     const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
     const treeId = createRes.body.id;
     await request(app)
       .post(`/api/trees/${treeId}/share`)
       .set('Authorization', owner)
       .send({ email: 'editor@example.com', role: 'editor' });
+    await request(app)
+      .post(`/api/trees/${treeId}/share`)
+      .set('Authorization', owner)
+      .send({ email: 'viewer@example.com', role: 'viewer' });
 
-    const listRes = await request(app).get(`/api/trees/${treeId}/permissions`).set('Authorization', editor);
-    expect(listRes.status).toBe(403);
+    const editorListRes = await request(app).get(`/api/trees/${treeId}/permissions`).set('Authorization', editor);
+    expect(editorListRes.status).toBe(200);
+
+    const viewerListRes = await request(app).get(`/api/trees/${treeId}/permissions`).set('Authorization', viewer);
+    expect(viewerListRes.status).toBe(403);
 
     const shareRes = await request(app)
       .post(`/api/trees/${treeId}/share`)

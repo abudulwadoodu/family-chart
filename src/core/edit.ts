@@ -224,6 +224,41 @@ export class EditTree {
     let form_cont = d3.select(this.cont).select('div.f3-form-cont').node() as HTMLElement
     if (!form_cont) form_cont = d3.select(this.cont).append('div').classed('f3-form-cont', true).node()!
 
+    const store = this.store
+    // .f3-form-cont's width animates via CSS transition (family-chart.css),
+    // which is what actually resizes the chart's flex sibling - the SVG
+    // itself never changes size on its own (it's width/height: 100%). The
+    // tree's D3 zoom/pan transform doesn't auto-adjust to that reflow
+    // though, so without an explicit re-fit the tree just gets visually
+    // clipped/uncovered by the panel rather than recentering into the space
+    // that's actually available.
+    //
+    // Re-fitting has to wait for the CSS transition to actually finish
+    // (`transitionend`) rather than firing the instant the `.opened` class
+    // flips: `getBoundingClientRect()` mid-transition reports whatever
+    // width the panel happens to be at that animation frame, not its final
+    // size, so fitting immediately produces a fit computed against a
+    // moving target - the "shrink jump" this replaces. Fitting on open
+    // (not just close) means the tree has already resettled into the
+    // remaining space by the time the panel finishes sliding in, instead of
+    // only ever re-adjusting when the panel goes away.
+    let pendingTransitionEnd: ((e: TransitionEvent) => void) | null = null
+    function refitAfterPanelTransition() {
+      // Toggling open/close again before the previous transition finished
+      // would otherwise leave a stale listener around to fire a fit for the
+      // wrong (earlier) target state - only the most recent request should
+      // win.
+      if (pendingTransitionEnd) form_cont.removeEventListener('transitionend', pendingTransitionEnd)
+
+      pendingTransitionEnd = (e: TransitionEvent) => {
+        if (e.target !== form_cont || e.propertyName !== 'width') return
+        form_cont.removeEventListener('transitionend', pendingTransitionEnd!)
+        pendingTransitionEnd = null
+        store.updateTree({initial: false, tree_position: 'fit', transition_time: 300})
+      }
+      form_cont.addEventListener('transitionend', pendingTransitionEnd)
+    }
+
     return {
       el: form_cont,
       populate(form_element: HTMLElement) {
@@ -232,9 +267,11 @@ export class EditTree {
       },
       open() {
         d3.select(form_cont).classed('opened', true)
+        refitAfterPanelTransition()
       },
       close() {
         d3.select(form_cont).classed('opened', false).html('')
+        refitAfterPanelTransition()
       },
     }
   }
@@ -321,7 +358,12 @@ export class EditTree {
   
   closeForm() {
     this.formCont.close()
-    this.store.updateTree({})
+    // tree_position: 'inherit' - this redraws cards/links from current data
+    // (still needed immediately, e.g. after removing a relative) without
+    // also fitting against the panel's mid-transition width. The formCont's
+    // own close() already schedules a proper re-fit for once the panel's
+    // CSS transition actually finishes.
+    this.store.updateTree({tree_position: 'inherit'})
   }
   
   fixed() {
