@@ -12,7 +12,10 @@ export default defineConfig(({ mode }) => {
     envDir: __dirname,
     base: env.VITE_BASE || '/',
     server: {
-      port: 8080,
+      // Deliberately different from the main worktree's 8080 so both can run
+      // `npm run dev:app` at the same time without colliding on a port (see
+      // FRONTEND_ORIGIN in this worktree's .env, which already expects 8081).
+      port: 8081,
       proxy: {
         '^/api/': {
           target: env.VITE_DEV_API_ORIGIN || 'http://localhost:3001',

@@ -1,4 +1,6 @@
-export const LOCAL_HOST_LIVE = 'http://localhost:8080'
+// 8081, not 8080 - this worktree's Vite dev server is fixed to that port
+// (see vite.config.js) so it doesn't collide with the main worktree.
+export const LOCAL_HOST_LIVE = 'http://localhost:8081'
 export const LOCAL_HOST_PERVIEW = 'http://localhost:4111'
 
 export function basicF3Tests(card_n=3) {
