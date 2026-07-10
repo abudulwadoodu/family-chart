@@ -24,6 +24,16 @@ export function setBaseTestEnv() {
 // prior row is cleared - matching SQLite's AUTOINCREMENT, which also never
 // reuses ids after a DELETE.
 export async function resetDb() {
+  // Hard guard: TRUNCATE below wipes every table. If DATABASE_URL isn't visibly a
+  // test database (name contains "test"), refuse rather than risk truncating a dev/
+  // prod database because TEST_DATABASE_URL failed to load for any reason.
+  if (!/test/i.test(process.env.DATABASE_URL || '')) {
+    throw new Error(
+      `Refusing to resetDb(): DATABASE_URL does not look like a test database (${process.env.DATABASE_URL}). ` +
+        'Set TEST_DATABASE_URL in .env to a database whose name contains "test".'
+    );
+  }
+
   const { query } = await import('../db/index.js');
   await query(`
     TRUNCATE TABLE
