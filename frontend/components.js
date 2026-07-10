@@ -275,6 +275,44 @@ export function renderCompactJoinSearchResults({ loading, searched, results }) {
   return `<div class="discover-search-results-panel">${body}</div>`;
 }
 
+// "Trees you may belong to" section on the tree-list landing page - distinct
+// from renderCompactJoinSearchResults (results of an explicit name/tree
+// search): these are matches surfaced automatically because a person-node's
+// email matches the logged-in user's own email. Dismissible; see
+// loadDiscoveryMatches/handleDismissDiscovery in main.js for the dismissal
+// logic. Every entry here is always membershipStatus 'none' by construction
+// (the backend already excludes members/pending requests), so its cards
+// always show a plain "Request to Join" button, unlike renderJoinResultCard.
+export function renderDiscoverySectionMarkup({ trees }) {
+  if (!trees.length) return '';
+  return `
+    <section class="discovery-section" id="discovery-section">
+      <div class="discovery-section-header">
+        <h3 class="discovery-section-title">${icon('user')} Trees you may belong to</h3>
+        <button type="button" class="icon-btn" id="discovery-dismiss-btn" aria-label="Dismiss">${icon('close')}</button>
+      </div>
+      <p class="discovery-section-desc">We found your email address in these family trees. Request to join if one of them is yours.</p>
+      <div class="discovery-result-list">
+        ${trees.map(renderDiscoveryResultCard).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderDiscoveryResultCard(tree) {
+  return `
+    <div class="join-result-card" data-tree-id="${tree.id}">
+      <div class="join-result-info">
+        <p class="join-result-title">${escapeHtml(tree.name)}</p>
+        <p class="join-result-meta">Owned by ${escapeHtml(tree.ownerEmail)}</p>
+      </div>
+      <div class="join-result-actions">
+        <button type="button" class="btn btn-primary btn-sm discovery-join-request-btn" data-tree-id="${tree.id}">Request to Join</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderJoinResultCard(tree) {
   const action =
     tree.membershipStatus === 'member'

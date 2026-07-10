@@ -1774,6 +1774,42 @@ button.secondary:active,
   margin-bottom: 0;
 }
 
+.discovery-section {
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-raised);
+}
+
+.discovery-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.discovery-section-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.discovery-section-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.discovery-result-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
 /* ------------------------------------------------------------------ */
 /* Tree grid + cards                                                   */
 /* ------------------------------------------------------------------ */

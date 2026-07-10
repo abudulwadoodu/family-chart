@@ -9,6 +9,7 @@ import { getDefaultTreeDataJson } from '../utils/defaultTreeData.js';
 import { parseCsvText, buildRawRows, csvRowsToDomain } from '../utils/csv/index.js';
 import { parseJsonText, jsonExportToDomain, validateJsonPeople, domainToJsonExport } from '../utils/json/index.js';
 import { findUserByEmail } from '../models/userModel.js';
+import { findTreesMatchingUserEmail } from '../models/emailMatchModel.js';
 import { parseGedcom, validateGedcom, gedcomToDomain, writeGedcom } from '../utils/gedcom/index.js';
 import {
   JoinRequestError,
@@ -230,6 +231,22 @@ treesRouter.get('/my-requests', async (req, res, next) => {
   }
 });
 
+// "Trees you may belong to" - person-nodes in some tree's family_data have a
+// data.email matching this user's own users.email, but they're not a member
+// and have no pending request yet. Recomputed on every call (not a one-time
+// "seen it" flag) so it also catches matches created later (e.g. an owner
+// adds someone's email after the fact). Dismissal of an individual card is
+// entirely client-side (localStorage) - see frontend/main.js. Must also be
+// registered before GET /:id for the same reason as /search above.
+treesRouter.get('/discovery', async (req, res, next) => {
+  try {
+    const trees = await findTreesMatchingUserEmail(req.user.email, req.user.id);
+    return res.json({ trees });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // Owner decision on a join request (approve/reject). Scoped at the top
 // level (not under /:id) since the request id alone is enough to resolve
 // the tree and ownership check happens inside decideJoinRequest.
@@ -266,7 +283,7 @@ treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (r
   try {
     const treeId = Number(req.params.id);
     const { rows: treeRows } = await query(
-      'SELECT id, name, owner_id, created_at, default_main_id, default_generation_depth FROM trees WHERE id = $1',
+      'SELECT id, name, owner_id, created_at, default_main_id, default_generation_depth, email_auto_visibility FROM trees WHERE id = $1',
       [treeId]
     );
     const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
@@ -344,8 +361,10 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
     const body = req.body || {};
     const hasDefaultMainId = Object.prototype.hasOwnProperty.call(body, 'default_main_id');
     const hasGenerationDepth = Object.prototype.hasOwnProperty.call(body, 'default_generation_depth');
+    const hasEmailAutoVisibility = Object.prototype.hasOwnProperty.call(body, 'email_auto_visibility');
     const defaultMainId = body.default_main_id;
     const defaultGenerationDepth = body.default_generation_depth;
+    const emailAutoVisibility = body.email_auto_visibility;
 
     if (hasDefaultMainId && defaultMainId !== null && !isNonEmptyString(defaultMainId, 200)) {
       return res.status(400).json({ error: 'default_main_id must be a person id or null' });
@@ -366,17 +385,32 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
         .json({ error: `default_generation_depth must be an integer between ${MIN_GENERATION_DEPTH} and ${MAX_GENERATION_DEPTH}, or null` });
     }
 
-    if (!hasDefaultMainId && !hasGenerationDepth) {
-      return res.status(400).json({ error: 'At least one setting (default_main_id or default_generation_depth) is required' });
+    if (hasEmailAutoVisibility && typeof emailAutoVisibility !== 'boolean') {
+      return res.status(400).json({ error: 'email_auto_visibility must be a boolean' });
+    }
+
+    if (!hasDefaultMainId && !hasGenerationDepth && !hasEmailAutoVisibility) {
+      return res.status(400).json({
+        error: 'At least one setting (default_main_id, default_generation_depth, or email_auto_visibility) is required',
+      });
     }
 
     const { rows } = await query(
       `UPDATE trees SET
          default_main_id = CASE WHEN $1 THEN $2 ELSE default_main_id END,
-         default_generation_depth = CASE WHEN $3 THEN $4 ELSE default_generation_depth END
-       WHERE id = $5
-       RETURNING default_main_id, default_generation_depth`,
-      [hasDefaultMainId, defaultMainId ?? null, hasGenerationDepth, defaultGenerationDepth ?? null, treeId]
+         default_generation_depth = CASE WHEN $3 THEN $4 ELSE default_generation_depth END,
+         email_auto_visibility = CASE WHEN $5 THEN $6 ELSE email_auto_visibility END
+       WHERE id = $7
+       RETURNING default_main_id, default_generation_depth, email_auto_visibility`,
+      [
+        hasDefaultMainId,
+        defaultMainId ?? null,
+        hasGenerationDepth,
+        defaultGenerationDepth ?? null,
+        hasEmailAutoVisibility,
+        emailAutoVisibility ?? false,
+        treeId,
+      ]
     );
 
     return res.json({ ok: true, ...rows[0] });

@@ -22,7 +22,7 @@ function personLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
-export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth } = {}) {
+export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility } = {}) {
   const people = [...(Array.isArray(data) ? data : [])].sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
 
   const options = people
@@ -69,6 +69,21 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
             value="${isUnlimited ? DEFAULT_GENERATION_DEPTH : currentGenerationDepth}"
             ${isUnlimited ? 'disabled' : ''}
           />
+        </div>
+      </section>
+
+      <section class="tree-settings-section">
+        <h2 class="tree-settings-title">Email auto-visibility</h2>
+        <p class="tree-settings-desc">
+          When enabled, anyone who signs in with an email address that matches a person's email in this tree is
+          automatically given Viewer access - no join request needed. Existing Editor/Owner access is never
+          downgraded by this.
+        </p>
+        <div class="tree-settings-row">
+          <label class="tree-settings-checkbox-label">
+            <input type="checkbox" id="tree-settings-email-auto-visibility-checkbox" ${currentEmailAutoVisibility ? 'checked' : ''} />
+            Automatically grant viewer access by matching email
+          </label>
         </div>
       </section>
 

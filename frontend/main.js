@@ -92,6 +92,7 @@ import {
   renderTreesEmptyStateMarkup,
   renderCompactJoinSearch,
   renderCompactJoinSearchResults,
+  renderDiscoverySectionMarkup,
   renderJoinRoleModalBody,
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
@@ -188,6 +189,30 @@ function setRememberedEmail(email) {
   }
 }
 
+function discoveryDismissedKey(userId) {
+  return `family-chart-discovery-dismissed-${userId}`;
+}
+
+function hashTreeIds(trees) {
+  return trees.map((t) => t.id).sort((a, b) => a - b).join(',');
+}
+
+function getDismissedDiscoveryHash(userId) {
+  try {
+    return window.localStorage.getItem(discoveryDismissedKey(userId)) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function setDismissedDiscoveryHash(userId, hash) {
+  try {
+    window.localStorage.setItem(discoveryDismissedKey(userId), hash);
+  } catch (_error) {
+    // Ignore write failures (privacy mode, quota) - dismissal just won't persist.
+  }
+}
+
 const state = {
   user: null,
   trees: [],
@@ -217,6 +242,10 @@ const state = {
   // settings (trees.default_generation_depth) - null means unlimited. See
   // loadTree(), the Settings view mode, and ancestryDepth/progenyDepth below.
   treeDefaultGenerationDepth: DEFAULT_GENERATION_DEPTH,
+  // The owner-configured "email auto-visibility" flag loaded from the tree's
+  // own settings (trees.email_auto_visibility). See loadTree() and the
+  // Settings view mode.
+  treeEmailAutoVisibility: false,
   // How many generations of ancestors/descendants to render out from the
   // focused person before trimming the tree, so large families don't
   // render an unbounded (slow, cluttered) hierarchy on every re-root. Seeded
@@ -270,6 +299,18 @@ const state = {
     loading: false,
     loaded: false,
     requests: [],
+  },
+  // "Trees you may belong to" - discovery matches by email, shown on the
+  // tree-list landing page. Recomputed every time loadDiscoveryMatches() runs
+  // (see loadSession()), not a one-time modal. `dismissed` reflects whether
+  // the CURRENT match-set's hash equals the stored per-user dismissed hash
+  // (see get/setDismissedDiscoveryHash), so a changed match-set (new match
+  // appears, or the dismissed one disappears) always resurfaces.
+  discovery: {
+    loading: false,
+    loaded: false,
+    trees: [],
+    dismissed: false,
   },
   // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
   // /terms and /privacy regardless of sign-in state - see syncRouteFromLocation
@@ -1825,6 +1866,52 @@ function attachCompactJoinSearchCollapseListeners() {
   });
 }
 
+function attachDiscoverySectionListeners() {
+  document.querySelector('#discovery-dismiss-btn')?.addEventListener('click', handleDismissDiscovery);
+  document.querySelectorAll('.discovery-join-request-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openDiscoveryJoinRoleModal(Number(btn.dataset.treeId)));
+  });
+}
+
+// Same shape as openJoinRoleModal, but reads from state.discovery.trees
+// instead of state.joinSearch.results, and removes the tree from the
+// discovery list (rather than flipping a membershipStatus flag) on success,
+// since a matched tree's card should just disappear once a request has been
+// sent for it.
+function openDiscoveryJoinRoleModal(treeId) {
+  const tree = state.discovery.trees.find((t) => t.id === treeId);
+  if (!tree) return;
+
+  const modal = showModal({
+    bodyHtml: renderJoinRoleModalBody({ treeName: tree.name }),
+  });
+
+  modal.root.querySelector('#join-role-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const role = String(formData.get('role') || 'viewer');
+    const message = String(formData.get('message') || '').trim();
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/request-join`, {
+        method: 'POST',
+        body: JSON.stringify({ role, message: message || undefined }),
+      });
+      modal.close();
+      showToast('Request sent to the tree owner.');
+      state.discovery.trees = state.discovery.trees.filter((t) => t.id !== treeId);
+      state.myRequests.loaded = false;
+      renderTreeGrid();
+    } catch (error) {
+      showToast(error.message || 'Could not send request.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
+}
+
 async function handleJoinSearch(event) {
   event.preventDefault();
   const query = String(new FormData(event.target).get('query') || '').trim();
@@ -1950,14 +2037,18 @@ function renderTreeGrid() {
     return;
   }
 
+  const discoveryHtml =
+    !state.discovery.dismissed && state.discovery.trees.length ? renderDiscoverySectionMarkup({ trees: state.discovery.trees }) : '';
+
   if (state.trees.length === 0) {
-    body.innerHTML = renderTreesEmptyStateMarkup(state.joinSearch);
+    body.innerHTML = discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
     document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
     document.querySelector('#skip-search-create-btn').addEventListener('click', () => {
       state.dashboardView = 'createTree';
       render();
     });
     attachJoinResultListeners();
+    attachDiscoverySectionListeners();
     return;
   }
 
@@ -1967,6 +2058,7 @@ function renderTreeGrid() {
       sort: state.treeSort,
       discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query, expanded: state.joinSearch.expanded }),
     })}
+    ${discoveryHtml}
     <div id="discover-search-results">${renderCompactJoinSearchResults(state.joinSearch)}</div>
     <div id="tree-grid" class="tree-grid"></div>
   `;
@@ -1998,6 +2090,7 @@ function renderTreeGrid() {
     });
   }
   attachJoinResultListeners();
+  attachDiscoverySectionListeners();
 
   renderActiveTreeGrid();
 }
@@ -4394,7 +4487,16 @@ async function loadSession() {
     await getCurrentUser();
     const payload = await api('/api/auth/me');
     state.user = payload.user;
-    await loadTrees();
+    // discovery-check (auto-grant) and loadDiscoveryMatches (list-for-display)
+    // fire in parallel rather than sequentially - a tree that gets
+    // auto-granted mid-flight simply won't show in this load's discovery
+    // list, which is harmless (matches the "recomputed every time" semantics;
+    // it'll simply be absent next time discovery is fetched).
+    await Promise.all([
+      loadTrees(),
+      api('/api/auth/discovery-check', { method: 'POST' }).catch(() => {}),
+      loadDiscoveryMatches(),
+    ]);
     render();
     await maybeOpenDeepLinkedTicket();
   } catch (_error) {
@@ -4437,6 +4539,38 @@ async function loadTrees() {
   }
 }
 
+// "Trees you may belong to" - trees where a person-node's email matches this
+// user's own account email. Recomputed on every call (see loadSession()),
+// not a one-time "seen it" flag, so a match created later (e.g. an owner
+// adds someone's email after the fact) still surfaces. `dismissed` compares
+// the current match-set's hash against the last-dismissed hash stored in
+// localStorage, so a changed match-set always resurfaces even if the user
+// previously dismissed a different set of matches.
+async function loadDiscoveryMatches() {
+  state.discovery.loading = true;
+  try {
+    const payload = await api('/api/trees/discovery');
+    state.discovery.trees = payload.trees;
+    const hash = hashTreeIds(payload.trees);
+    state.discovery.dismissed = payload.trees.length === 0 || hash === getDismissedDiscoveryHash(state.user.id);
+  } catch (_error) {
+    state.discovery.trees = [];
+    state.discovery.dismissed = true;
+  } finally {
+    state.discovery.loading = false;
+    state.discovery.loaded = true;
+  }
+  if (state.user && state.dashboardView === 'trees' && !state.selectedTreeId) {
+    renderTreeGrid();
+  }
+}
+
+function handleDismissDiscovery() {
+  state.discovery.dismissed = true;
+  setDismissedDiscoveryHash(state.user.id, hashTreeIds(state.discovery.trees));
+  renderTreeGrid();
+}
+
 async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   cleanupAllNodesGraph();
   const payload = await api(`/api/trees/${treeId}`);
@@ -4454,6 +4588,7 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   // configured a depth for, and for one where the owner explicitly chose
   // Unlimited. There's no separate "unset" state to distinguish from that.
   state.treeDefaultGenerationDepth = payload.tree.default_generation_depth ?? null;
+  state.treeEmailAutoVisibility = payload.tree.email_auto_visibility ?? false;
   state.ancestryDepth = state.treeDefaultGenerationDepth;
   state.progenyDepth = state.treeDefaultGenerationDepth;
   state.fullTreeMode = false;
@@ -4554,6 +4689,7 @@ function renderTreeSettingsViewMode() {
   container.innerHTML = renderTreeSettingsPanel(state.selectedTreeData, {
     currentDefaultMainId: state.treeDefaultMainId,
     currentGenerationDepth: state.treeDefaultGenerationDepth,
+    currentEmailAutoVisibility: state.treeEmailAutoVisibility,
   });
 
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
@@ -4570,12 +4706,14 @@ async function handleSaveTreeSettings() {
   const select = document.querySelector('#tree-settings-default-main-select');
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
   const depthInput = document.querySelector('#tree-settings-generation-depth-input');
+  const emailAutoVisibilityCheckbox = document.querySelector('#tree-settings-email-auto-visibility-checkbox');
   const errorEl = document.querySelector('#tree-settings-error');
   const saveBtn = document.querySelector('#tree-settings-save-btn');
-  if (!select || !unlimitedCheckbox || !depthInput || !saveBtn) return;
+  if (!select || !unlimitedCheckbox || !depthInput || !emailAutoVisibilityCheckbox || !saveBtn) return;
 
   const defaultMainId = select.value || null;
   const defaultGenerationDepth = unlimitedCheckbox.checked ? null : Number(depthInput.value);
+  const emailAutoVisibility = emailAutoVisibilityCheckbox.checked;
 
   errorEl.textContent = '';
   if (!unlimitedCheckbox.checked && (!Number.isInteger(defaultGenerationDepth) || defaultGenerationDepth < MIN_GENERATION_DEPTH || defaultGenerationDepth > MAX_GENERATION_DEPTH)) {
@@ -4590,10 +4728,15 @@ async function handleSaveTreeSettings() {
   try {
     const result = await api(`/api/trees/${state.selectedTreeId}/settings`, {
       method: 'PATCH',
-      body: JSON.stringify({ default_main_id: defaultMainId, default_generation_depth: defaultGenerationDepth }),
+      body: JSON.stringify({
+        default_main_id: defaultMainId,
+        default_generation_depth: defaultGenerationDepth,
+        email_auto_visibility: emailAutoVisibility,
+      }),
     });
     state.treeDefaultMainId = result.default_main_id;
     state.treeDefaultGenerationDepth = result.default_generation_depth;
+    state.treeEmailAutoVisibility = result.email_auto_visibility;
     // Only re-applies live if the current session hasn't already overridden
     // it via the "Full Tree" toggle - matches the same "session choice wins"
     // precedence renderChart() itself uses.

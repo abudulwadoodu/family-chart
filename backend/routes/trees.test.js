@@ -347,3 +347,80 @@ describe('tree settings (default focus person)', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('tree settings (email auto-visibility)', () => {
+  it('lets the owner set email_auto_visibility independently of the other settings, and defaults to false', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const initialGetRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(initialGetRes.body.tree.email_auto_visibility).toBe(false);
+
+    const settingsRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ email_auto_visibility: true });
+    expect(settingsRes.status).toBe(200);
+    expect(settingsRes.body.email_auto_visibility).toBe(true);
+
+    const getRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(getRes.body.tree.email_auto_visibility).toBe(true);
+
+    const disableRes = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ email_auto_visibility: false });
+    expect(disableRes.status).toBe(200);
+    expect(disableRes.body.email_auto_visibility).toBe(false);
+  });
+
+  it('rejects a non-boolean email_auto_visibility', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ email_auto_visibility: 'yes' });
+    expect(res.status).toBe(400);
+  });
+
+  it('blocks non-owners from changing email_auto_visibility', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const editor = await asUser('editor-sub', 'editor@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .post(`/api/trees/${treeId}/share`)
+      .set('Authorization', owner)
+      .send({ email: 'editor@example.com', role: 'editor' });
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', editor)
+      .send({ email_auto_visibility: true });
+    expect(res.status).toBe(403);
+  });
+
+  it('updating email_auto_visibility leaves the other settings untouched', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({ json_data: [{ id: 'p1', data: { 'first name': 'Jane', gender: 'F' }, rels: {} }] });
+
+    await request(app).patch(`/api/trees/${treeId}/settings`).set('Authorization', owner).send({ default_main_id: 'p1' });
+    await request(app)
+      .patch(`/api/trees/${treeId}/settings`)
+      .set('Authorization', owner)
+      .send({ email_auto_visibility: true });
+
+    const getRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner);
+    expect(getRes.body.tree.default_main_id).toBe('p1');
+    expect(getRes.body.tree.email_auto_visibility).toBe(true);
+  });
+});
