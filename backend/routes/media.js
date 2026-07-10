@@ -4,10 +4,23 @@ import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
 import { isNonEmptyString } from '../utils/validation.js';
-import { createMedia, listMediaForTree, listMediaForMember, getMediaById, getMediaUsage, updateMedia, deleteMedia } from '../models/mediaModel.js';
+import {
+  createMedia,
+  listMediaForTree,
+  listMediaForMember,
+  getMediaById,
+  resolveMediaAccess,
+  getMediaUsage,
+  updateMedia,
+  deleteMedia,
+  setMediaVisibility,
+  listShareUserIdsForMedia,
+  VisibilityForbiddenError,
+} from '../models/mediaModel.js';
 import { tagMember, listTagsForMedia, removeTag } from '../models/mediaTagModel.js';
 import { storePutObject, storeGetObjectStream, storeDeleteObject } from '../services/storage/index.js';
 import { fileUrlFor, withMediaUrls } from '../utils/mediaUrl.js';
+import { parseVisibilityInput, validateShareUserIds, VisibilityInputError } from '../utils/visibility.js';
 
 const MEDIA_KINDS = ['photo', 'video', 'document'];
 
@@ -20,7 +33,10 @@ mediaRouter.get('/', requireTreeRole(['owner', 'editor', 'viewer']), async (req,
   try {
     const treeId = Number(req.params.treeId);
     const { kind, memberId } = req.query;
-    const items = memberId ? await listMediaForMember(treeId, memberId) : await listMediaForTree(treeId, { kind });
+    const requestingUserId = req.user.id;
+    const items = memberId
+      ? await listMediaForMember(treeId, memberId, requestingUserId)
+      : await listMediaForTree(treeId, { kind, requestingUserId });
     return res.json({ media: withMediaUrls(items) });
   } catch (error) {
     return next(error);
@@ -37,6 +53,9 @@ mediaRouter.post('/', requireTreeRole(['owner', 'editor']), upload.single('file'
     }
 
     const treeId = Number(req.params.treeId);
+    const { visibility, shareUserIds } = parseVisibilityInput(req.body);
+    await validateShareUserIds(treeId, shareUserIds);
+
     const storageKey = `${treeId}/${Date.now()}-${req.file.originalname}`;
     await storePutObject(storageKey, req.file.buffer, req.file.mimetype);
 
@@ -50,10 +69,16 @@ mediaRouter.post('/', requireTreeRole(['owner', 'editor']), upload.single('file'
       description: isNonEmptyString(description, 2000) ? description : null,
       takenAt: takenAt || null,
       uploadedBy: req.user.id,
+      visibility,
     });
+    if (visibility === 'private' && shareUserIds.length) {
+      await setMediaVisibility(media.id, 'private', shareUserIds, req.user.id);
+    }
 
-    return res.status(201).json({ media: { ...media, url: fileUrlFor(media) } });
+    const final = shareUserIds.length ? await getMediaById(media.id) : media;
+    return res.status(201).json({ media: { ...final, url: fileUrlFor(final) } });
   } catch (error) {
+    if (error instanceof VisibilityInputError) return res.status(400).json({ error: error.message });
     return next(error);
   }
 });
@@ -62,6 +87,13 @@ mediaRouter.get('/:mediaId/file', requireTreeRole(['owner', 'editor', 'viewer'])
   try {
     const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+    // A stub-tier requester (owner viewing a "shared with specific people"
+    // item they're not part of) gets metadata elsewhere (list/usage), but
+    // never the actual file bytes - treat 'stub' the same as 'none' here.
+    const access = await resolveMediaAccess(media, req.user.id);
+    if (access !== 'full') {
       return res.status(404).json({ error: 'Media not found' });
     }
     const stream = await storeGetObjectStream(media.storage_key);
@@ -90,8 +122,20 @@ mediaRouter.patch('/:mediaId', requireTreeRole(['owner', 'editor']), async (req,
       takenAt: takenAt || null,
     });
 
-    return res.json({ media: { ...updated, url: fileUrlFor(updated) } });
+    // visibility is only touched when the caller explicitly includes it -
+    // a plain title/description edit must not reset an existing share list.
+    let final = updated;
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'visibility')) {
+      const { visibility, shareUserIds } = parseVisibilityInput(req.body);
+      await validateShareUserIds(media.tree_id, shareUserIds);
+      await setMediaVisibility(media.id, visibility, shareUserIds, req.user.id);
+      final = await getMediaById(media.id);
+    }
+
+    return res.json({ media: { ...final, url: fileUrlFor(final) } });
   } catch (error) {
+    if (error instanceof VisibilityInputError) return res.status(400).json({ error: error.message });
+    if (error instanceof VisibilityForbiddenError) return res.status(403).json({ error: error.message });
     return next(error);
   }
 });
@@ -102,7 +146,18 @@ mediaRouter.get('/:mediaId/usage', requireTreeRole(['owner', 'editor', 'viewer']
     if (!media || media.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Media not found' });
     }
-    return res.json(await getMediaUsage(media.id));
+    const access = await resolveMediaAccess(media, req.user.id);
+    if (access === 'none') {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+    const usage = await getMediaUsage(media.id);
+    // shareUserIds is only meaningful (and only shown) to whoever has full
+    // access - a 'stub' viewer (the owner, moderating) doesn't get to see
+    // exactly who this was shared with, only that it's shared with someone.
+    if (access === 'full' && media.visibility === 'private') {
+      usage.shareUserIds = await listShareUserIdsForMedia(media.id);
+    }
+    return res.json(usage);
   } catch (error) {
     return next(error);
   }
@@ -112,6 +167,14 @@ mediaRouter.delete('/:mediaId', requireTreeRole(['owner', 'editor']), async (req
   try {
     const media = await getMediaById(Number(req.params.mediaId));
     if (!media || media.tree_id !== Number(req.params.treeId)) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+    // Deleting a stub is allowed (that's the point of the owner's
+    // moderation stub - identify and remove without being able to view it),
+    // but a fully-hidden ("only me") item must stay 404 to anyone but its
+    // uploader, same as every other route here.
+    const access = await resolveMediaAccess(media, req.user.id);
+    if (access === 'none') {
       return res.status(404).json({ error: 'Media not found' });
     }
     await storeDeleteObject(media.storage_key);

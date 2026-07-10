@@ -35,6 +35,12 @@ import { createDuplicateManagerState } from './duplicateManager/state.js';
 import { renderDuplicateManagerMode } from './duplicateManager/components.js';
 import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
 import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
+import {
+  renderTreeSettingsPanel,
+  MIN_GENERATION_DEPTH,
+  MAX_GENERATION_DEPTH,
+  DEFAULT_GENERATION_DEPTH,
+} from './treeSettingsPanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { appToast } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
@@ -46,7 +52,7 @@ import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
-import { attachPersonMediaTabs, openReadOnlyPersonModal } from './personMediaPanel.js';
+import { hydrateAvatarPreview, attachAvatarUpload } from './avatarUpload.js';
 import {
   createMediaLibraryPageState,
   renderMediaLibraryPageContent,
@@ -73,6 +79,7 @@ import {
   renderTreeViewerHeader,
   renderViewModeToggle,
   renderResetViewButton,
+  renderFullTreeToggleButton,
   renderFocusModeButton,
   renderMediaLibraryButton,
   renderTimelineButton,
@@ -201,6 +208,26 @@ const state = {
   viewMode: 'focused',
   focusedMainId: null,
   defaultMainId: null,
+  // The owner-configured "default focus person" loaded from the tree's own
+  // settings (trees.default_main_id) - distinct from defaultMainId above,
+  // which is just "whichever person Reset View should return to" for the
+  // current session. See loadTree() and the Settings view mode.
+  treeDefaultMainId: null,
+  // The owner-configured "generations to show" loaded from the tree's own
+  // settings (trees.default_generation_depth) - null means unlimited. See
+  // loadTree(), the Settings view mode, and ancestryDepth/progenyDepth below.
+  treeDefaultGenerationDepth: DEFAULT_GENERATION_DEPTH,
+  // How many generations of ancestors/descendants to render out from the
+  // focused person before trimming the tree, so large families don't
+  // render an unbounded (slow, cluttered) hierarchy on every re-root. Seeded
+  // from treeDefaultGenerationDepth on every loadTree(); null means
+  // unlimited (see renderChart()).
+  ancestryDepth: DEFAULT_GENERATION_DEPTH,
+  progenyDepth: DEFAULT_GENERATION_DEPTH,
+  // "Full Tree" toolbar toggle - true lifts the ancestry/progeny depth cap
+  // above for the current session (Focused mode only). Not persisted; large
+  // trees pay the full unbounded-render cost while it's on.
+  fullTreeMode: false,
   allNodesGraph: null,
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
@@ -2073,6 +2100,9 @@ function handleTreeCardAction(action, treeId) {
     renderTreeGrid();
     return;
   }
+  if (action === 'tree-settings') {
+    return loadTree(treeId, { viewMode: 'settings' });
+  }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
     promptDeleteTree(treeId, tree?.name || 'this tree');
@@ -2219,6 +2249,7 @@ function renderTreeViewerMarkup() {
         <div class="tree-toolbar-left">
           <div id="view-mode-toggle"></div>
           ${renderResetViewButton()}
+          ${renderFullTreeToggleButton({ fullTreeMode: state.fullTreeMode })}
           ${renderFocusModeButton()}
           ${renderMediaLibraryButton()}
           ${renderTimelineButton()}
@@ -2240,6 +2271,7 @@ function attachTreeViewerListeners() {
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
+  document.querySelector('#full-tree-toggle-btn')?.addEventListener('click', handleToggleFullTree);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
   document.querySelector('#media-library-btn')?.addEventListener('click', () => {
     state.mediaLibrary = createMediaLibraryPageState();
@@ -2424,6 +2456,36 @@ function selectSearchedMember(id) {
   }
 
   if (!state.chart) return;
+
+  // If the searched person is already part of the currently rendered tree
+  // (getTreeDatum only returns nodes calculateTree actually laid out - e.g.
+  // within ancestryDepth/progenyDepth of the current main_id), just pan/
+  // center on their existing card instead of re-rooting the whole tree onto
+  // them. Re-rooting is a heavier, more disorienting jump (the visible
+  // subtree changes) and isn't needed when they're already on screen.
+  // getTreeDatum throws if the chart hasn't laid out a tree yet at all
+  // (rather than returning undefined) - shouldn't happen here since
+  // renderChart() always calls updateTree() right after createChart(), but
+  // guard it anyway so a search never hard-crashes the app.
+  let existingTreeDatum;
+  try {
+    existingTreeDatum = state.chart.store.getTreeDatum(id);
+  } catch {
+    existingTreeDatum = undefined;
+  }
+  if (existingTreeDatum) {
+    f3.handlers.cardToMiddle({
+      datum: existingTreeDatum,
+      svg: state.chart.svg,
+      svg_dim: state.chart.svg.getBoundingClientRect(),
+      transition_time: 600,
+    });
+    highlightFocusedCard(id);
+    return;
+  }
+
+  // Not currently rendered (outside the depth-capped tree, or a fresh
+  // load) - fall back to the full re-root.
   state.chart.updateMainId(id);
   state.focusedMainId = id;
   state.chart.updateTree({ initial: false, tree_position: 'main_to_middle', transition_time: 600 });
@@ -2486,10 +2548,37 @@ function focusModeCenter() {
 // Nodes mode has its own pan/zoom with no equivalent hooks, so disable those
 // two floating-toolbar buttons instead of leaving them as silent no-ops.
 function syncFocusModeToolbarState() {
-  const disabled = state.viewMode === 'all-nodes' || state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager';
+  const disabled =
+    state.viewMode === 'all-nodes' ||
+    state.viewMode === 'relationship-manager' ||
+    state.viewMode === 'duplicate-manager' ||
+    state.viewMode === 'settings';
   focusModeController?.setActionDisabled('zoom-in', disabled);
   focusModeController?.setActionDisabled('zoom-out', disabled);
   focusModeController?.setActionDisabled('center', disabled);
+}
+
+// The ancestry/progeny depth cap this toggle lifts only applies to the
+// Focused-mode card tree (see renderChart()) - All Nodes already shows
+// everyone, and Relationships/Duplicates don't render a depth-limited tree
+// at all, so disable it there rather than let it silently do nothing.
+function syncFullTreeToggleState() {
+  const btn = document.querySelector('#full-tree-toggle-btn');
+  if (!btn) return;
+  btn.disabled = state.viewMode !== 'focused';
+}
+
+function handleToggleFullTree() {
+  state.fullTreeMode = !state.fullTreeMode;
+  renderChart();
+  const btn = document.querySelector('#full-tree-toggle-btn');
+  if (btn) {
+    btn.classList.toggle('chip-active', state.fullTreeMode);
+    btn.setAttribute('aria-pressed', String(state.fullTreeMode));
+    btn.title = state.fullTreeMode
+      ? 'Showing every generation - click to limit again'
+      : 'Show every connected generation, not just the nearby ones';
+  }
 }
 
 // Runs once the enter/exit CSS transition has finished (focusMode.js calls
@@ -2868,6 +2957,8 @@ function clearSelectedTreeView() {
   state.viewMode = 'focused';
   state.focusedMainId = null;
   state.defaultMainId = null;
+  state.treeDefaultMainId = null;
+  state.fullTreeMode = false;
   state.relationshipManager = createRelationshipManagerState();
   state.duplicateManager = createDuplicateManagerState();
   closeMemberSearchResults();
@@ -2921,6 +3012,31 @@ function closeCardMoreMenu() {
   document.querySelectorAll('.f3-card-more-menu').forEach((m) => m.remove());
 }
 
+// Birthdays are free-text (often just a bare year, or blank - see
+// docs/data-format.md) rather than a strict ISO date, so this can't just
+// subtract `new Date(...)` values: an unparseable/missing birthday must sort
+// after known ones instead of corrupting the comparison with NaN.
+function parseBirthdayForSort(birthday) {
+  if (!birthday || typeof birthday !== 'string') return null;
+  const trimmed = birthday.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') return null;
+  const time = new Date(trimmed).getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+// Receives raw Datum records (see src/layout/calculate-tree.ts's
+// `children.sort(sortChildrenFunction)`), not TreeDatum tree nodes - so
+// birthday lives at a.data.birthday, one level shallower than card-rendering
+// code that walks TreeDatum.data.data.
+function sortChildrenByBirthday(a, b) {
+  const aTime = parseBirthdayForSort(a.data?.birthday);
+  const bTime = parseBirthdayForSort(b.data?.birthday);
+  if (aTime === null && bTime === null) return 0;
+  if (aTime === null) return 1; // unknown birthdays last
+  if (bTime === null) return -1;
+  return aTime - bTime;
+}
+
 function renderChart() {
   cleanupAllNodesGraph();
   if (state.viewMode === 'duplicate-manager') {
@@ -2938,6 +3054,11 @@ function renderChart() {
     setupViewModeToggle();
     return;
   }
+  if (state.viewMode === 'settings') {
+    renderTreeSettingsViewMode();
+    setupViewModeToggle();
+    return;
+  }
 
   const container = document.querySelector('#FamilyChart');
   container.innerHTML = '';
@@ -2947,7 +3068,24 @@ function renderChart() {
     .createChart('#FamilyChart', state.selectedTreeData)
     .setTransitionTime(1000)
     .setCardXSpacing(250)
-    .setCardYSpacing(150);
+    .setCardYSpacing(150)
+    .setSortChildrenFunction(sortChildrenByBirthday)
+    // Without this, siblings of the focused person are invisible until you
+    // re-root onto a parent (which shows that parent's children - your
+    // siblings - as a side effect). This shows them directly on whoever is
+    // currently focused, matching the "why can't I see my own siblings"
+    // report.
+    .setShowSiblingsOfMain(true);
+
+  // "Full Tree" toggle (toolbar) lifts the generation cap for this session,
+  // and the tree owner can separately configure "unlimited" as the default
+  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. Either
+  // way, just skip setAncestryDepth/setProgenyDepth entirely rather than
+  // passing some sentinel "unlimited" value, since calculateTree only
+  // applies a cap when state.ancestry_depth/progeny_depth is not undefined.
+  if (!state.fullTreeMode && state.ancestryDepth !== null && state.progenyDepth !== null) {
+    state.chart.setAncestryDepth(state.ancestryDepth).setProgenyDepth(state.progenyDepth);
+  }
 
   // Re-root on whatever was previously focused (e.g. coming back from All
   // Nodes mode, or a member found via search) instead of always defaulting
@@ -2956,22 +3094,33 @@ function renderChart() {
     state.chart.updateMainId(state.focusedMainId);
   }
 
-  const card = state.chart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
+  // No setDefaultPersonIcon() override: the library's own default
+  // (personSvgIcon, a plain bust silhouette) already renders inside
+  // `.person-icon`, which family-chart.css colors per gender via
+  // --female-color/--male-color/--genderless-color - and those tokens
+  // already fall back to our own --tree-female/--tree-male/--tree-genderless
+  // (see src/styles/family-chart.css:6-8), so it's already on-theme with no
+  // extra wiring needed.
+  const card = state.chart
+    .setCard(f3.CardHtml)
+    .setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
 
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
   if (canEdit) {
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
       .setEditFirst(true)
       .setOnFormCreation(({ cont, form_creator }) => {
-        attachPersonMediaTabs({
-          cont,
-          datum: form_creator.datum,
-          api,
-          treeId: state.selectedTreeId,
-          memberIndex: state.memberSearchIndex || [],
-        });
+        hydrateAvatarPreview(cont);
+        // attachAvatarUpload needs the full datum (not just datum_id) to tag
+        // the uploaded photo to the right person - form_creator only carries
+        // datum_id (src/types/form.ts), not the full datum, so look it up
+        // from the chart's store instead of reading a `.datum` property that
+        // doesn't exist on FormCreator.
+        const datum = state.chart.store.getDatum(form_creator.datum_id);
+        if (!datum) return;
+        attachAvatarUpload({ cont, datum, api, treeId: state.selectedTreeId });
       });
 
     // Canceling add-relative mode (EditTree's internal cancelCallback) always
@@ -3102,11 +3251,22 @@ function renderChart() {
       state.editor.open(d.data);
     });
   } else {
-    state.editor = null;
-    // Viewers never get editTree(). Card click opens the read-only Media/
-    // Events profile modal; a separate drilldown icon (matching the editor
-    // pattern) handles re-rooting the tree, so the two actions don't happen
-    // together on a single tap.
+    // Viewers get the same profile panel as editors, just permanently
+    // read-only: setNoEdit() forces editable=false regardless of
+    // setEditFirst() and (per src/renderers/create-form-html.ts) hides the
+    // Add relative/Edit/Remove relation/Delete actions, leaving only the
+    // read-only field grid.
+    state.editor = state.chart
+      .editTree()
+      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setNoEdit()
+      .setEditFirst(false)
+      .setOnFormCreation(({ cont }) => hydrateAvatarPreview(cont));
+
+    // Drilldown icon mirrors the editor path above: pure navigation,
+    // re-roots the tree on this person, hidden once there's no subtree left
+    // to reveal. Plain card click opens the read-only profile panel instead
+    // of re-rooting, so the two actions don't happen together on a single tap.
     card.setOnCardUpdate(function cardUpdate(d) {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
@@ -3114,18 +3274,14 @@ function renderChart() {
       if (!d.all_rels_displayed) {
         addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
           e.stopPropagation();
+          state.editor.closeForm();
           card.onCardClickDefault(e, d);
         }, 'Drill down', -10);
       }
     });
 
     card.setOnCardClick((e, d) => {
-      openReadOnlyPersonModal({
-        api,
-        treeId: state.selectedTreeId,
-        datum: d.data,
-        memberIndex: state.memberSearchIndex || [],
-      });
+      state.editor.open(d.data);
     });
   }
 
@@ -3146,20 +3302,24 @@ function renderChart() {
 function setupViewModeToggle() {
   const cont = document.querySelector('#view-mode-toggle');
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, canEdit });
+  const isOwner = state.selectedTreeRole === 'owner';
+  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, canEdit, isOwner });
 
   const focusedBtn = document.querySelector('#focused-mode-btn');
   const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
   const relationshipManagerBtn = document.querySelector('#relationship-manager-mode-btn');
   const duplicateManagerBtn = document.querySelector('#duplicate-manager-mode-btn');
+  const treeSettingsBtn = document.querySelector('#tree-settings-mode-btn');
 
   const syncModeButtons = () => {
     focusedBtn.disabled = state.viewMode === 'focused';
     allNodesBtn.disabled = state.viewMode === 'all-nodes';
     if (relationshipManagerBtn) relationshipManagerBtn.disabled = state.viewMode === 'relationship-manager';
     if (duplicateManagerBtn) duplicateManagerBtn.disabled = state.viewMode === 'duplicate-manager';
+    if (treeSettingsBtn) treeSettingsBtn.disabled = state.viewMode === 'settings';
     syncSaveButtonAvailability();
     syncFocusModeToolbarState();
+    syncFullTreeToggleState();
   };
 
   const saveFocusedMainId = () => {
@@ -3193,6 +3353,13 @@ function setupViewModeToggle() {
   duplicateManagerBtn?.addEventListener('click', () => {
     saveFocusedMainId();
     state.viewMode = 'duplicate-manager';
+    renderChart();
+    syncModeButtons();
+  });
+
+  treeSettingsBtn?.addEventListener('click', () => {
+    saveFocusedMainId();
+    state.viewMode = 'settings';
     renderChart();
     syncModeButtons();
   });
@@ -4266,15 +4433,33 @@ async function loadTrees() {
   }
 }
 
-async function loadTree(treeId) {
+async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   cleanupAllNodesGraph();
   const payload = await api(`/api/trees/${treeId}`);
   state.selectedTreeId = treeId;
   state.selectedTreeRole = payload.role;
   state.selectedTreeData = payload.data;
   state.selectedTreeName = payload.tree.name;
-  state.viewMode = 'focused';
-  state.focusedMainId = pickDefaultMainId(payload.data);
+  // 'settings' is only reachable here for owners (see handleTreeCardAction's
+  // 'tree-settings' shortcut) - requireTreeRole on the API side is the real
+  // guard, this is just so a non-owner deep link can't get stuck showing an
+  // owner-only tab.
+  state.viewMode = viewMode === 'settings' && payload.role !== 'owner' ? 'focused' : viewMode;
+  state.treeDefaultMainId = payload.tree.default_main_id ?? null;
+  // NULL always means "unlimited" here - both for a tree nobody has ever
+  // configured a depth for, and for one where the owner explicitly chose
+  // Unlimited. There's no separate "unset" state to distinguish from that.
+  state.treeDefaultGenerationDepth = payload.tree.default_generation_depth ?? null;
+  state.ancestryDepth = state.treeDefaultGenerationDepth;
+  state.progenyDepth = state.treeDefaultGenerationDepth;
+  state.fullTreeMode = false;
+
+  // Prefer the owner-configured default focus person; fall back to the
+  // largest-connected-component heuristic if it's unset, or if it points at
+  // someone no longer in the tree (e.g. deleted since it was set).
+  const ownerDefaultStillExists =
+    state.treeDefaultMainId && payload.data.some((d) => d.id === state.treeDefaultMainId);
+  state.focusedMainId = ownerDefaultStillExists ? state.treeDefaultMainId : pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
   state.relationshipBuilder = createRelationshipBuilderState();
   state.relationshipManager = createRelationshipManagerState();
@@ -4357,6 +4542,71 @@ function renderDuplicateManagerViewMode() {
   syncSaveButtonAvailability();
 }
 
+function renderTreeSettingsViewMode() {
+  state.chart = null;
+  state.editor = null;
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderTreeSettingsPanel(state.selectedTreeData, {
+    currentDefaultMainId: state.treeDefaultMainId,
+    currentGenerationDepth: state.treeDefaultGenerationDepth,
+  });
+
+  const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
+  const depthInput = document.querySelector('#tree-settings-generation-depth-input');
+  unlimitedCheckbox?.addEventListener('change', () => {
+    if (depthInput) depthInput.disabled = unlimitedCheckbox.checked;
+  });
+
+  document.querySelector('#tree-settings-save-btn')?.addEventListener('click', handleSaveTreeSettings);
+  syncSaveButtonAvailability();
+}
+
+async function handleSaveTreeSettings() {
+  const select = document.querySelector('#tree-settings-default-main-select');
+  const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
+  const depthInput = document.querySelector('#tree-settings-generation-depth-input');
+  const errorEl = document.querySelector('#tree-settings-error');
+  const saveBtn = document.querySelector('#tree-settings-save-btn');
+  if (!select || !unlimitedCheckbox || !depthInput || !saveBtn) return;
+
+  const defaultMainId = select.value || null;
+  const defaultGenerationDepth = unlimitedCheckbox.checked ? null : Number(depthInput.value);
+
+  errorEl.textContent = '';
+  if (!unlimitedCheckbox.checked && (!Number.isInteger(defaultGenerationDepth) || defaultGenerationDepth < MIN_GENERATION_DEPTH || defaultGenerationDepth > MAX_GENERATION_DEPTH)) {
+    errorEl.textContent = `Generations to show must be a whole number between ${MIN_GENERATION_DEPTH} and ${MAX_GENERATION_DEPTH}.`;
+    return;
+  }
+
+  saveBtn.disabled = true;
+  const originalLabel = saveBtn.textContent;
+  saveBtn.textContent = 'Saving...';
+
+  try {
+    const result = await api(`/api/trees/${state.selectedTreeId}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({ default_main_id: defaultMainId, default_generation_depth: defaultGenerationDepth }),
+    });
+    state.treeDefaultMainId = result.default_main_id;
+    state.treeDefaultGenerationDepth = result.default_generation_depth;
+    // Only re-applies live if the current session hasn't already overridden
+    // it via the "Full Tree" toggle - matches the same "session choice wins"
+    // precedence renderChart() itself uses.
+    if (!state.fullTreeMode) {
+      state.ancestryDepth = state.treeDefaultGenerationDepth;
+      state.progenyDepth = state.treeDefaultGenerationDepth;
+    }
+    showToast('Tree settings updated.');
+  } catch (error) {
+    errorEl.textContent = error.message || 'Could not save these settings.';
+    showToast(error.message || 'Could not save these settings.', { type: 'error' });
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalLabel;
+  }
+}
+
 let relationshipManagerKeyboardCleanup = null;
 
 // Re-evaluates the Save button's disabled state from current role/view-mode/
@@ -4370,7 +4620,11 @@ function syncSaveButtonAvailability() {
   const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
   const relationshipManagerBlocked = state.viewMode === 'relationship-manager' && !state.relationshipManager.dirty;
   const duplicateManagerBlocked = state.viewMode === 'duplicate-manager' && !state.duplicateManager.dirty;
-  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked || duplicateManagerBlocked;
+  // Settings mode saves via its own button (handleSaveTreeDefaultFocus),
+  // straight to PATCH /:id/settings - it never has bulk json_data changes
+  // pending, so the main Save button has nothing to do there.
+  const settingsBlocked = state.viewMode === 'settings';
+  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked || duplicateManagerBlocked || settingsBlocked;
 }
 
 function cleanupAllNodesGraph() {

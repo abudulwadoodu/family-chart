@@ -47,7 +47,8 @@ albumsRouter.get('/:albumId', requireTreeRole(['owner', 'editor', 'viewer']), as
     if (!album || album.tree_id !== Number(req.params.treeId)) {
       return res.status(404).json({ error: 'Album not found' });
     }
-    return res.json({ album, media: withMediaUrls(await listMediaForAlbum(album.id)) });
+    const media = await listMediaForAlbum(album.id, req.user.id);
+    return res.json({ album, media: withMediaUrls(media) });
   } catch (error) {
     return next(error);
   }

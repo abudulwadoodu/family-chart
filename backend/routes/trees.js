@@ -265,7 +265,10 @@ treesRouter.patch('/requests/:id', async (req, res, next) => {
 treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { rows: treeRows } = await query('SELECT id, name, owner_id, created_at FROM trees WHERE id = $1', [treeId]);
+    const { rows: treeRows } = await query(
+      'SELECT id, name, owner_id, created_at, default_main_id, default_generation_depth FROM trees WHERE id = $1',
+      [treeId]
+    );
     const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
 
     const tree = treeRows[0];
@@ -310,6 +313,73 @@ treesRouter.patch('/:id', requireTreeRole(['owner']), async (req, res, next) => 
     await query('UPDATE trees SET name = $1 WHERE id = $2', [trimmedName, treeId]);
 
     return res.json({ ok: true, name: trimmedName });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const MIN_GENERATION_DEPTH = 1;
+const MAX_GENERATION_DEPTH = 20;
+
+function isValidGenerationDepth(value) {
+  return Number.isInteger(value) && value >= MIN_GENERATION_DEPTH && value <= MAX_GENERATION_DEPTH;
+}
+
+// Owner-only tree settings distinct from the name-only PATCH /:id above -
+// the default focus person (Focused mode's initial main_id for anyone
+// opening the tree) and the default generation depth (how many generations
+// of ancestry/progeny Focused mode renders before trimming - see
+// setAncestryDepth/setProgenyDepth in frontend/main.js's renderChart()).
+// Kept on its own route so the settings tab doesn't need to resend the tree
+// name just to change one setting, and vice versa for the rename form.
+//
+// Each setting is independently optional: a key that's absent from the body
+// is left untouched, so the frontend (or any other caller) can update just
+// one without having to know/resend the other's current value. `null` is a
+// meaningful value for both (no default person / unlimited depth), so
+// "absent" and "explicitly null" are deliberately different.
+treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const body = req.body || {};
+    const hasDefaultMainId = Object.prototype.hasOwnProperty.call(body, 'default_main_id');
+    const hasGenerationDepth = Object.prototype.hasOwnProperty.call(body, 'default_generation_depth');
+    const defaultMainId = body.default_main_id;
+    const defaultGenerationDepth = body.default_generation_depth;
+
+    if (hasDefaultMainId && defaultMainId !== null && !isNonEmptyString(defaultMainId, 200)) {
+      return res.status(400).json({ error: 'default_main_id must be a person id or null' });
+    }
+
+    if (hasDefaultMainId && defaultMainId !== null) {
+      const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
+      const people = familyDataRows[0]?.json_data ?? [];
+      const exists = Array.isArray(people) && people.some((person) => person.id === defaultMainId);
+      if (!exists) {
+        return res.status(400).json({ error: 'default_main_id must refer to a member of this tree' });
+      }
+    }
+
+    if (hasGenerationDepth && defaultGenerationDepth !== null && !isValidGenerationDepth(defaultGenerationDepth)) {
+      return res
+        .status(400)
+        .json({ error: `default_generation_depth must be an integer between ${MIN_GENERATION_DEPTH} and ${MAX_GENERATION_DEPTH}, or null` });
+    }
+
+    if (!hasDefaultMainId && !hasGenerationDepth) {
+      return res.status(400).json({ error: 'At least one setting (default_main_id or default_generation_depth) is required' });
+    }
+
+    const { rows } = await query(
+      `UPDATE trees SET
+         default_main_id = CASE WHEN $1 THEN $2 ELSE default_main_id END,
+         default_generation_depth = CASE WHEN $3 THEN $4 ELSE default_generation_depth END
+       WHERE id = $5
+       RETURNING default_main_id, default_generation_depth`,
+      [hasDefaultMainId, defaultMainId ?? null, hasGenerationDepth, defaultGenerationDepth ?? null, treeId]
+    );
+
+    return res.json({ ok: true, ...rows[0] });
   } catch (error) {
     return next(error);
   }
@@ -559,7 +629,13 @@ treesRouter.post('/:id/request-role-change', requireTreeRole(['viewer', 'editor'
   }
 });
 
-treesRouter.get('/:id/permissions', requireTreeRole(['owner']), async (req, res, next) => {
+// Loosened from owner-only to owner+editor: editors need this to populate
+// the media/event visibility picker's "specific people" checklist. Viewers
+// don't get it - they can't create media/events at all (POST routes are
+// owner/editor-only), so never need to pick who to share with. The
+// owner-only management actions (share/role-change/remove below) are
+// untouched - only this read stays loosened.
+treesRouter.get('/:id/permissions', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const { rows: permissions } = await query(
@@ -660,7 +736,16 @@ treesRouter.delete('/:id/share/:userId', requireTreeRole(['owner']), async (req,
       return res.status(400).json({ error: 'Owners cannot remove their own access' });
     }
 
-    await query('DELETE FROM tree_permissions WHERE id = $1', [target.id]);
+    // A removed collaborator can no longer reach any media/events endpoint
+    // for this tree (requireTreeRole 403s them regardless), so these rows
+    // are already unreachable - purged anyway so a "who has access" view
+    // over media_shares/event_shares never shows a stale grant to someone
+    // with no tree access at all.
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM tree_permissions WHERE id = $1', [target.id]);
+      await client.query('DELETE FROM media_shares WHERE tree_id = $1 AND user_id = $2', [treeId, targetUserId]);
+      await client.query('DELETE FROM event_shares WHERE tree_id = $1 AND user_id = $2', [treeId, targetUserId]);
+    });
     return res.json({ ok: true });
   } catch (error) {
     return next(error);

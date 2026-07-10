@@ -1,7 +1,7 @@
-// Shared "view one piece of media + its person tags" modal, used by both
-// personMediaPanel.js (a single person's gallery) and mediaLibraryPanel.js
-// (the tree-wide library) so the view/tag UI is built once. Read-only mode
-// hides the upload/tag/delete affordances for viewers.
+// Shared "view one piece of media + its person tags" modal, used by
+// mediaLibraryPanel.js (the tree-wide library) and timelinePanel.js so the
+// view/tag UI is built once. Read-only mode hides the upload/tag/delete
+// affordances for viewers.
 import { showModal, showToast, showConfirmDialog } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
