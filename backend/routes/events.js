@@ -22,6 +22,7 @@ import {
 } from '../models/eventModel.js';
 import { withMediaUrls } from '../utils/mediaUrl.js';
 import { parseVisibilityInput, validateShareUserIds, VisibilityInputError } from '../utils/visibility.js';
+import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 
 export const eventsRouter = express.Router({ mergeParams: true });
 
@@ -65,6 +66,7 @@ eventsRouter.post('/', requireTreeRole(['owner', 'editor']), async (req, res, ne
     }
 
     const final = shareUserIds.length ? await getEventById(event.id) : event;
+    await recordActivity(req, { activityType: ACTIVITY_TYPES.EVENT_ADDED, relatedEventId: event.id });
     return res.status(201).json({ event: final });
   } catch (error) {
     if (error instanceof VisibilityInputError) return res.status(400).json({ error: error.message });

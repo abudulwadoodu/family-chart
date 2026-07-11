@@ -15,6 +15,7 @@ import { adminDashboardRouter } from './routes/adminDashboard.js';
 import { mediaRouter } from './routes/media.js';
 import { albumsRouter } from './routes/albums.js';
 import { eventsRouter } from './routes/events.js';
+import { activityRouter } from './routes/activity.js';
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
 
@@ -42,6 +43,7 @@ app.use('/api/admin/dashboard', adminDashboardRouter);
 app.use('/api/trees/:treeId/media', mediaRouter);
 app.use('/api/trees/:treeId/albums', albumsRouter);
 app.use('/api/trees/:treeId/events', eventsRouter);
+app.use('/api/trees/:treeId/activity', activityRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

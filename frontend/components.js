@@ -703,6 +703,14 @@ export function renderTimelineButton() {
   `;
 }
 
+export function renderFamilyFeedButton() {
+  return `
+    <button type="button" id="family-feed-btn" class="chip" title="Recent activity for this tree">
+      ${icon('cake')}<span>Family Feed</span>
+    </button>
+  `;
+}
+
 export function renderMemberSearch() {
   return `
     <div class="member-search" id="member-search">

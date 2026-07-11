@@ -118,6 +118,9 @@ export const icons = {
   undo: svg('<path d="M6 8.5H15a4.5 4.5 0 0 1 0 9H10"></path><path d="M9.5 5 6 8.5 9.5 12"></path>'),
   redo: svg('<path d="M18 8.5H9a4.5 4.5 0 0 0 0 9h5"></path><path d="M14.5 5 18 8.5 14.5 12"></path>'),
   chevronRight: svg('<path d="M9 6l6 6-6 6"></path>'),
+  cake: svg(
+    '<path d="M4 20.5h16"></path><path d="M5 20.5v-6a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v6"></path><path d="M5 16.5c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0"></path><path d="M12 13V9"></path><path d="M12 9c-1 0-1.5-.6-1.5-1.3S11 6 12 4.5c1 1.5 1.5 2.4 1.5 3.2S13 9 12 9Z"></path>'
+  ),
 };
 
 export function icon(name) {

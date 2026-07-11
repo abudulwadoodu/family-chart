@@ -24,6 +24,7 @@ import {
   sendJoinRequestDecidedEmail,
   sendRoleChangeRequestCreatedEmail,
 } from '../utils/joinRequestEmail.js';
+import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -293,7 +294,23 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), async (req, res, n
       return res.status(400).json({ error: 'json_data is required' });
     }
 
+    // Diff against the pre-save member list to log newly-added members for
+    // the Family Feed. Only additions are detected (ids present in the new
+    // payload but not the old) - this is a whole-tree overwrite, not a
+    // per-field diff, so edits/removals can't be reliably distinguished and
+    // aren't logged. Import routes (CSV/JSON/GEDCOM) deliberately skip this -
+    // they'd otherwise flood the feed with one row per imported person.
+    const { rows: existingRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
+    const previousIds = new Set((existingRows[0]?.json_data ?? []).map((person) => person.id));
+
     await upsertFamilyData(treeId, jsonData);
+
+    if (Array.isArray(jsonData)) {
+      const newIds = jsonData.filter((person) => !previousIds.has(person.id)).map((person) => person.id);
+      for (const memberId of newIds) {
+        await recordActivity(req, { activityType: ACTIVITY_TYPES.MEMBER_ADDED, memberId });
+      }
+    }
 
     return res.json({ ok: true, changes: 1 });
   } catch (error) {

@@ -6376,6 +6376,200 @@ button.admin-stat-card {
   font-size: 0.85rem;
 }
 
+/* Family Feed - slide-out activity panel, reachable from the tree viewer
+   toolbar. Slide mechanics mirror the tree's own person-detail drawer
+   (.f3-form-cont in src/styles/family-chart.css): a fixed-position
+   container toggled open via a single .opened class, transform/backdrop
+   animating on --transition-base. */
+
+.family-feed-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+  z-index: 60;
+}
+
+.family-feed-backdrop.opened {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.family-feed-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface-raised);
+  border-left: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(100%);
+  transition: transform var(--transition-base);
+  z-index: 61;
+}
+
+.family-feed-panel.opened {
+  transform: translateX(0);
+}
+
+.family-feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-5) var(--sp-3);
+  flex: none;
+}
+
+.family-feed-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.family-feed-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-5) var(--sp-4);
+  flex: none;
+}
+
+.family-feed-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 var(--sp-5) var(--sp-5);
+}
+
+/* Timeline thread - a continuous vertical line drawn once on the list (not
+   per-item) so it stays unbroken across the gaps between cards. Thread sits
+   at a fixed offset from the list's own edge (--thread-x); badge and item
+   padding are both expressed relative to that same constant so the badge
+   always straddles the line exactly in half. */
+
+.activity-list {
+  --thread-x: 14px;
+  --badge-size: 28px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.activity-list::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: var(--thread-x);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--border-default);
+}
+
+.activity-item {
+  position: relative;
+  padding: 0 0 var(--sp-5) calc(var(--thread-x) + var(--badge-size) / 2 + var(--sp-3));
+}
+
+.activity-item:last-child {
+  padding-bottom: 0;
+}
+
+.activity-badge {
+  position: absolute;
+  top: 0;
+  left: var(--thread-x);
+  width: var(--badge-size);
+  height: var(--badge-size);
+  margin-left: calc(var(--badge-size) / -2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 2px solid var(--bg-surface-raised);
+  box-shadow: 0 0 0 1px var(--border-default);
+  color: var(--text-on-accent);
+}
+
+.activity-badge svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.activity-badge--add {
+  background: var(--success);
+}
+
+.activity-badge--edit {
+  background: var(--accent);
+}
+
+.activity-badge--birthday {
+  background: var(--warning);
+}
+
+.activity-badge--remove {
+  background: var(--danger);
+}
+
+.activity-card {
+  padding-left: var(--sp-3);
+}
+
+.activity-text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.activity-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.activity-person-link {
+  color: var(--accent-hover);
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.activity-person-link:hover {
+  text-decoration: underline;
+}
+
+.activity-person-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.activity-timestamp {
+  display: block;
+  margin-top: var(--sp-1);
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.family-feed-empty {
+  padding: var(--sp-6) 0;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
 /* The app-wide .card class (dashboard panels, settings sections - see
    `.card` around line 801) sets background/border/padding with no scope
    restriction, so it was leaking onto the tree library's own unrelated

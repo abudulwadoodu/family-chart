@@ -7,8 +7,11 @@ import { mediaAccessCaseSql, shapeForAccess } from './mediaModel.js';
 // only), 'none' (excluded entirely). See mediaModel.js's top-of-file comment
 // for the full rationale; kept in sync deliberately rather than factored
 // into one cross-table helper, since events/media are different tables with
-// different owner/creator column names.
-function eventAccessCaseSql(requestingUserIdParamIndex) {
+// different owner/creator column names. Exported so activityModel.js's feed
+// query (a different join path onto these same event rows, same as this
+// file's own listMediaForEvent reuses mediaAccessCaseSql) can reuse the
+// identical access-tier logic rather than reimplementing it.
+export function eventAccessCaseSql(requestingUserIdParamIndex) {
   const p = `$${requestingUserIdParamIndex}`;
   return `
     CASE
