@@ -707,6 +707,7 @@ export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
       <div class="view-mode-toggle-group">
         ${renderMediaLibraryButton()}
         ${renderTimelineButton()}
+        ${renderFamilyFeedButton()}
       </div>
     </div>
   `;
@@ -738,6 +739,14 @@ function renderTimelineButton() {
   return `
     <button type="button" id="timeline-btn" class="chip" title="Events for this tree">
       ${icon('clock')}<span>Timeline</span>
+    </button>
+  `;
+}
+
+export function renderFamilyFeedButton() {
+  return `
+    <button type="button" id="family-feed-btn" class="chip" title="Recent activity for this tree">
+      ${icon('cake')}<span>Family Feed</span>
     </button>
   `;
 }

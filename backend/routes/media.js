@@ -21,6 +21,7 @@ import { tagMember, listTagsForMedia, removeTag } from '../models/mediaTagModel.
 import { storePutObject, storeGetObjectStream, storeDeleteObject } from '../services/storage/index.js';
 import { fileUrlFor, withMediaUrls } from '../utils/mediaUrl.js';
 import { parseVisibilityInput, validateShareUserIds, VisibilityInputError } from '../utils/visibility.js';
+import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 
 const MEDIA_KINDS = ['photo', 'video', 'document'];
 
@@ -76,6 +77,7 @@ mediaRouter.post('/', requireTreeRole(['owner', 'editor']), upload.single('file'
     }
 
     const final = shareUserIds.length ? await getMediaById(media.id) : media;
+    await recordActivity(req, { activityType: ACTIVITY_TYPES.MEDIA_ADDED, relatedMediaId: media.id });
     return res.status(201).json({ media: { ...final, url: fileUrlFor(final) } });
   } catch (error) {
     if (error instanceof VisibilityInputError) return res.status(400).json({ error: error.message });

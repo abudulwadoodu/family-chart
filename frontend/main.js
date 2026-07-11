@@ -65,6 +65,7 @@ import {
   attachTimelinePageListeners,
   loadTimelinePage,
 } from './timelinePanel.js';
+import { listFeed as listFamilyFeed } from './familyFeedApi.js';
 import { buildJsonExportEnvelope } from './jsonExport.js';
 import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
@@ -340,6 +341,12 @@ const state = {
   // Tree-wide Timeline page (reachable from the tree viewer toolbar). Reset
   // the same way as mediaLibrary above.
   timeline: createTimelinePageState(),
+  // Family Feed slide-out overlay (reachable from the tree viewer toolbar).
+  // Unlike mediaLibrary/timeline, this is NOT a dashboardView page - it's a
+  // persistent overlay on top of the tree canvas, toggled via `open` (see
+  // openFamilyFeed/closeFamilyFeed), independent of dashboardView. Reset via
+  // clearSelectedTreeView same as the other two.
+  familyFeed: { open: false, loaded: false, loading: false, filter: 'all', items: [] },
   // Admin Portal: only reachable when state.user.is_admin is true. Each
   // module owns its own state slice (dashboard/users/trees/analytics/
   // settings/auditLogs/tickets) - add a new slice + nav entry to extend.
@@ -2341,7 +2348,207 @@ function renderTreeViewerMarkup() {
         ${renderCanvasFloatingControls()}
       </div>
     </div>
+    ${renderFamilyFeedPanel()}
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Family Feed (slide-out activity panel)
+// ---------------------------------------------------------------------------
+
+const FAMILY_FEED_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'update', label: 'Updates' },
+  { value: 'milestone', label: 'Milestones' },
+];
+
+// activity_type (from the backend) -> { bucket: filter pill this item
+// belongs to, badge: which .activity-badge-- variant to draw }.
+const FAMILY_FEED_TYPE_META = {
+  media_added: { bucket: 'update', badge: 'add' },
+  event_added: { bucket: 'update', badge: 'edit' },
+  member_added: { bucket: 'milestone', badge: 'add' },
+  birthday: { bucket: 'milestone', badge: 'birthday' },
+};
+
+function familyFeedActorName(item) {
+  return item.actor_email || 'Someone';
+}
+
+function familyFeedRelativeTime(isoString) {
+  const then = new Date(isoString).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  const diffMinutes = Math.round(diffMs / 60000);
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return new Date(isoString).toLocaleDateString();
+}
+
+// Day-granularity label for a birthday's effective_at date, relative to
+// today - distinct from familyFeedRelativeTime (which handles logged
+// activity's created_at, always in the past, down to minute granularity).
+// Birthdays can be up to +/-7 days from today (see BIRTHDAY_WINDOW_DAYS on
+// the backend), so this needs both "in N days" and "N days ago" phrasing.
+function familyFeedDayLabel(isoString) {
+  const target = new Date(isoString);
+  if (Number.isNaN(target.getTime())) return '';
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetUtc = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
+  const diffDays = Math.round((targetUtc - todayUtc) / 86400000);
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'tomorrow';
+  if (diffDays === -1) return 'yesterday';
+  return diffDays > 0 ? `in ${diffDays} days` : `${Math.abs(diffDays)} days ago`;
+}
+
+function familyFeedPersonLink(memberId, memberName) {
+  if (!memberId || !memberName) return escapeHtml(memberName || 'someone');
+  return `<a href="#" class="activity-person-link" data-person-id="${escapeHtml(memberId)}">${escapeHtml(memberName)}</a>`;
+}
+
+function familyFeedItemText(item) {
+  const actor = `<strong>${escapeHtml(familyFeedActorName(item))}</strong>`;
+  const person = familyFeedPersonLink(item.member_id, item.member_name);
+  switch (item.activity_type) {
+    case 'media_added':
+      return `${actor} added a new photo for ${person}`;
+    case 'event_added':
+      return `${actor} added a new event: ${escapeHtml(item.event_title || 'Untitled event')}`;
+    case 'member_added':
+      return `${actor} added a new family member, ${person}`;
+    case 'birthday': {
+      const ageText = item.age ? ` turns <strong>${escapeHtml(String(item.age))}</strong>` : '’s birthday';
+      return item.is_today ? `${person}${ageText} today` : `${person}${ageText} ${familyFeedDayLabel(item.effective_at)}`;
+    }
+    default:
+      return escapeHtml(item.summary || '');
+  }
+}
+
+const FAMILY_FEED_BADGE_ICON_PATHS = {
+  add: '<path d="M12 5v14"></path><path d="M5 12h14"></path>',
+  edit: '<path d="M16.5 4.5 19.5 7.5 8 19 4.5 19.5 5 16 16.5 4.5Z"></path>',
+  birthday:
+    '<path d="M4 20.5h16"></path><path d="M5 20.5v-6a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v6"></path><path d="M5 16.5c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0"></path><path d="M12 13V9"></path><path d="M12 9c-1 0-1.5-.6-1.5-1.3S11 6 12 4.5c1 1.5 1.5 2.4 1.5 3.2S13 9 12 9Z"></path>',
+};
+
+function familyFeedItemHtml(item) {
+  const meta = FAMILY_FEED_TYPE_META[item.activity_type] || { bucket: 'update', badge: 'add' };
+  const timestamp =
+    item.activity_type === 'birthday'
+      ? familyFeedDayLabel(item.effective_at).replace(/^./, (c) => c.toUpperCase())
+      : familyFeedRelativeTime(item.effective_at);
+  return `
+    <li class="activity-item" data-type="${meta.bucket}">
+      <span class="activity-badge activity-badge--${meta.badge}" aria-hidden="true">
+        <svg viewBox="0 0 24 24">${FAMILY_FEED_BADGE_ICON_PATHS[meta.badge]}</svg>
+      </span>
+      <div class="activity-card">
+        <p class="activity-text">${familyFeedItemText(item)}</p>
+        <span class="activity-timestamp">${escapeHtml(timestamp)}</span>
+      </div>
+    </li>
+  `;
+}
+
+function renderFamilyFeedListHtml() {
+  const { items, filter } = state.familyFeed;
+  const filtered = filter === 'all' ? items : items.filter((item) => (FAMILY_FEED_TYPE_META[item.activity_type]?.bucket || 'update') === filter);
+  if (!state.familyFeed.loaded) return '<p class="family-feed-empty">Loading&hellip;</p>';
+  if (!filtered.length) return '<p class="family-feed-empty">No activity yet.</p>';
+  return filtered.map(familyFeedItemHtml).join('');
+}
+
+function renderFamilyFeedPanel() {
+  const { open, filter } = state.familyFeed;
+  return `
+    <div class="family-feed-backdrop${open ? ' opened' : ''}" id="family-feed-backdrop"></div>
+    <aside class="family-feed-panel${open ? ' opened' : ''}" id="family-feed-panel" aria-hidden="${open ? 'false' : 'true'}" aria-label="Family feed">
+      <header class="family-feed-header">
+        <h2 class="family-feed-title">Family Feed</h2>
+        <button type="button" class="icon-btn" id="family-feed-close-btn" aria-label="Close family feed">${icon('close')}</button>
+      </header>
+      <div class="family-feed-filters" role="group" aria-label="Filter activity">
+        ${FAMILY_FEED_FILTERS.map(
+          (f) => `<button type="button" class="chip ${filter === f.value ? 'chip-active' : ''}" data-filter="${f.value}">${f.label}</button>`
+        ).join('')}
+      </div>
+      <div class="family-feed-body">
+        <ul class="activity-list" id="family-feed-list">${renderFamilyFeedListHtml()}</ul>
+      </div>
+    </aside>
+  `;
+}
+
+// In-place DOM update (toggle classes, re-render just the list) instead of a
+// full render() - opening a side panel shouldn't tear down/rebuild the d3
+// chart underneath it.
+function renderFamilyFeedPanelInPlace() {
+  const panel = document.querySelector('#family-feed-panel');
+  const backdrop = document.querySelector('#family-feed-backdrop');
+  if (!panel || !backdrop) return;
+  panel.classList.toggle('opened', state.familyFeed.open);
+  backdrop.classList.toggle('opened', state.familyFeed.open);
+  panel.setAttribute('aria-hidden', state.familyFeed.open ? 'false' : 'true');
+  panel.querySelectorAll('.family-feed-filters .chip').forEach((btn) => {
+    btn.classList.toggle('chip-active', btn.dataset.filter === state.familyFeed.filter);
+  });
+  const list = document.querySelector('#family-feed-list');
+  if (list) list.innerHTML = renderFamilyFeedListHtml();
+}
+
+function openFamilyFeed() {
+  state.familyFeed.open = true;
+  if (!state.familyFeed.loaded && !state.familyFeed.loading && state.selectedTreeId) {
+    state.familyFeed.loading = true;
+    listFamilyFeed(api, state.selectedTreeId)
+      .then((result) => {
+        state.familyFeed.items = result.activity;
+        state.familyFeed.loaded = true;
+      })
+      .catch((error) => {
+        showToast(error.message || 'Could not load family feed', { type: 'error' });
+      })
+      .finally(() => {
+        state.familyFeed.loading = false;
+        renderFamilyFeedPanelInPlace();
+      });
+  }
+  renderFamilyFeedPanelInPlace();
+}
+
+function closeFamilyFeed() {
+  state.familyFeed.open = false;
+  renderFamilyFeedPanelInPlace();
+}
+
+function attachFamilyFeedListeners() {
+  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
+  document.querySelector('#family-feed-close-btn')?.addEventListener('click', () => closeFamilyFeed());
+  document.querySelector('#family-feed-backdrop')?.addEventListener('click', () => closeFamilyFeed());
+
+  const panel = document.querySelector('#family-feed-panel');
+  panel?.querySelectorAll('.family-feed-filters .chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.familyFeed.filter = btn.dataset.filter;
+      renderFamilyFeedPanelInPlace();
+    });
+  });
+
+  document.querySelector('#family-feed-list')?.addEventListener('click', (event) => {
+    const link = event.target.closest('.activity-person-link');
+    if (!link) return;
+    event.preventDefault();
+    closeFamilyFeed();
+    selectSearchedMember(link.dataset.personId);
+  });
 }
 
 function attachTreeViewerListeners() {
@@ -2364,6 +2571,7 @@ function attachTreeViewerListeners() {
   });
 
   attachMemberSearchListeners();
+  attachFamilyFeedListeners();
   setupFocusMode();
 }
 
@@ -3036,6 +3244,7 @@ function clearSelectedTreeView() {
   state.memberSearchIndex = null;
   state.mediaLibrary = createMediaLibraryPageState();
   state.timeline = createTimelinePageState();
+  state.familyFeed = { open: false, loaded: false, loading: false, filter: 'all', items: [] };
 }
 
 // Appends one of the small circular hover-icon buttons tree cards use (e.g.

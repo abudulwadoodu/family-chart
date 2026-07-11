@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
       // running concurrently: main 8080, ui-enhancements 8081, feature-enhancements
       // 8082 (see FRONTEND_ORIGIN in this worktree's .env). strictPort makes Vite
       // fail fast instead of silently picking a different port when this one is busy.
-      port: 8082,
+      port: 8081,
       strictPort: true,
       proxy: {
         '^/api/': {
