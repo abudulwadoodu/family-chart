@@ -131,6 +131,11 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
 
   return `
     <button type="button" class="icon-btn modal-close" id="lightbox-close-btn" aria-label="Close">${icon('close')}</button>
+    ${
+      !readOnly && !showingForm
+        ? `<button type="button" class="btn btn-sm btn-danger lightbox-delete-top-btn" id="lightbox-delete-btn">${icon('trash')}<span>Delete</span></button>`
+        : ''
+    }
     <div class="lightbox-scroll">
     ${
       editing
@@ -195,15 +200,10 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
     ${renderCommentSectionHtml(commentState, { idPrefix: 'lightbox', currentUserId })}
 
     ${
-      readOnly
+      readOnly || !context
         ? ''
         : `<div class="modal-actions row">
-             ${
-               context
-                 ? `<button type="button" class="btn-secondary" id="lightbox-remove-from-context-btn">${icon('close')}<span>Remove from ${escapeHtml(context.name)}</span></button>`
-                 : ''
-             }
-             <button type="button" class="btn-danger" id="lightbox-delete-btn">${icon('trash')}<span>Delete Permanently</span></button>
+             <button type="button" class="btn-secondary" id="lightbox-remove-from-context-btn">${icon('close')}<span>Remove from ${escapeHtml(context.name)}</span></button>
            </div>`
     }
     `

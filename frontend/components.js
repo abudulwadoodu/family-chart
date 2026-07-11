@@ -608,10 +608,14 @@ export function renderSkeletonGrid(count = 6) {
 // sibling full-page panel is open. In the latter case the tree name becomes a
 // clickable breadcrumb segment (id="breadcrumb-tree-btn") that routes back to
 // the core tree view, since "My Trees" alone no longer reaches it in one click.
+// `detailLabel` is an optional 4th segment (e.g. an event's title on the
+// Timeline detail view) - when present, `activeTab` itself becomes a
+// clickable link (id="breadcrumb-tab-btn") back to its list view, and
+// `detailLabel` becomes the new current (non-clickable) segment.
 // Shared by renderTreeViewerHeader and the standalone Media Library/Timeline
 // page headers so the breadcrumb stays visually and structurally identical
 // across all tree-detail views.
-export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
+export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">
       <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
@@ -620,7 +624,13 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
         activeTab
           ? `<button type="button" id="breadcrumb-tree-btn" class="breadcrumb-link">${escapeHtml(treeName)}</button>
              <span class="breadcrumb-sep">/</span>
-             <span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+             ${
+               detailLabel
+                 ? `<button type="button" id="breadcrumb-tab-btn" class="breadcrumb-link">${escapeHtml(activeTab)}</button>
+                    <span class="breadcrumb-sep">/</span>
+                    <span class="breadcrumb-current">${escapeHtml(detailLabel)}</span>`
+                 : `<span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+             }`
           : `<span class="breadcrumb-current">${escapeHtml(treeName)}</span>`
       }
     </nav>

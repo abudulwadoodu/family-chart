@@ -140,10 +140,13 @@ function eventVisibilityBadge(event, shareCount, readOnly) {
 // Moderation-only detail for a 'stub' event (backend already strips
 // participants/media for this tier - see events.js's GET /:eventId). Enough
 // to identify and delete, no edit/participants/media affordances.
-function eventStubDetail({ event }) {
+function eventStubDetail({ event, treeName }) {
   const createdDate = event.created_at ? new Date(event.created_at).toLocaleDateString() : 'Unknown date';
   return `
-    <button type="button" id="timeline-detail-back-btn" class="breadcrumb-link">&larr; Back to Timeline</button>
+    <div class="timeline-detail-header">
+      ${renderTreeBreadcrumb({ treeName, activeTab: 'Timeline', detailLabel: event.title })}
+      <button type="button" class="btn-danger" id="timeline-delete-event-btn">${icon('trash')}<span>Delete Event</span></button>
+    </div>
     <div class="lightbox-stub">
       <div class="lightbox-stub-icon">${icon('lock')}</div>
       <h3>Shared with specific people</h3>
@@ -153,18 +156,18 @@ function eventStubDetail({ event }) {
       </p>
       <h1 class="page-title">${escapeHtml(event.title)}</h1>
       <p class="modal-message"><strong>Created:</strong> ${escapeHtml(createdDate)}</p>
-      <div class="modal-actions row">
-        <button type="button" class="btn-danger" id="timeline-delete-event-btn">${icon('trash')}<span>Delete Event</span></button>
-      </div>
     </div>
   `;
 }
 
-function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount, commentState, currentUserId }) {
-  if (event.access === 'stub') return eventStubDetail({ event });
+function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount, commentState, currentUserId, treeName }) {
+  if (event.access === 'stub') return eventStubDetail({ event, treeName });
   const showingForm = editing || editingVisibility;
   return `
-    <button type="button" id="timeline-detail-back-btn" class="breadcrumb-link">&larr; Back to Timeline</button>
+    <div class="timeline-detail-header">
+      ${renderTreeBreadcrumb({ treeName, activeTab: 'Timeline', detailLabel: event.title })}
+      ${readOnly ? '' : `<button type="button" class="btn-danger" id="timeline-delete-event-btn">${icon('trash')}<span>Delete Event</span></button>`}
+    </div>
     ${
       editing
         ? eventEditForm(editDraft)
@@ -249,14 +252,6 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
     }
 
     ${renderCommentSectionHtml(commentState, { idPrefix: 'timeline', currentUserId })}
-
-    ${
-      readOnly
-        ? ''
-        : `<div class="modal-actions row">
-             <button type="button" class="btn-danger" id="timeline-delete-event-btn">${icon('trash')}<span>Delete Event</span></button>
-           </div>`
-    }
     `
     }
   `;
@@ -452,6 +447,7 @@ export function renderTimelinePageContent(pageState, { memberIndex, readOnly, cu
               shareCount: pageState.detailShareCount,
               commentState: pageState.commentState,
               currentUserId,
+              treeName,
             })
           : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName })
       }
@@ -513,7 +509,9 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
       rerender
     );
 
-    root.querySelector('#timeline-detail-back-btn').addEventListener('click', () => {
+    root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
+    root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
+    root.querySelector('#breadcrumb-tab-btn')?.addEventListener('click', () => {
       pageState.view = 'list';
       rerender();
     });

@@ -6082,6 +6082,17 @@ button.admin-stat-card {
   flex-direction: column;
 }
 
+/* Pinned top right, same corner as .modal-close (which reserves 16-50px in
+   from the border - see below) - sits just left of it rather than at the
+   bottom of the modal, mirroring where the list view's primary "+ Upload"/
+   "+ Create Event" action lives (top right of its own header row). */
+.lightbox-delete-top-btn {
+  position: absolute;
+  top: var(--sp-3);
+  right: 56px;
+  z-index: 1;
+}
+
 .lightbox-scroll {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -6677,6 +6688,25 @@ button.admin-stat-card {
 
 .timeline-page .breadcrumb .breadcrumb-link {
   margin-bottom: 0;
+}
+
+/* Event detail header row: breadcrumb on the left, Delete Event pinned top
+   right - same placement as the list view's "+ Create Event" button (see
+   .media-library-filters), rather than the old bottom-of-page danger button. */
+.timeline-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.timeline-detail-header .breadcrumb {
+  margin-bottom: 0;
+}
+
+.timeline-detail-header .btn-danger {
+  flex-shrink: 0;
 }
 
 .timeline-media-picker-upload-label {
