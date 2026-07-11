@@ -46,9 +46,6 @@ export function createCommentSectionState() {
     submitting: false,
     reactionSummary: [],
     myReaction: null,
-    // Consulted (and cleared) by mediaLightbox.js's render() after a post -
-    // see the comment-submit handler below.
-    scrollToBottom: false,
   };
 }
 
@@ -103,6 +100,12 @@ function commentRow(comment, { currentUserId, readOnly }) {
   `;
 }
 
+// Newest first - a comment posted just now shows up immediately below the
+// input instead of requiring a scroll to the bottom to see it land.
+function sortedComments(comments) {
+  return [...comments].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
 export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readOnly = false }) {
   return `
     <div class="comment-section" data-id-prefix="${idPrefix}">
@@ -112,13 +115,6 @@ export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readO
         !state.loaded
           ? '<p class="muted">Loading&hellip;</p>'
           : `
-        <ul class="comment-list">
-          ${
-            state.comments.length
-              ? state.comments.map((c) => commentRow(c, { currentUserId, readOnly })).join('')
-              : '<li class="muted comment-list-empty">No comments yet.</li>'
-          }
-        </ul>
         ${
           readOnly
             ? ''
@@ -129,6 +125,15 @@ export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readO
           </div>
         `
         }
+        <ul class="comment-list">
+          ${
+            state.comments.length
+              ? sortedComments(state.comments)
+                  .map((c) => commentRow(c, { currentUserId, readOnly }))
+                  .join('')
+              : '<li class="muted comment-list-empty">No comments yet.</li>'
+          }
+        </ul>
       `
       }
     </div>
@@ -185,22 +190,10 @@ export function attachCommentSectionListeners(root, state, { api, treeId, target
       state.comments = [...state.comments, comment];
       state.draft = '';
       state.submitting = false;
-      // Tells the lightbox's render() (mediaLightbox.js) to scroll
-      // .lightbox-scroll to the bottom after this rerender instead of
-      // restoring the pre-post scroll position, so the just-posted comment
-      // is visible. No-op on the Timeline page, which has no .lightbox-scroll
-      // and handles this itself below via scrollIntoView.
-      state.scrollToBottom = true;
+      // No scroll handling needed here - the form sits above the (newest-
+      // first) list, so the just-posted comment renders directly below the
+      // still-visible input rather than requiring a scroll to reveal it.
       rerenderFn();
-      // rerenderFn does a full innerHTML replacement of its own root (the
-      // whole modal in mediaLightbox.js, the whole #app in main.js's
-      // render()), so `root`/`section` captured above are now detached. On
-      // the Timeline page (no .lightbox-scroll - the whole page scrolls),
-      // there's no mediaLightbox.js render() to consult the flag above, so
-      // scrollIntoView the fresh input directly instead.
-      if (!document.querySelector('.lightbox-scroll')) {
-        document.querySelector(`#${idPrefix}-comment-input`)?.scrollIntoView({ block: 'end' });
-      }
     } catch (error) {
       state.submitting = false;
       showToast(error.message || 'Could not post comment', { type: 'error' });

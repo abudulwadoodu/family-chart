@@ -6475,7 +6475,7 @@ button.admin-stat-card {
 
 .comment-list {
   list-style: none;
-  margin: 0 0 var(--sp-3);
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -6528,6 +6528,7 @@ button.admin-stat-card {
   display: flex;
   gap: var(--sp-2);
   align-items: flex-end;
+  margin-bottom: var(--sp-3);
 }
 
 .comment-form textarea {

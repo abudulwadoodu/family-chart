@@ -333,18 +333,9 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
     // hydrateMediaSources' returned promise settles, in case the image was
     // still loading and its arrival shifted .lightbox-scroll's total height
     // out from under the first restore.
-    // A comment post requests "scroll to bottom" (see commentSection.js)
-    // instead of restoring the pre-render position, so the just-added
-    // comment is visible rather than wherever the user happened to be
-    // scrolled to before. Captured once and the flag cleared immediately -
-    // restoreScroll runs twice (see below) and must apply the same decision
-    // both times, not re-read a flag that's already been consumed.
-    const scrollToBottom = state.commentState.scrollToBottom;
-    state.commentState.scrollToBottom = false;
     const restoreScroll = () => {
       const scrollEl = modal.root.querySelector('.lightbox-scroll');
-      if (!scrollEl || !modal.root.isConnected) return;
-      scrollEl.scrollTop = scrollToBottom ? scrollEl.scrollHeight : scrollTop;
+      if (scrollEl && modal.root.isConnected) scrollEl.scrollTop = scrollTop;
     };
     hydrateMediaSources(modal.root, new Map([[state.media.id, state.media]])).then(restoreScroll);
     restoreScroll();
