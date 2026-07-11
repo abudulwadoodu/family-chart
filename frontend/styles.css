@@ -6243,6 +6243,15 @@ button.admin-stat-card {
   min-width: 0;
 }
 
+/* timelinePanel.js reuses .lightbox-description-row's "text + trailing
+   pencil" layout for the date/location line too (not just the description),
+   so its child text needs the same flex treatment regardless of tag/class. */
+.lightbox-description-row .page-subtitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
 .lightbox-description-row .icon-btn {
   flex-shrink: 0;
 }
