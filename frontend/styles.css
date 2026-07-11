@@ -1125,27 +1125,41 @@ button.secondary:active,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 36px;
+  width: 26px;
+  height: 44px;
   padding: 0;
   background: var(--bg-surface-raised);
   color: var(--text-tertiary);
   border: 1px solid var(--border-default);
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);
   z-index: 10;
+  transition: background var(--transition-base), color var(--transition-base),
+    border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .sidebar-collapse-btn .icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   transform: rotate(180deg);
   transition: transform var(--transition-base);
 }
 
+/* Highlighted accent color only appears once the pointer is over the
+   sidebar - keeps the rail's resting state calm and reserves the accent
+   for when the user is actually near enough to use the button. */
+.sidebar:hover .sidebar-collapse-btn {
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
 .sidebar-collapse-btn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-lg);
 }
 
 /* Icon-rail collapse only applies at desktop widths (distinct from the

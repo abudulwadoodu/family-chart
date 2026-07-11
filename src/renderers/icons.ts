@@ -206,6 +206,15 @@ export function closeIcon() {
   `)
 }
 
+export function calendarIcon() {
+  return (`
+    <g data-icon="calendar">
+      ${bgCircle()}
+      <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.9 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
+    </g>
+  `)
+}
+
 export function userSvgIcon() { return svgWrapper(userIcon()) }
 export function userEditSvgIcon() { return svgWrapper(userEditIcon()) }
 export function userPlusSvgIcon() { return svgWrapper(userPlusIcon()) }
@@ -227,6 +236,7 @@ export function infoSvgIcon() { return svgWrapper(infoIcon()) }
 export function drilldownSvgIcon() { return svgWrapper(drilldownIcon()) }
 export function moreSvgIcon() { return svgWrapper(moreIcon()) }
 export function closeSvgIcon() { return svgWrapper(closeIcon()) }
+export function calendarSvgIcon() { return svgWrapper(calendarIcon()) }
 
 function svgWrapper(icon: string, viewBox='0 0 24 24') {
   const match = icon.match(/data-icon="([^"]+)"/);

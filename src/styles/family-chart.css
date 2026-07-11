@@ -390,6 +390,52 @@
   text-decoration: underline;
 }
 
+.f3-date-input-wrap {
+  position: relative;
+}
+
+.f3-date-input-wrap .f3-date-text-input {
+  padding-right: 40px;
+}
+
+.f3-date-input-wrap .f3-date-picker-input {
+  position: absolute;
+  inset: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.f3-date-picker-btn {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--panel-label-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.f3-date-picker-btn:hover {
+  color: var(--panel-accent);
+  background: color-mix(in srgb, var(--panel-accent) 12%, transparent);
+}
+
+.f3-date-picker-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
 /* -- Sticky footer -- */
 .f3-form-buttons {
   position: sticky;
