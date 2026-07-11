@@ -764,7 +764,11 @@
 
 .f3-form-cont {
   position: relative;
-  z-index: 6;
+  /* Must clear the canvas's floating reset/maximize controls
+     (.canvas-floating-controls, z-index: 10 in frontend/styles.css) -
+     this panel slides out over the same top-right corner and would
+     otherwise render underneath them, hiding its close button. */
+  z-index: 20;
   right: 0;
   top: 0;
   width: 0;
@@ -889,6 +893,11 @@
 
 .f3-popup {
   position: fixed;
+  /* Must clear the canvas's floating reset/maximize controls
+     (.canvas-floating-controls, z-index: 10 in frontend/styles.css) -
+     the popup can be clamped into that same top-right corner and would
+     otherwise render underneath them, hiding its close button. */
+  z-index: 20;
   box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.8);
 }
 
