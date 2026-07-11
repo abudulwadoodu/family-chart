@@ -6052,9 +6052,40 @@ button.admin-stat-card {
 /* Media / albums / events (lightbox, library, timeline)                   */
 /* ---------------------------------------------------------------------- */
 
+/* Unlike other modals, the lightbox body can grow arbitrarily tall (a long
+   comment thread) - if the dialog itself scrolled (the .modal-dialog
+   default), the absolutely-positioned close button would scroll away with
+   the content instead of staying reachable. So this modal opts out of the
+   inherited overflow-y: auto and instead scrolls only .lightbox-scroll (the
+   wrapper around everything below the close button), which keeps the close
+   button fixed in place and the media preview from being pushed off-screen
+   by a growing comment list. */
 .modal-dialog.modal-media-lightbox {
   width: min(100%, 720px);
   max-height: min(88vh, 760px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lightbox-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* .modal-close is a 34px button pinned at top/right: var(--sp-4) (16px) -
+     its left edge reaches 50px in from the dialog's border. Since this is
+     the modal's actual scroll container now (not the dialog itself - see
+     the rule above), its native scrollbar renders at this box's own right
+     edge, which without this padding sits at the dialog's padding boundary
+     (24px in) - well inside the button's 16-50px span, so the button
+     visually blocks the scrollbar's up-arrow. Push the scroll box's right
+     edge out past 50px (26px of extra padding), then pull the box back by
+     the same amount so visible content keeps its original width/position -
+     only the scrollbar (and the padding box behind it, which is empty)
+     moves clear of the button. */
+  padding-right: 26px;
+  margin-right: -26px;
 }
 
 .media-grid {
@@ -6377,6 +6408,117 @@ button.admin-stat-card {
 
 .lightbox-tag-suggestions li:hover {
   background: var(--bg-surface-hover);
+}
+
+/* Comments + reactions (mediaLightbox.js, timelinePanel.js, via commentSection.js) */
+
+.comment-section {
+  margin-top: var(--sp-3);
+}
+
+.comment-section-title {
+  margin-top: var(--sp-3);
+}
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.reaction-chip:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.reaction-chip:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.reaction-chip-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-on-soft);
+}
+
+.reaction-chip-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.comment-list-empty {
+  padding: 0;
+}
+
+.comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.comment-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-item-meta {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.comment-item-author {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.comment-item-time {
+  font-size: 0.75rem;
+}
+
+.comment-item-text {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-delete-btn {
+  flex-shrink: 0;
+}
+
+.comment-form {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-end;
+}
+
+.comment-form textarea {
+  flex: 1;
+  resize: vertical;
 }
 
 /* Media library */

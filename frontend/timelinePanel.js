@@ -18,6 +18,12 @@ import {
   attachVisibilityPickerListeners,
   getVisibilityPayload,
 } from './visibilityPicker.js';
+import {
+  createCommentSectionState,
+  loadCommentSection,
+  renderCommentSectionHtml,
+  attachCommentSectionListeners,
+} from './commentSection.js';
 
 function memberLabel(memberIndex, memberId) {
   return memberIndex.find((m) => m.id === memberId)?.label || memberId;
@@ -154,7 +160,7 @@ function eventStubDetail({ event }) {
   `;
 }
 
-function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount }) {
+function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount, commentState, currentUserId }) {
   if (event.access === 'stub') return eventStubDetail({ event });
   const showingForm = editing || editingVisibility;
   return `
@@ -241,6 +247,8 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
            </div>`
         : '<p class="muted">No media attached.</p>'
     }
+
+    ${renderCommentSectionHtml(commentState, { idPrefix: 'timeline', currentUserId })}
 
     ${
       readOnly
@@ -420,6 +428,7 @@ export function createTimelinePageState() {
     editingVisibility: false,
     editVisibilityPicker: createVisibilityPickerState(),
     detailShareCount: 0,
+    commentState: createCommentSectionState(),
   };
 }
 
@@ -441,6 +450,8 @@ export function renderTimelinePageContent(pageState, { memberIndex, readOnly, cu
               editingVisibility: pageState.editingVisibility,
               editVisibilityPicker: pageState.editVisibilityPicker,
               shareCount: pageState.detailShareCount,
+              commentState: pageState.commentState,
+              currentUserId,
             })
           : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName })
       }
@@ -460,7 +471,7 @@ export async function loadTimelinePage(pageState, { api, treeId }, rerender) {
   }
 }
 
-async function openDetail(pageState, { api, treeId }, eventId, rerender) {
+async function openDetail(pageState, { api, treeId, currentUserId }, eventId, rerender) {
   try {
     const { event, participants, media, shareUserIds } = await mediaApi.getEvent(api, treeId, eventId);
     pageState.view = 'detail';
@@ -471,7 +482,13 @@ async function openDetail(pageState, { api, treeId }, eventId, rerender) {
     pageState.memberResults = [];
     pageState.detailShareUserIds = shareUserIds || [];
     pageState.detailShareCount = (shareUserIds || []).length;
+    pageState.commentState = createCommentSectionState();
     rerender();
+    loadCommentSection(
+      pageState.commentState,
+      { api, treeId, targetType: 'event', targetId: event.id, currentUserId },
+      rerender
+    );
   } catch (error) {
     showToast(error.message || 'Could not load event', { type: 'error' });
   }
@@ -488,6 +505,13 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
 
   if (pageState.view === 'detail' && pageState.detail) {
     hydrateMediaSources(root, new Map(pageState.media.map((m) => [m.id, m])));
+
+    attachCommentSectionListeners(
+      root,
+      pageState.commentState,
+      { api, treeId, targetType: 'event', targetId: pageState.detail.id, currentUserId },
+      rerender
+    );
 
     root.querySelector('#timeline-detail-back-btn').addEventListener('click', () => {
       pageState.view = 'list';
@@ -707,7 +731,7 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
   root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
 
   root.querySelectorAll('.timeline-event-row').forEach((row) => {
-    row.addEventListener('click', () => openDetail(pageState, { api, treeId }, Number(row.dataset.eventId), rerender));
+    row.addEventListener('click', () => openDetail(pageState, { api, treeId, currentUserId }, Number(row.dataset.eventId), rerender));
   });
 
   root.querySelector('#timeline-all-toggle')?.addEventListener('click', () => {

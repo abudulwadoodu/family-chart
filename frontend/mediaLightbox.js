@@ -16,6 +16,12 @@ import {
   attachVisibilityPickerListeners,
   getVisibilityPayload,
 } from './visibilityPicker.js';
+import {
+  createCommentSectionState,
+  loadCommentSection,
+  renderCommentSectionHtml,
+  attachCommentSectionListeners,
+} from './commentSection.js';
 
 function memberLabel(memberIndex, memberId) {
   return memberIndex.find((m) => m.id === memberId)?.label || memberId;
@@ -112,7 +118,7 @@ function visibilityEditForm(visibilityPicker) {
   `;
 }
 
-function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, editing, editDraft, editingVisibility, visibilityPicker, shareCount, editingDescription, descriptionDraft, context }) {
+function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, editing, editDraft, editingVisibility, visibilityPicker, shareCount, editingDescription, descriptionDraft, context, commentState, currentUserId }) {
   const isImage = media.kind === 'photo';
   const isVideo = media.kind === 'video';
   const showingForm = editing || editingVisibility || editingDescription;
@@ -125,6 +131,7 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
 
   return `
     <button type="button" class="icon-btn modal-close" id="lightbox-close-btn" aria-label="Close">${icon('close')}</button>
+    <div class="lightbox-scroll">
     ${
       editing
         ? editForm(editDraft)
@@ -185,6 +192,8 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
       }
     </div>
 
+    ${renderCommentSectionHtml(commentState, { idPrefix: 'lightbox', currentUserId })}
+
     ${
       readOnly
         ? ''
@@ -199,6 +208,7 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
     }
     `
     }
+    </div>
   `;
 }
 
@@ -226,6 +236,7 @@ function stubBody({ media }) {
   const uploadedDate = media.created_at ? new Date(media.created_at).toLocaleDateString() : 'Unknown date';
   return `
     <button type="button" class="icon-btn modal-close" id="lightbox-close-btn" aria-label="Close">${icon('close')}</button>
+    <div class="lightbox-scroll">
     <div class="lightbox-stub">
       <div class="lightbox-stub-icon">${icon('lock')}</div>
       <h3>Shared with specific people</h3>
@@ -237,6 +248,7 @@ function stubBody({ media }) {
       <div class="modal-actions row">
         <button type="button" class="btn-danger" id="lightbox-stub-delete-btn">${icon('trash')}<span>Delete</span></button>
       </div>
+    </div>
     </div>
   `;
 }
@@ -281,11 +293,18 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
     shareCount: 0,
     editingDescription: false,
     descriptionDraft: '',
+    commentState: createCommentSectionState(),
   };
 
   const modal = showModal({ bodyHtml: '<p>Loading&hellip;</p>', className: 'modal-media-lightbox' });
 
   const render = () => {
+    // setBody does a full innerHTML replacement, which rebuilds
+    // .lightbox-scroll from scratch and resets its scrollTop to 0 - without
+    // restoring it, any rerender triggered while scrolled down (e.g. posting
+    // a comment) snaps the view back to the top, hiding the very content
+    // (the new comment, the input) the user was just interacting with.
+    const scrollTop = modal.root.querySelector('.lightbox-scroll')?.scrollTop ?? 0;
     modal.setBody(
       mediaBody({
         media: state.media,
@@ -302,10 +321,33 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
         editingDescription: state.editingDescription,
         descriptionDraft: state.descriptionDraft,
         context,
+        commentState: state.commentState,
+        currentUserId,
       })
     );
     bindListeners();
-    hydrateMediaSources(modal.root, new Map([[state.media.id, state.media]]));
+    // The media preview has ~0 rendered height until its object URL loads
+    // (see mediaSrc.js), so the scroll restore below runs twice: once
+    // immediately (covers the common case where the image is already cached
+    // from an earlier render and loads instantly) and again once
+    // hydrateMediaSources' returned promise settles, in case the image was
+    // still loading and its arrival shifted .lightbox-scroll's total height
+    // out from under the first restore.
+    // A comment post requests "scroll to bottom" (see commentSection.js)
+    // instead of restoring the pre-render position, so the just-added
+    // comment is visible rather than wherever the user happened to be
+    // scrolled to before. Captured once and the flag cleared immediately -
+    // restoreScroll runs twice (see below) and must apply the same decision
+    // both times, not re-read a flag that's already been consumed.
+    const scrollToBottom = state.commentState.scrollToBottom;
+    state.commentState.scrollToBottom = false;
+    const restoreScroll = () => {
+      const scrollEl = modal.root.querySelector('.lightbox-scroll');
+      if (!scrollEl || !modal.root.isConnected) return;
+      scrollEl.scrollTop = scrollToBottom ? scrollEl.scrollHeight : scrollTop;
+    };
+    hydrateMediaSources(modal.root, new Map([[state.media.id, state.media]])).then(restoreScroll);
+    restoreScroll();
   };
 
   // Loads the current share list once up front (not just when entering
@@ -326,6 +368,13 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
 
   function bindListeners() {
     modal.root.querySelector('#lightbox-close-btn').addEventListener('click', () => modal.close());
+
+    attachCommentSectionListeners(
+      modal.root,
+      state.commentState,
+      { api, treeId, targetType: 'media', targetId: state.media.id, currentUserId },
+      render
+    );
 
     if (readOnly) return;
 
@@ -550,6 +599,12 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
     });
 
   loadShareCount().then(render);
+
+  loadCommentSection(
+    state.commentState,
+    { api, treeId, targetType: 'media', targetId: media.id, currentUserId },
+    render
+  );
 
   return modal;
 }
