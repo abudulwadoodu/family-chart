@@ -603,6 +603,30 @@ export function renderSkeletonGrid(count = 6) {
   `;
 }
 
+// `activeTab` is null for the core chart tabs (Focused/All Nodes/Relationships/
+// Duplicates/Settings), or a label like 'Media Library'/'Timeline' when a
+// sibling full-page panel is open. In the latter case the tree name becomes a
+// clickable breadcrumb segment (id="breadcrumb-tree-btn") that routes back to
+// the core tree view, since "My Trees" alone no longer reaches it in one click.
+// Shared by renderTreeViewerHeader and the standalone Media Library/Timeline
+// page headers so the breadcrumb stays visually and structurally identical
+// across all tree-detail views.
+export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
+  return `
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
+      <span class="breadcrumb-sep">/</span>
+      ${
+        activeTab
+          ? `<button type="button" id="breadcrumb-tree-btn" class="breadcrumb-link">${escapeHtml(treeName)}</button>
+             <span class="breadcrumb-sep">/</span>
+             <span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+          : `<span class="breadcrumb-current">${escapeHtml(treeName)}</span>`
+      }
+    </nav>
+  `;
+}
+
 export function renderTreeViewerHeader({ treeName, role }) {
   const canEdit = role === 'owner' || role === 'editor';
   const isOwner = role === 'owner';
@@ -611,69 +635,75 @@ export function renderTreeViewerHeader({ treeName, role }) {
   if (canEdit) {
     settingsItems.push({ action: 'download-csv-template-blank', label: 'Download Blank CSV Template', icon: 'download' });
     settingsItems.push({ action: 'download-csv-template-sample', label: 'Download Sample CSV Template', icon: 'download' });
+    settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
   }
   if (isOwner) {
-    settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
     settingsItems.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
   }
 
   return `
     <header class="viewer-header">
-      <div class="viewer-heading">
-        <nav class="breadcrumb" aria-label="Breadcrumb">
-          <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
-          <span class="breadcrumb-sep">/</span>
-          <span class="breadcrumb-current">${escapeHtml(treeName)}</span>
-        </nav>
-        <div class="viewer-title-row">
+      ${renderTreeBreadcrumb({ treeName })}
+      <div class="viewer-title-row">
+        <div class="viewer-title-group">
           <h1 class="viewer-title">${escapeHtml(treeName)}</h1>
-          <span class="badge badge-role-${role}">${ROLE_LABELS[role] || role}</span>
+          ${
+            canEdit
+              ? `<button type="button" id="rename-tree-inline-btn" class="icon-btn viewer-title-edit-btn" aria-label="Edit tree name" title="Edit tree name">${icon('pencil')}</button>`
+              : ''
+          }
           ${
             !isOwner
-              ? `<button type="button" id="request-role-change-btn" class="btn btn-ghost btn-sm">Request Different Access</button>`
+              ? `<span class="badge badge-role-${role} badge-with-tooltip" tabindex="0">
+                   ${ROLE_LABELS[role] || role}
+                   <span class="badge-tooltip" role="tooltip">
+                     Want different access? <button type="button" id="request-role-change-btn" class="badge-tooltip-link">Request a change</button>
+                   </span>
+                 </span>`
+              : `<span class="badge badge-role-${role}">${ROLE_LABELS[role] || role}</span>`
+          }
+        </div>
+        <div class="viewer-title-actions">
+          ${renderMemberSearch()}
+          <button type="button" id="save-btn" class="btn btn-primary" ${canEdit ? '' : 'disabled'}>${icon('save')}<span>Save</span></button>
+          ${
+            canEdit
+              ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
+                 <div class="tree-card-menu-wrap">
+                   <button type="button" id="import-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="import-options">${icon('upload')}<span>Import</span></button>
+                   ${dropdownMenu({
+                     id: 'import-options',
+                     items: [
+                       { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+                       { action: 'import-json', label: 'Import JSON', icon: 'upload' },
+                       { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+                     ],
+                   })}
+                 </div>`
+              : ''
+          }
+          <div class="tree-card-menu-wrap">
+            <button type="button" id="export-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="export-options">${icon('download')}<span>Export</span></button>
+            ${dropdownMenu({
+              id: 'export-options',
+              items: [
+                { action: 'export-image', label: 'Export as Image / PDF', icon: 'image' },
+                { action: 'export-json', label: 'Export JSON', icon: 'download' },
+                { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+                { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
+              ],
+            })}
+          </div>
+          ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
+          ${
+            settingsItems.length
+              ? `<div class="tree-card-menu-wrap">
+                  <button type="button" class="icon-btn menu-trigger" data-menu-trigger="viewer-settings" aria-label="Tree settings">${icon('settings')}</button>
+                  ${dropdownMenu({ id: 'viewer-settings', items: settingsItems })}
+                </div>`
               : ''
           }
         </div>
-      </div>
-      <div class="viewer-actions">
-        <button type="button" id="save-btn" class="btn btn-primary" ${canEdit ? '' : 'disabled'}>${icon('save')}<span>Save</span></button>
-        ${
-          canEdit
-            ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
-               <div class="tree-card-menu-wrap">
-                 <button type="button" id="import-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="import-options">${icon('upload')}<span>Import</span></button>
-                 ${dropdownMenu({
-                   id: 'import-options',
-                   items: [
-                     { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-                     { action: 'import-json', label: 'Import JSON', icon: 'upload' },
-                     { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-                   ],
-                 })}
-               </div>`
-            : ''
-        }
-        <div class="tree-card-menu-wrap">
-          <button type="button" id="export-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="export-options">${icon('download')}<span>Export</span></button>
-          ${dropdownMenu({
-            id: 'export-options',
-            items: [
-              { action: 'export-image', label: 'Export as Image / PDF', icon: 'image' },
-              { action: 'export-json', label: 'Export JSON', icon: 'download' },
-              { action: 'export-csv', label: 'Export CSV', icon: 'download' },
-              { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
-            ],
-          })}
-        </div>
-        ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
-        ${
-          settingsItems.length
-            ? `<div class="tree-card-menu-wrap">
-                <button type="button" class="icon-btn menu-trigger" data-menu-trigger="viewer-settings" aria-label="Tree settings">${icon('settings')}</button>
-                ${dropdownMenu({ id: 'viewer-settings', items: settingsItems })}
-              </div>`
-            : ''
-        }
       </div>
     </header>
   `;
@@ -682,50 +712,42 @@ export function renderTreeViewerHeader({ treeName, role }) {
 export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
   return `
     <div class="view-mode-toggle">
-      <button type="button" id="focused-mode-btn" class="chip ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
-      <button type="button" id="all-nodes-mode-btn" class="chip ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
-      <button type="button" id="relationship-manager-mode-btn" class="chip ${viewMode === 'relationship-manager' ? 'chip-active' : ''}" ${viewMode === 'relationship-manager' ? 'disabled' : ''}>Relationships</button>
-      <button type="button" id="duplicate-manager-mode-btn" class="chip ${viewMode === 'duplicate-manager' ? 'chip-active' : ''}" ${viewMode === 'duplicate-manager' ? 'disabled' : ''}>Duplicates</button>
-      ${
-        isOwner
-          ? `<button type="button" id="tree-settings-mode-btn" class="chip ${viewMode === 'settings' ? 'chip-active' : ''}" ${viewMode === 'settings' ? 'disabled' : ''}>Settings</button>`
-          : ''
-      }
+      <div class="view-mode-toggle-group">
+        <button type="button" id="focused-mode-btn" class="chip ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
+        <button type="button" id="all-nodes-mode-btn" class="chip ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
+        <button type="button" id="relationship-manager-mode-btn" class="chip ${viewMode === 'relationship-manager' ? 'chip-active' : ''}" ${viewMode === 'relationship-manager' ? 'disabled' : ''}>Relationships</button>
+        <button type="button" id="duplicate-manager-mode-btn" class="chip ${viewMode === 'duplicate-manager' ? 'chip-active' : ''}" ${viewMode === 'duplicate-manager' ? 'disabled' : ''}>Duplicates</button>
+        ${
+          isOwner
+            ? `<button type="button" id="tree-settings-mode-btn" class="chip ${viewMode === 'settings' ? 'chip-active' : ''}" ${viewMode === 'settings' ? 'disabled' : ''}>Settings</button>`
+            : ''
+        }
+      </div>
+      <div class="view-mode-toggle-divider" aria-hidden="true"></div>
+      <div class="view-mode-toggle-group">
+        ${renderMediaLibraryButton()}
+        ${renderTimelineButton()}
+        ${renderFamilyFeedButton()}
+      </div>
     </div>
   `;
 }
 
-export function renderResetViewButton() {
+export function renderCanvasFloatingControls() {
   return `
-    <button type="button" id="reset-view-btn" class="chip reset-view-btn" title="Reset to the tree's default view">
-      ${icon('home')}<span>Reset View</span>
-    </button>
+    <div class="canvas-floating-controls" id="canvas-floating-controls">
+      <button type="button" id="reset-view-btn" class="icon-btn canvas-floating-btn" title="Reset to the tree's default view" aria-label="Reset view">
+        ${icon('home')}
+      </button>
+      <span class="canvas-floating-sep" aria-hidden="true"></span>
+      <button type="button" id="focus-mode-btn" class="icon-btn canvas-floating-btn" title="Maximize (F)" aria-label="Maximize family tree" aria-pressed="false">
+        ${icon('maximize')}
+      </button>
+    </div>
   `;
 }
 
-export function renderFullTreeToggleButton({ fullTreeMode }) {
-  return `
-    <button
-      type="button"
-      id="full-tree-toggle-btn"
-      class="chip ${fullTreeMode ? 'chip-active' : ''}"
-      title="${fullTreeMode ? 'Showing every generation - click to limit again' : 'Show every connected generation, not just the nearby ones'}"
-      aria-pressed="${fullTreeMode ? 'true' : 'false'}"
-    >
-      ${icon('trees')}<span>Full Tree</span>
-    </button>
-  `;
-}
-
-export function renderFocusModeButton() {
-  return `
-    <button type="button" id="focus-mode-btn" class="chip focus-mode-btn" title="Maximize (F)" aria-label="Maximize family tree" aria-pressed="false">
-      ${icon('maximize')}<span>Maximize</span>
-    </button>
-  `;
-}
-
-export function renderMediaLibraryButton() {
+function renderMediaLibraryButton() {
   return `
     <button type="button" id="media-library-btn" class="chip" title="Photos, videos, and documents for this tree">
       ${icon('image')}<span>Media Library</span>
@@ -733,10 +755,18 @@ export function renderMediaLibraryButton() {
   `;
 }
 
-export function renderTimelineButton() {
+function renderTimelineButton() {
   return `
     <button type="button" id="timeline-btn" class="chip" title="Events for this tree">
       ${icon('clock')}<span>Timeline</span>
+    </button>
+  `;
+}
+
+export function renderFamilyFeedButton() {
+  return `
+    <button type="button" id="family-feed-btn" class="chip" title="Recent activity for this tree">
+      ${icon('cake')}<span>Family Feed</span>
     </button>
   `;
 }
