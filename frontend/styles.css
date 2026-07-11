@@ -6385,8 +6385,7 @@ button.admin-stat-card {
   width: 100%;
 }
 
-.media-library-page .breadcrumb-link {
-  display: inline-flex;
+.media-library-page .breadcrumb {
   margin-bottom: var(--sp-4);
 }
 
@@ -6513,6 +6512,14 @@ button.admin-stat-card {
 .timeline-page .breadcrumb-link {
   display: inline-flex;
   margin-bottom: var(--sp-4);
+}
+
+.timeline-page .breadcrumb {
+  margin-bottom: var(--sp-4);
+}
+
+.timeline-page .breadcrumb .breadcrumb-link {
+  margin-bottom: 0;
 }
 
 .timeline-media-picker-upload-label {

@@ -603,6 +603,30 @@ export function renderSkeletonGrid(count = 6) {
   `;
 }
 
+// `activeTab` is null for the core chart tabs (Focused/All Nodes/Relationships/
+// Duplicates/Settings), or a label like 'Media Library'/'Timeline' when a
+// sibling full-page panel is open. In the latter case the tree name becomes a
+// clickable breadcrumb segment (id="breadcrumb-tree-btn") that routes back to
+// the core tree view, since "My Trees" alone no longer reaches it in one click.
+// Shared by renderTreeViewerHeader and the standalone Media Library/Timeline
+// page headers so the breadcrumb stays visually and structurally identical
+// across all tree-detail views.
+export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
+  return `
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
+      <span class="breadcrumb-sep">/</span>
+      ${
+        activeTab
+          ? `<button type="button" id="breadcrumb-tree-btn" class="breadcrumb-link">${escapeHtml(treeName)}</button>
+             <span class="breadcrumb-sep">/</span>
+             <span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+          : `<span class="breadcrumb-current">${escapeHtml(treeName)}</span>`
+      }
+    </nav>
+  `;
+}
+
 export function renderTreeViewerHeader({ treeName, role }) {
   const canEdit = role === 'owner' || role === 'editor';
   const isOwner = role === 'owner';
@@ -619,11 +643,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
 
   return `
     <header class="viewer-header">
-      <nav class="breadcrumb" aria-label="Breadcrumb">
-        <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
-        <span class="breadcrumb-sep">/</span>
-        <span class="breadcrumb-current">${escapeHtml(treeName)}</span>
-      </nav>
+      ${renderTreeBreadcrumb({ treeName })}
       <div class="viewer-title-row">
         <div class="viewer-title-group">
           <h1 class="viewer-title">${escapeHtml(treeName)}</h1>

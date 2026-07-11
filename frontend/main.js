@@ -1453,12 +1453,14 @@ function renderDashboard() {
                               ? renderMediaLibraryPageContent(state.mediaLibrary, {
                                   readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
                                   currentUserId: state.user?.id,
+                                  treeName: state.selectedTreeName,
                                 })
                               : isTimelineView
                                 ? renderTimelinePageContent(state.timeline, {
                                     memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
                                     readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
                                     currentUserId: state.user?.id,
+                                    treeName: state.selectedTreeName,
                                   })
                                 : isViewerView
                                   ? renderTreeViewerMarkup()
@@ -1529,6 +1531,10 @@ function renderDashboard() {
       () => {
         state.dashboardView = 'trees';
         render();
+      },
+      () => {
+        clearSelectedTreeView();
+        render();
       }
     );
     if (!state.mediaLibrary.loaded) {
@@ -1550,6 +1556,10 @@ function renderDashboard() {
       render,
       () => {
         state.dashboardView = 'trees';
+        render();
+      },
+      () => {
+        clearSelectedTreeView();
         render();
       }
     );
