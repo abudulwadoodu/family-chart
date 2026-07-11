@@ -331,6 +331,65 @@ h1, h2, h3 {
   margin-bottom: var(--sp-7);
 }
 
+/* Public /support page (signed-out visitor variant) - the auth card is
+   500px max-width, too narrow for the two-column .contact-grid used on the
+   authenticated dashboard's Contact Us page, so this renders just the form
+   card on its own, widened slightly and given a top-left "back to login"
+   link in place of the sidebar nav. */
+.support-page-anonymous {
+  width: 100%;
+}
+
+.support-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.support-back-link:hover {
+  color: var(--text-primary);
+}
+
+.support-back-link .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.support-page-anonymous .contact-form-card {
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+
+/* Prominent support link shown on every auth-flow step (sign in/up, MFA,
+   forgot/reset password) via renderAuthShell - a plainer, always-visible
+   sibling to the Terms/Privacy disclaimer above it. */
+.auth-support-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-support-link:hover {
+  color: var(--accent);
+}
+
+.auth-support-link .icon {
+  width: 15px;
+  height: 15px;
+}
+
 .auth-brand-icon {
   display: inline-flex;
   align-items: center;
@@ -1080,27 +1139,41 @@ button.secondary:active,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 36px;
+  width: 26px;
+  height: 44px;
   padding: 0;
   background: var(--bg-surface-raised);
   color: var(--text-tertiary);
   border: 1px solid var(--border-default);
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);
   z-index: 10;
+  transition: background var(--transition-base), color var(--transition-base),
+    border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .sidebar-collapse-btn .icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   transform: rotate(180deg);
   transition: transform var(--transition-base);
 }
 
+/* Highlighted accent color only appears once the pointer is over the
+   sidebar - keeps the rail's resting state calm and reserves the accent
+   for when the user is actually near enough to use the button. */
+.sidebar:hover .sidebar-collapse-btn {
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
 .sidebar-collapse-btn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-lg);
 }
 
 /* Icon-rail collapse only applies at desktop widths (distinct from the
@@ -7175,14 +7248,37 @@ button.admin-stat-card {
 }
 
 /* Popover opened by the card's "more" (⋯) icon - reuses .dropdown-menu/
-   .dropdown-item for visual consistency with the rest of the app. Narrower
-   than the default dropdown-menu min-width since it only ever holds
-   Edit/Add relative, and needs a higher z-index than a page dropdown-menu
-   since it must sit above sibling tree cards, not just page content. */
-.f3 div.card > .f3-card-more-menu.dropdown-menu {
+   .dropdown-item for visual consistency with the rest of the app, but
+   overrides its positioning: it's appended inside the icon's own
+   `.f3-svg-circle-hover` div (see addCardIcon/openCardMoreMenu in main.js),
+   so `top: 100%; right: 0` here resolves against that small icon box
+   instead of the default `.dropdown-menu` rule's card/page-level anchor -
+   which is what previously made the popover drop to the bottom of the
+   whole card instead of tucking directly under the circular button.
+   `transform-origin: top right` matches the corner it grows from (the icon
+   sits top-right), and min-width is narrower than the default dropdown-menu
+   since this one only ever holds Edit/Add relative. Higher z-index than a
+   page dropdown-menu since it must sit above sibling tree cards, not just
+   page content. */
+.f3-svg-circle-hover > .f3-card-more-menu.dropdown-menu {
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
   min-width: 140px;
   z-index: 40;
+  padding: var(--sp-1);
+  transform-origin: top right;
   transform: none !important;
+}
+
+/* Compact rows: tighter padding/font and a smaller icon-text gap than the
+   default `.dropdown-item` (which is sized for page-level menus), since
+   this popover only ever holds two short actions and reads better tight. */
+.f3-card-more-menu.dropdown-menu .dropdown-item {
+  gap: var(--sp-1);
+  min-height: unset;
+  padding: 4px 8px;
+  font-size: 0.78rem;
 }
 
 /* The menu's Edit/Add relative icons come from f3.icons' *SvgIcon()

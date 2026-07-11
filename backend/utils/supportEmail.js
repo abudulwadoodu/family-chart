@@ -39,6 +39,21 @@ export async function sendTicketCreatedEmail({ ticket, userEmail, message, attac
   });
 }
 
+// From a signed-out visitor via the public /support page - there's no
+// ticket/user row for this, so it's relayed straight to the support inbox
+// with the visitor's email set as Reply-To.
+export async function sendPublicContactEmail({ fromEmail, subject, category, message, attachment }) {
+  const { recipient } = requireSesConfig();
+
+  await send({
+    to: recipient,
+    replyTo: fromEmail,
+    subject: `[Family Chart Support] New message from ${fromEmail}: ${subject}`,
+    bodyText: `New contact form submission from a signed-out visitor.\r\n\r\nFrom: ${fromEmail}\r\nCategory: ${category}\r\n\r\nMessage:\r\n${message}`,
+    attachment,
+  });
+}
+
 export async function sendAdminReplyEmail({ ticket, userEmail, message, attachment }) {
   const { recipient } = requireSesConfig();
   const link = ticketLink(ticket);

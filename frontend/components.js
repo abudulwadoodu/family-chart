@@ -931,16 +931,34 @@ export function renderContactPageMarkup({ email }) {
   `;
 }
 
-function renderContactFormCard({ email }) {
+// `anonymous: true` is for the public /support page (signed-out visitors,
+// see renderSupportPageAnonymous in main.js): there's no account email to
+// reply to, so it swaps the "replies sent to" line for an editable email
+// field the visitor fills in themselves. Everything else - fields,
+// validation hookup, honeypot - is shared with the authenticated dashboard
+// Contact Us page so the two never drift apart.
+export function renderContactFormCard({ email, anonymous = false }) {
   const categoryOptions = SUPPORT_CATEGORIES.map(
     (category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`
   ).join('');
 
+  const emailFieldHtml = anonymous
+    ? `
+        <label>Your email
+          <input type="email" name="email" id="contact-email-input" maxlength="254" placeholder="you@example.com" aria-required="true" />
+          <span class="field-error" id="contact-email-error" role="alert"></span>
+        </label>`
+    : '';
+  const replyToHtml = anonymous
+    ? ''
+    : `<p class="contact-form-replyto muted">Replies will be sent to <strong>${escapeHtml(email || 'your account email')}</strong>.</p>`;
+
   return `
     <section class="card contact-form-card">
       <h2 class="contact-card-title">Send us a message</h2>
-      <p class="contact-form-replyto muted">Replies will be sent to <strong>${escapeHtml(email || 'your account email')}</strong>.</p>
-      <form id="contact-form" class="contact-form" novalidate>
+      ${replyToHtml}
+      <form id="contact-form" class="contact-form" novalidate data-anonymous="${anonymous ? 'true' : 'false'}">
+        ${emailFieldHtml}
         <label>Subject
           <input type="text" name="subject" id="contact-subject-input" maxlength="120" placeholder="A short summary of your request" aria-required="true" />
           <span class="field-error" id="contact-subject-error" role="alert"></span>

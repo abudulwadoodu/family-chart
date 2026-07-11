@@ -83,7 +83,7 @@ export class EditTree {
     this.fields = [
       {type: 'text', label: 'first name', id: 'first name'},
       {type: 'text', label: 'last name', id: 'last name'},
-      {type: 'text', label: 'birthday', id: 'birthday'},
+      {type: 'date', label: 'birthday', id: 'birthday'},
       {type: 'text', label: 'avatar', id: 'avatar'}
     ]
   
