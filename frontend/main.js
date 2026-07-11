@@ -3507,7 +3507,7 @@ function renderChart() {
   if (canEdit) {
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', { id: 'birthday', type: 'date', label: 'birthday' }, 'location', 'email', 'notes', 'avatar'])
       .setEditFirst(true)
       .setOnFormCreation(({ cont, form_creator }) => {
         hydrateAvatarPreview(cont);
@@ -3664,7 +3664,7 @@ function renderChart() {
     // read-only field grid.
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', { id: 'birthday', type: 'date', label: 'birthday' }, 'location', 'email', 'notes', 'avatar'])
       .setNoEdit()
       .setEditFirst(false)
       .setOnFormCreation(({ cont }) => hydrateAvatarPreview(cont));
