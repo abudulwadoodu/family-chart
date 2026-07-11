@@ -213,6 +213,20 @@
   --tree-panel-text: #1f2937;
 }
 
+/* The dashboard (sidebar + .content) has no fixed-height/overflow container
+   of its own - a long page (e.g. a Timeline event detail with a growing
+   comment thread) scrolls the whole document natively. That's normally
+   invisible until you actually scroll on platforms/browsers that use
+   auto-hiding overlay scrollbars, which reads as "there's no way to scroll"
+   even though there is. scrollbar-gutter reserves the track's width up
+   front (so a scrollbar appearing/disappearing across pages doesn't shift
+   layout), and overflow-y: scroll forces the browser to render a
+   persistent, non-overlay scrollbar rather than an auto/hover-only one. */
+html {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
