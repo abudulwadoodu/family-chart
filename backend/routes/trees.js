@@ -318,7 +318,7 @@ treesRouter.put('/:id', requireTreeRole(['owner', 'editor']), async (req, res, n
   }
 });
 
-treesRouter.patch('/:id', requireTreeRole(['owner']), async (req, res, next) => {
+treesRouter.patch('/:id', requireTreeRole(['owner', 'editor']), async (req, res, next) => {
   try {
     const { name } = req.body || {};
     if (!isNonEmptyString(name, 120)) {

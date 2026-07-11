@@ -78,12 +78,7 @@ import {
   renderSkeletonGrid,
   renderTreeViewerHeader,
   renderViewModeToggle,
-  renderResetViewButton,
-  renderFullTreeToggleButton,
-  renderFocusModeButton,
-  renderMediaLibraryButton,
-  renderTimelineButton,
-  renderMemberSearch,
+  renderCanvasFloatingControls,
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
@@ -253,10 +248,6 @@ const state = {
   // unlimited (see renderChart()).
   ancestryDepth: DEFAULT_GENERATION_DEPTH,
   progenyDepth: DEFAULT_GENERATION_DEPTH,
-  // "Full Tree" toolbar toggle - true lifts the ancestry/progeny depth cap
-  // above for the current session (Focused mode only). Not persisted; large
-  // trees pay the full unbounded-render cost while it's on.
-  fullTreeMode: false,
   allNodesGraph: null,
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
@@ -2343,17 +2334,12 @@ function renderTreeViewerMarkup() {
     ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
     <div id="tree-focus-target" class="tree-focus-target">
       <div class="tree-toolbar-row">
-        <div class="tree-toolbar-left">
-          <div id="view-mode-toggle"></div>
-          ${renderResetViewButton()}
-          ${renderFullTreeToggleButton({ fullTreeMode: state.fullTreeMode })}
-          ${renderFocusModeButton()}
-          ${renderMediaLibraryButton()}
-          ${renderTimelineButton()}
-        </div>
-        ${renderMemberSearch()}
+        <div id="view-mode-toggle"></div>
       </div>
-      <div id="FamilyChart" class="f3 chart-container"></div>
+      <div class="chart-canvas-wrap">
+        <div id="FamilyChart" class="f3 chart-container"></div>
+        ${renderCanvasFloatingControls()}
+      </div>
     </div>
   `;
 }
@@ -2366,20 +2352,10 @@ function attachTreeViewerListeners() {
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
+  document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
-  document.querySelector('#full-tree-toggle-btn')?.addEventListener('click', handleToggleFullTree);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
-  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
-    state.mediaLibrary = createMediaLibraryPageState();
-    state.dashboardView = 'mediaLibrary';
-    render();
-  });
-  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
-    state.timeline = createTimelinePageState();
-    state.dashboardView = 'timeline';
-    render();
-  });
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2655,26 +2631,23 @@ function syncFocusModeToolbarState() {
   focusModeController?.setActionDisabled('center', disabled);
 }
 
-// The ancestry/progeny depth cap this toggle lifts only applies to the
-// Focused-mode card tree (see renderChart()) - All Nodes already shows
-// everyone, and Relationships/Duplicates don't render a depth-limited tree
-// at all, so disable it there rather than let it silently do nothing.
-function syncFullTreeToggleState() {
-  const btn = document.querySelector('#full-tree-toggle-btn');
-  if (!btn) return;
-  btn.disabled = state.viewMode !== 'focused';
-}
+// Member search lives in Row 2 (.viewer-header) now, which Focus Mode hides
+// entirely along with the rest of the page chrome - so it has to physically
+// move into #tree-focus-target to stay usable while maximized, then move
+// back on exit rather than leaving a detached duplicate behind.
+let memberSearchHomeMarker = null;
 
-function handleToggleFullTree() {
-  state.fullTreeMode = !state.fullTreeMode;
-  renderChart();
-  const btn = document.querySelector('#full-tree-toggle-btn');
-  if (btn) {
-    btn.classList.toggle('chip-active', state.fullTreeMode);
-    btn.setAttribute('aria-pressed', String(state.fullTreeMode));
-    btn.title = state.fullTreeMode
-      ? 'Showing every generation - click to limit again'
-      : 'Show every connected generation, not just the nearby ones';
+function relocateMemberSearchForFocusMode(active) {
+  const memberSearch = document.querySelector('#member-search');
+  if (!memberSearch) return;
+  if (active) {
+    memberSearchHomeMarker = document.createComment('member-search-home');
+    memberSearch.after(memberSearchHomeMarker);
+    document.querySelector('#tree-focus-target')?.prepend(memberSearch);
+  } else if (memberSearchHomeMarker) {
+    memberSearchHomeMarker.after(memberSearch);
+    memberSearchHomeMarker.remove();
+    memberSearchHomeMarker = null;
   }
 }
 
@@ -2683,6 +2656,7 @@ function handleToggleFullTree() {
 // refit against a container that's still mid-resize).
 function onFocusModeTransitionEnd(active) {
   document.querySelector('#focus-mode-btn')?.setAttribute('aria-pressed', String(active));
+  relocateMemberSearchForFocusMode(active);
   if (active) syncFocusModeToolbarState();
   refitActiveView(0);
 }
@@ -2697,6 +2671,7 @@ function setupFocusMode() {
     actions: [
       { id: 'exit', label: 'Exit Focus Mode (Esc)', iconName: 'minimize', onClick: () => focusModeController.exit() },
       'separator',
+      { id: 'reset-view', label: "Reset to the tree's default view", iconName: 'home', onClick: () => handleResetView() },
       { id: 'zoom-in', label: 'Zoom In', iconName: 'zoomIn', onClick: () => focusModeZoom(1.3) },
       { id: 'zoom-out', label: 'Zoom Out', iconName: 'zoomOut', onClick: () => focusModeZoom(1 / 1.3) },
       { id: 'fit', label: 'Fit Tree', iconName: 'scan', onClick: () => refitActiveView(400) },
@@ -3055,7 +3030,6 @@ function clearSelectedTreeView() {
   state.focusedMainId = null;
   state.defaultMainId = null;
   state.treeDefaultMainId = null;
-  state.fullTreeMode = false;
   state.relationshipManager = createRelationshipManagerState();
   state.duplicateManager = createDuplicateManagerState();
   closeMemberSearchResults();
@@ -3174,13 +3148,12 @@ function renderChart() {
     // report.
     .setShowSiblingsOfMain(true);
 
-  // "Full Tree" toggle (toolbar) lifts the generation cap for this session,
-  // and the tree owner can separately configure "unlimited" as the default
-  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. Either
-  // way, just skip setAncestryDepth/setProgenyDepth entirely rather than
-  // passing some sentinel "unlimited" value, since calculateTree only
+  // The tree owner can configure "unlimited" as the default
+  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. In
+  // that case, just skip setAncestryDepth/setProgenyDepth entirely rather
+  // than passing some sentinel "unlimited" value, since calculateTree only
   // applies a cap when state.ancestry_depth/progeny_depth is not undefined.
-  if (!state.fullTreeMode && state.ancestryDepth !== null && state.progenyDepth !== null) {
+  if (state.ancestryDepth !== null && state.progenyDepth !== null) {
     state.chart.setAncestryDepth(state.ancestryDepth).setProgenyDepth(state.progenyDepth);
   }
 
@@ -3416,7 +3389,6 @@ function setupViewModeToggle() {
     if (treeSettingsBtn) treeSettingsBtn.disabled = state.viewMode === 'settings';
     syncSaveButtonAvailability();
     syncFocusModeToolbarState();
-    syncFullTreeToggleState();
   };
 
   const saveFocusedMainId = () => {
@@ -3459,6 +3431,21 @@ function setupViewModeToggle() {
     state.viewMode = 'settings';
     renderChart();
     syncModeButtons();
+  });
+
+  // Media Library/Timeline chips are rendered inside #view-mode-toggle
+  // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
+  // their DOM nodes too - re-wire them every call rather than once in
+  // attachTreeViewerListeners(), which would only ever bind the first copy.
+  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
+    state.mediaLibrary = createMediaLibraryPageState();
+    state.dashboardView = 'mediaLibrary';
+    render();
+  });
+  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
+    state.timeline = createTimelinePageState();
+    state.dashboardView = 'timeline';
+    render();
   });
 
   syncModeButtons();
@@ -4591,7 +4578,6 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   state.treeEmailAutoVisibility = payload.tree.email_auto_visibility ?? false;
   state.ancestryDepth = state.treeDefaultGenerationDepth;
   state.progenyDepth = state.treeDefaultGenerationDepth;
-  state.fullTreeMode = false;
 
   // Prefer the owner-configured default focus person; fall back to the
   // largest-connected-component heuristic if it's unset, or if it points at
@@ -4737,13 +4723,8 @@ async function handleSaveTreeSettings() {
     state.treeDefaultMainId = result.default_main_id;
     state.treeDefaultGenerationDepth = result.default_generation_depth;
     state.treeEmailAutoVisibility = result.email_auto_visibility;
-    // Only re-applies live if the current session hasn't already overridden
-    // it via the "Full Tree" toggle - matches the same "session choice wins"
-    // precedence renderChart() itself uses.
-    if (!state.fullTreeMode) {
-      state.ancestryDepth = state.treeDefaultGenerationDepth;
-      state.progenyDepth = state.treeDefaultGenerationDepth;
-    }
+    state.ancestryDepth = state.treeDefaultGenerationDepth;
+    state.progenyDepth = state.treeDefaultGenerationDepth;
     showToast('Tree settings updated.');
   } catch (error) {
     errorEl.textContent = error.message || 'Could not save these settings.';
