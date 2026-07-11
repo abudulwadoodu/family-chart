@@ -3652,7 +3652,7 @@ function setupViewModeToggle() {
     syncModeButtons();
   });
 
-  // Media Library/Timeline chips are rendered inside #view-mode-toggle
+  // Media Library/Timeline/Family Feed chips are rendered inside #view-mode-toggle
   // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
   // their DOM nodes too - re-wire them every call rather than once in
   // attachTreeViewerListeners(), which would only ever bind the first copy.
@@ -3666,6 +3666,7 @@ function setupViewModeToggle() {
     state.dashboardView = 'timeline';
     render();
   });
+  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
 
   syncModeButtons();
 }
