@@ -92,21 +92,34 @@ function eventTitleEditForm({ title }) {
   `;
 }
 
-// Date + location edit - no direct media equivalent (media has no
-// date/location fields), grouped together since they render on the same
-// subtitle line and are edited as a pair rather than individually.
-function eventDetailsEditForm({ eventDate, location }) {
+// Date-only edit - no direct media equivalent (media has no date field).
+// Split from location (below) rather than one combined form, matching the
+// title/description split: a single pencil covering two fields read as
+// "edit date" only, leaving location unreachable in practice.
+function eventDateEditForm({ eventDate }) {
   return `
     <div class="lightbox-edit-form">
       <label>Date
         <input type="date" id="timeline-edit-date" value="${escapeHtml(eventDate)}" />
       </label>
+      <div class="modal-actions row">
+        <button type="button" class="btn-secondary" id="timeline-date-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="timeline-date-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+// Location-only edit - see eventDateEditForm's comment above.
+function eventLocationEditForm({ location }) {
+  return `
+    <div class="lightbox-edit-form">
       <label>Location
         <input type="text" id="timeline-edit-location" value="${escapeHtml(location)}" placeholder="Location (optional)" />
       </label>
       <div class="modal-actions row">
-        <button type="button" class="btn-secondary" id="timeline-details-cancel-btn">Cancel</button>
-        <button type="button" class="btn btn-primary" id="timeline-details-save-btn">Save</button>
+        <button type="button" class="btn-secondary" id="timeline-location-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="timeline-location-save-btn">Save</button>
       </div>
     </div>
   `;
@@ -188,9 +201,9 @@ function eventStubDetail({ event, treeName }) {
   `;
 }
 
-function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editingTitle, titleDraft, editingDetails, detailsDraft, editingDescription, descriptionDraft, editingVisibility, editVisibilityPicker, shareCount, commentState, currentUserId, treeName }) {
+function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editingTitle, titleDraft, editingDate, dateDraft, editingLocation, locationDraft, editingDescription, descriptionDraft, editingVisibility, editVisibilityPicker, shareCount, commentState, currentUserId, treeName }) {
   if (event.access === 'stub') return eventStubDetail({ event, treeName });
-  const showingForm = editingTitle || editingDetails || editingDescription || editingVisibility;
+  const showingForm = editingTitle || editingDate || editingLocation || editingDescription || editingVisibility;
   return `
     <div class="timeline-detail-header">
       ${renderTreeBreadcrumb({ treeName, activeTab: 'Timeline', detailLabel: event.title })}
@@ -203,27 +216,43 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
       <div class="lightbox-title-row">
         <h1 class="page-title">${escapeHtml(event.title)}</h1>
         ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-title-btn" aria-label="Edit title">${icon('pencil')}</button>`}
+        ${editingVisibility ? '' : eventVisibilityBadge(event, shareCount, readOnly)}
       </div>
     `
     }
+    ${editingVisibility ? eventVisibilityEditForm(editVisibilityPicker) : ''}
     ${
-      editingDetails
-        ? eventDetailsEditForm(detailsDraft)
+      editingDate
+        ? eventDateEditForm(dateDraft)
         : editingTitle
           ? ''
           : `
       <div class="lightbox-description-row">
-        <p class="page-subtitle">
-          ${event.event_date ? escapeHtml(event.event_date) : 'Undated'}${event.location ? ` &middot; ${escapeHtml(event.location)}` : ''}
-        </p>
-        ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-details-btn" aria-label="Edit date and location">${icon('pencil')}</button>`}
+        <p class="page-subtitle">${event.event_date ? escapeHtml(event.event_date) : 'Undated'}</p>
+        ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-date-btn" aria-label="Edit date">${icon('pencil')}</button>`}
       </div>
     `
     }
     ${
+      editingLocation
+        ? eventLocationEditForm(locationDraft)
+        : editingTitle || editingDate
+          ? ''
+          : event.location
+            ? `
+      <div class="lightbox-description-row">
+        <p class="page-subtitle">${escapeHtml(event.location)}</p>
+        ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-location-btn" aria-label="Edit location">${icon('pencil')}</button>`}
+      </div>
+    `
+            : readOnly
+              ? ''
+              : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-location-btn">${icon('pencil')}<span>Add a location&hellip;</span></button>`
+    }
+    ${
       editingDescription
         ? eventDescriptionEditForm(descriptionDraft)
-        : editingTitle || editingDetails
+        : editingTitle || editingDate || editingLocation
           ? ''
           : event.description
             ? `
@@ -236,18 +265,18 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
               ? ''
               : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-description-btn">${icon('pencil')}<span>Add a description&hellip;</span></button>`
     }
-    ${
-      editingVisibility
-        ? eventVisibilityEditForm(editVisibilityPicker)
-        : showingForm
-          ? ''
-          : eventVisibilityBadge(event, shareCount, readOnly)
-    }
 
     ${
       showingForm
         ? ''
         : `
+    ${
+      // Tagging attendees only makes sense once the event is scoped to
+      // specific people - for "Everyone with tree access" or "Only me"
+      // events there's no meaningful audience to track participation
+      // against, so the section is hidden entirely rather than shown empty.
+      event.visibility === 'private' && shareCount > 0
+        ? `
     <p class="lightbox-tags-title">Participants</p>
     <ul class="lightbox-tag-list">
       ${
@@ -278,6 +307,9 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
             : ''
         }
       </div>`
+    }
+    `
+        : ''
     }
 
     <div class="timeline-media-header">
@@ -468,8 +500,10 @@ export function createTimelinePageState() {
     memberResults: [],
     editingTitle: false,
     titleDraft: { title: '' },
-    editingDetails: false,
-    detailsDraft: { eventDate: '', location: '' },
+    editingDate: false,
+    dateDraft: { eventDate: '' },
+    editingLocation: false,
+    locationDraft: { location: '' },
     editingDescription: false,
     descriptionDraft: '',
     editingVisibility: false,
@@ -494,8 +528,10 @@ export function renderTimelinePageContent(pageState, { memberIndex, readOnly, cu
               memberResults: pageState.memberResults,
               editingTitle: pageState.editingTitle,
               titleDraft: pageState.titleDraft,
-              editingDetails: pageState.editingDetails,
-              detailsDraft: pageState.detailsDraft,
+              editingDate: pageState.editingDate,
+              dateDraft: pageState.dateDraft,
+              editingLocation: pageState.editingLocation,
+              locationDraft: pageState.locationDraft,
               editingDescription: pageState.editingDescription,
               descriptionDraft: pageState.descriptionDraft,
               editingVisibility: pageState.editingVisibility,
@@ -703,36 +739,27 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
       rerender();
     });
 
-    if (pageState.editingDetails) {
+    if (pageState.editingDate) {
       root.querySelector('#timeline-edit-date')?.addEventListener('input', (event) => {
-        pageState.detailsDraft.eventDate = event.target.value;
-      });
-      const locationEl = root.querySelector('#timeline-edit-location');
-      locationEl?.addEventListener('input', () => {
-        pageState.detailsDraft.location = locationEl.value;
-        const caret = locationEl.selectionStart;
-        rerender();
-        const freshEl = document.querySelector('#timeline-edit-location');
-        freshEl?.focus();
-        freshEl?.setSelectionRange(caret, caret);
+        pageState.dateDraft.eventDate = event.target.value;
       });
 
-      root.querySelector('#timeline-details-cancel-btn').addEventListener('click', () => {
-        pageState.editingDetails = false;
+      root.querySelector('#timeline-date-cancel-btn').addEventListener('click', () => {
+        pageState.editingDate = false;
         rerender();
       });
 
-      root.querySelector('#timeline-details-save-btn').addEventListener('click', async () => {
+      root.querySelector('#timeline-date-save-btn').addEventListener('click', async () => {
         try {
           const { event } = await mediaApi.updateEvent(api, treeId, pageState.detail.id, {
             title: pageState.detail.title,
-            eventDate: pageState.detailsDraft.eventDate || null,
-            location: pageState.detailsDraft.location.trim() || null,
+            eventDate: pageState.dateDraft.eventDate || null,
+            location: pageState.detail.location || null,
             description: pageState.detail.description || null,
           });
           pageState.detail = event;
           pageState.events = pageState.events.map((e) => (e.id === event.id ? event : e));
-          pageState.editingDetails = false;
+          pageState.editingDate = false;
           rerender();
           showToast('Event updated');
         } catch (error) {
@@ -742,12 +769,51 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
       return;
     }
 
-    root.querySelector('#timeline-edit-details-btn')?.addEventListener('click', () => {
-      pageState.detailsDraft = {
-        eventDate: pageState.detail.event_date || '',
-        location: pageState.detail.location || '',
-      };
-      pageState.editingDetails = true;
+    root.querySelector('#timeline-edit-date-btn')?.addEventListener('click', () => {
+      pageState.dateDraft = { eventDate: pageState.detail.event_date || '' };
+      pageState.editingDate = true;
+      rerender();
+    });
+
+    if (pageState.editingLocation) {
+      const locationEl = root.querySelector('#timeline-edit-location');
+      locationEl?.addEventListener('input', () => {
+        pageState.locationDraft.location = locationEl.value;
+        const caret = locationEl.selectionStart;
+        rerender();
+        const freshEl = document.querySelector('#timeline-edit-location');
+        freshEl?.focus();
+        freshEl?.setSelectionRange(caret, caret);
+      });
+
+      root.querySelector('#timeline-location-cancel-btn').addEventListener('click', () => {
+        pageState.editingLocation = false;
+        rerender();
+      });
+
+      root.querySelector('#timeline-location-save-btn').addEventListener('click', async () => {
+        try {
+          const { event } = await mediaApi.updateEvent(api, treeId, pageState.detail.id, {
+            title: pageState.detail.title,
+            eventDate: pageState.detail.event_date || null,
+            location: pageState.locationDraft.location.trim() || null,
+            description: pageState.detail.description || null,
+          });
+          pageState.detail = event;
+          pageState.events = pageState.events.map((e) => (e.id === event.id ? event : e));
+          pageState.editingLocation = false;
+          rerender();
+          showToast('Event updated');
+        } catch (error) {
+          showToast(error.message || 'Could not update event', { type: 'error' });
+        }
+      });
+      return;
+    }
+
+    root.querySelector('#timeline-edit-location-btn')?.addEventListener('click', () => {
+      pageState.locationDraft = { location: pageState.detail.location || '' };
+      pageState.editingLocation = true;
       rerender();
     });
 

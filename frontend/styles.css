@@ -6282,52 +6282,58 @@ button.admin-stat-card {
 .lightbox-title-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   padding-right: var(--sp-6);
 }
 
-.lightbox-title-row h3 {
+.lightbox-title-row h3,
+.lightbox-title-row .page-title {
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .lightbox-title-row #lightbox-edit-btn {
   flex-shrink: 0;
 }
 
+/* Sized/positioned like .badge-role-* (see the tree viewer header's role
+   badge, which sits inline right next to the tree name) rather than its own
+   full-width pill below the title - moved into .lightbox-title-row so
+   "who can see this" reads as part of the title line, not a separate
+   sharing control buried underneath it. */
 .lightbox-visibility-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
-  margin: var(--sp-1) 0 0;
-  padding: 4px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--bg-surface);
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-hover);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
+  font-weight: 600;
   cursor: pointer;
-  width: fit-content;
 }
 
 .lightbox-visibility-badge:hover {
-  border-color: var(--border-default);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
 .lightbox-visibility-badge .icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 
 .lightbox-visibility-badge.lightbox-visibility-static {
   cursor: default;
-  background: transparent;
-  border-color: transparent;
-  padding-left: 0;
 }
 
 .lightbox-edit-form {

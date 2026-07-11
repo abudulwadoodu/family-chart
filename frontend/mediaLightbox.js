@@ -144,16 +144,11 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
       <div class="lightbox-title-row">
         ${media.title ? `<h3>${escapeHtml(media.title)}</h3>` : '<h3 class="muted">Untitled</h3>'}
         ${readOnly ? '' : `<button type="button" class="icon-btn" id="lightbox-edit-btn" aria-label="Edit title">${icon('pencil')}</button>`}
+        ${editingVisibility ? '' : visibilityBadge(media, shareCount, readOnly)}
       </div>
     `
     }
-    ${
-      editingVisibility
-        ? visibilityEditForm(visibilityPicker)
-        : editing
-          ? ''
-          : visibilityBadge(media, shareCount, readOnly)
-    }
+    ${editingVisibility ? visibilityEditForm(visibilityPicker) : ''}
     ${preview}
     ${editingDescription ? descriptionEditForm(descriptionDraft) : editing || editingVisibility ? '' : descriptionRow(media, readOnly)}
 
