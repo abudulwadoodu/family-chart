@@ -6772,6 +6772,14 @@ button.admin-stat-card {
   padding: 24px 24px 24px 0;
 }
 
+/* .lightbox-title-row's padding-right reserves space for mediaLightbox.js's
+   absolutely-positioned modal close (X) button - the timeline page has no
+   such overlay, so that padding just throws off the visibility badge's
+   right-edge alignment with "Delete Event" above it. */
+.timeline-page .lightbox-title-row {
+  padding-right: 0;
+}
+
 .timeline-page .breadcrumb-link {
   display: inline-flex;
   margin-bottom: var(--sp-4);
