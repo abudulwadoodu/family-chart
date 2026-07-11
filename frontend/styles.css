@@ -1774,6 +1774,42 @@ button.secondary:active,
   margin-bottom: 0;
 }
 
+.discovery-section {
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-raised);
+}
+
+.discovery-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.discovery-section-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.discovery-section-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.discovery-result-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
 /* ------------------------------------------------------------------ */
 /* Tree grid + cards                                                   */
 /* ------------------------------------------------------------------ */
@@ -2141,11 +2177,9 @@ button.secondary:active,
 
 .viewer-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-4);
+  flex-direction: column;
+  gap: var(--sp-2);
   margin-bottom: var(--sp-5);
-  flex-wrap: wrap;
 }
 
 .breadcrumb {
@@ -2179,15 +2213,41 @@ button.secondary:active,
 .viewer-title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.viewer-title-group {
+  display: flex;
+  align-items: center;
   gap: var(--sp-3);
+  min-width: 0;
 }
 
 .viewer-title {
   font-size: 1.5rem;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.viewer-actions {
+.viewer-title-edit-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.viewer-title-edit-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Row 2, right side: search + the global action buttons (Save/Import/
+   Export/Share/Settings), in that visual order so search sits closest to
+   the title/actions boundary. */
+.viewer-title-actions {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -2197,44 +2257,104 @@ button.secondary:active,
 /* The "more" (settings) icon button sits next to the Save/Import/Export/Share
    buttons in this row - give it the same resting background/border as those
    .btn-secondary buttons instead of the plain transparent .icon-btn look. */
-.viewer-actions .icon-btn {
+.viewer-title-actions .icon-btn {
   background: var(--bg-surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
-.viewer-actions .icon-btn:hover {
+.viewer-title-actions .icon-btn:hover {
   background: var(--bg-surface-hover-strong);
+}
+
+/* Non-owner role badge: the "Request Different Access" action moves behind
+   a hover/focus tooltip anchored to the badge instead of sitting inline as
+   its own button, so Row 2's left side stays to just title + edit + badge. */
+.badge-with-tooltip {
+  position: relative;
+  cursor: default;
+}
+
+.badge-tooltip {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  width: max-content;
+  max-width: 260px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-secondary);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+  pointer-events: none;
+}
+
+.badge-with-tooltip:hover .badge-tooltip,
+.badge-with-tooltip:focus-within .badge-tooltip,
+.badge-with-tooltip:focus-visible .badge-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.badge-tooltip-link {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: auto;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-tooltip-link:hover {
+  color: var(--accent-hover);
+  background: none;
+  text-decoration: underline;
 }
 
 .tree-toolbar-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
   margin-bottom: var(--sp-4);
-  flex-wrap: wrap;
 }
 
-.tree-toolbar-left {
+.view-mode-toggle {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
 }
 
-.view-mode-toggle {
+.view-mode-toggle-group {
   display: flex;
+  align-items: center;
   gap: var(--sp-2);
+  flex-wrap: wrap;
 }
 
-.reset-view-btn {
-  gap: var(--sp-1);
-}
-
-.reset-view-btn .icon {
-  width: 14px;
-  height: 14px;
+/* Segments core node-view tabs (Focused/All Nodes/Relationships/Duplicates/
+   Settings) from the media/timeline tabs, so the two content "kinds" read
+   as visually distinct groups rather than one long undifferentiated row. */
+.view-mode-toggle-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 24px;
+  background: var(--border-strong);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2349,6 +2469,10 @@ button.secondary:active,
   animation: member-search-pulse 1.1s ease-out 2;
 }
 
+.chart-canvas-wrap {
+  position: relative;
+}
+
 .chart-container {
   height: calc(100vh - 280px);
   min-height: 420px;
@@ -2357,6 +2481,47 @@ button.secondary:active,
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+/* Reset View / Maximize, floating over the canvas like a map's zoom widget -
+   out of the Row 3 tab strip (which is data/view tabs only now) but still
+   reachable right next to the content they act on. */
+.canvas-floating-controls {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: color-mix(in srgb, var(--bg-surface-raised) 85%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(6px);
+}
+
+.canvas-floating-btn {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.canvas-floating-btn:hover {
+  background: var(--bg-surface-hover);
+}
+
+.canvas-floating-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.canvas-floating-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-strong);
 }
 
 .all-nodes-svg {
@@ -3168,11 +3333,6 @@ button.secondary:active,
   gap: var(--sp-4);
 }
 
-.focus-mode-btn .icon {
-  width: 14px;
-  height: 14px;
-}
-
 /* Applied to <body> while Focus Mode is active. Everything outside the
    focused container (sidebar, header, footer, page padding) is hidden via
    this single ancestor class, so no other component needs to know Focus
@@ -3214,30 +3374,41 @@ body.focus-mode-active .focus-mode-target {
   gap: 0;
 }
 
-body.focus-mode-active .focus-mode-target .tree-toolbar-left {
+/* Row 3 (view/data tabs) makes no sense once the tree is maximized, and
+   Maximize itself is redundant once already maximized - both hidden while
+   active. Reset View has its own entry in the dedicated Focus Mode toolbar
+   instead (see setupFocusMode() in main.js), so it isn't lost. */
+body.focus-mode-active .focus-mode-target .tree-toolbar-row,
+body.focus-mode-active .focus-mode-target .canvas-floating-controls {
   display: none;
 }
 
-/* The rest of the toolbar row (view-mode toggle, reset-view, maximize) is
-   hidden in Focus Mode - only Search Person survives, repositioned as a
-   floating control so it stays reachable without the row it used to live in. */
-body.focus-mode-active .focus-mode-target .tree-toolbar-row {
+/* Search Person lives in Row 2 (.viewer-header) normally, which Focus Mode
+   hides entirely - so relocateMemberSearchForFocusMode() (main.js) moves the
+   #member-search node into #tree-focus-target for the duration, and this
+   floats it top-left the same way it used to when it lived in the toolbar
+   row. Moved back out on exit. */
+body.focus-mode-active .focus-mode-target .member-search {
   position: fixed;
   top: var(--sp-5);
   left: var(--sp-5);
   z-index: 1300;
-  width: auto;
-  margin: 0;
+  min-width: 260px;
+  max-width: 320px;
   animation: focus-mode-toolbar-in 0.26s ease both;
   animation-delay: 0.05s;
 }
 
-body.focus-mode-active .focus-mode-target .member-search {
-  min-width: 260px;
+/* .chart-canvas-wrap (not .chart-container) is the direct flex child of
+   .focus-mode-target now, so it - not the element inside it - needs the
+   flex-grow, or .chart-container's height:100% resolves against its own
+   shrink-to-fit wrapper instead of the fixed-viewport focus target. */
+body.focus-mode-active .focus-mode-target .chart-canvas-wrap {
+  flex: 1;
+  min-height: 0;
 }
 
 body.focus-mode-active .focus-mode-target .chart-container {
-  flex: 1;
   height: 100%;
   width: 100%;
   border: none;
@@ -3315,12 +3486,9 @@ body.focus-mode-transitioning .focus-mode-target {
     height: 34px;
   }
 
-  body.focus-mode-active .focus-mode-target .tree-toolbar-row {
+  body.focus-mode-active .focus-mode-target .member-search {
     left: var(--sp-3);
     right: var(--sp-3);
-  }
-
-  body.focus-mode-active .focus-mode-target .member-search {
     min-width: 0;
     max-width: none;
   }
@@ -4241,11 +4409,22 @@ dialog.modal-overlay[open] {
     grid-template-columns: 1fr;
   }
 
-  .viewer-actions {
+  .viewer-title-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .viewer-title-actions {
     width: 100%;
   }
 
-  .viewer-actions .btn span {
+  .viewer-title-actions .member-search {
+    order: -1;
+    max-width: none;
+    flex-basis: 100%;
+  }
+
+  .viewer-title-actions .btn span {
     display: none;
   }
 
@@ -6193,8 +6372,7 @@ button.admin-stat-card {
 /* Media library */
 
 .media-library-page {
-  max-width: 1100px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .media-library-page .breadcrumb-link {
@@ -6302,8 +6480,24 @@ button.admin-stat-card {
 /* Timeline */
 
 .timeline-page {
-  max-width: 900px;
-  margin: 0 auto;
+  width: 100%;
+}
+
+/* Event detail is text/form-heavy (title, description, participants) - keep
+   it readable instead of stretching to the full wide page width used by the
+   list/grid views. The back-link and page-header stay full width. */
+.timeline-page .lightbox-title-row,
+.timeline-page .page-subtitle,
+.timeline-page .modal-message,
+.timeline-page .lightbox-description-add-btn,
+.timeline-page .lightbox-visibility-badge,
+.timeline-page .lightbox-edit-form,
+.timeline-page .lightbox-tags-title,
+.timeline-page .lightbox-tag-list,
+.timeline-page .lightbox-tag-add,
+.timeline-page .timeline-media-header,
+.timeline-page .lightbox-stub {
+  max-width: 760px;
 }
 
 .timeline-page .breadcrumb-link {

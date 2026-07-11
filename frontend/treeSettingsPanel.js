@@ -2,13 +2,11 @@
 // (who Focused mode opens onto for every viewer of this tree) and the
 // default generation depth (how many generations of ancestry/progeny
 // Focused mode renders before trimming - see setAncestryDepth/
-// setProgenyDepth in main.js's renderChart(), and the "Full Tree" toolbar
-// toggle that lifts it for one session). Both persisted server-side via a
-// single PATCH /api/trees/:id/settings call, distinct from the per-session
-// "Reset View" target and "Full Tree" toggle in main.js. Mirrors the shell
-// pattern used by duplicateManager/relationshipManager: a components.js
-// markup builder plus a listeners function that main.js calls after
-// mounting it.
+// setProgenyDepth in main.js's renderChart()). Both persisted server-side
+// via a single PATCH /api/trees/:id/settings call, distinct from the
+// per-session "Reset View" target in main.js. Mirrors the shell pattern
+// used by duplicateManager/relationshipManager: a components.js markup
+// builder plus a listeners function that main.js calls after mounting it.
 import { escapeHtml } from './utils.js';
 
 export const MIN_GENERATION_DEPTH = 1;
@@ -22,7 +20,7 @@ function personLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
-export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth } = {}) {
+export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility } = {}) {
   const people = [...(Array.isArray(data) ? data : [])].sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
 
   const options = people
@@ -51,8 +49,7 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
         <h2 class="tree-settings-title">Generations to show</h2>
         <p class="tree-settings-desc">
           How many generations of ancestors and descendants Focused mode renders around the focused person
-          before trimming the rest, so large trees stay fast and readable. Anyone can still lift this for one
-          session with the "Full Tree" toolbar toggle. Set to unlimited to never trim.
+          before trimming the rest, so large trees stay fast and readable. Set to unlimited to never trim.
         </p>
         <div class="tree-settings-row">
           <label class="tree-settings-checkbox-label">
@@ -69,6 +66,21 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
             value="${isUnlimited ? DEFAULT_GENERATION_DEPTH : currentGenerationDepth}"
             ${isUnlimited ? 'disabled' : ''}
           />
+        </div>
+      </section>
+
+      <section class="tree-settings-section">
+        <h2 class="tree-settings-title">Email auto-visibility</h2>
+        <p class="tree-settings-desc">
+          When enabled, anyone who signs in with an email address that matches a person's email in this tree is
+          automatically given Viewer access - no join request needed. Existing Editor/Owner access is never
+          downgraded by this.
+        </p>
+        <div class="tree-settings-row">
+          <label class="tree-settings-checkbox-label">
+            <input type="checkbox" id="tree-settings-email-auto-visibility-checkbox" ${currentEmailAutoVisibility ? 'checked' : ''} />
+            Automatically grant viewer access by matching email
+          </label>
         </div>
       </section>
 

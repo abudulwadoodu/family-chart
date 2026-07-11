@@ -79,13 +79,7 @@ import {
   renderSkeletonGrid,
   renderTreeViewerHeader,
   renderViewModeToggle,
-  renderResetViewButton,
-  renderFullTreeToggleButton,
-  renderFocusModeButton,
-  renderMediaLibraryButton,
-  renderTimelineButton,
-  renderFamilyFeedButton,
-  renderMemberSearch,
+  renderCanvasFloatingControls,
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
@@ -94,6 +88,7 @@ import {
   renderTreesEmptyStateMarkup,
   renderCompactJoinSearch,
   renderCompactJoinSearchResults,
+  renderDiscoverySectionMarkup,
   renderJoinRoleModalBody,
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
@@ -190,6 +185,30 @@ function setRememberedEmail(email) {
   }
 }
 
+function discoveryDismissedKey(userId) {
+  return `family-chart-discovery-dismissed-${userId}`;
+}
+
+function hashTreeIds(trees) {
+  return trees.map((t) => t.id).sort((a, b) => a - b).join(',');
+}
+
+function getDismissedDiscoveryHash(userId) {
+  try {
+    return window.localStorage.getItem(discoveryDismissedKey(userId)) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function setDismissedDiscoveryHash(userId, hash) {
+  try {
+    window.localStorage.setItem(discoveryDismissedKey(userId), hash);
+  } catch (_error) {
+    // Ignore write failures (privacy mode, quota) - dismissal just won't persist.
+  }
+}
+
 const state = {
   user: null,
   trees: [],
@@ -219,6 +238,10 @@ const state = {
   // settings (trees.default_generation_depth) - null means unlimited. See
   // loadTree(), the Settings view mode, and ancestryDepth/progenyDepth below.
   treeDefaultGenerationDepth: DEFAULT_GENERATION_DEPTH,
+  // The owner-configured "email auto-visibility" flag loaded from the tree's
+  // own settings (trees.email_auto_visibility). See loadTree() and the
+  // Settings view mode.
+  treeEmailAutoVisibility: false,
   // How many generations of ancestors/descendants to render out from the
   // focused person before trimming the tree, so large families don't
   // render an unbounded (slow, cluttered) hierarchy on every re-root. Seeded
@@ -226,10 +249,6 @@ const state = {
   // unlimited (see renderChart()).
   ancestryDepth: DEFAULT_GENERATION_DEPTH,
   progenyDepth: DEFAULT_GENERATION_DEPTH,
-  // "Full Tree" toolbar toggle - true lifts the ancestry/progeny depth cap
-  // above for the current session (Focused mode only). Not persisted; large
-  // trees pay the full unbounded-render cost while it's on.
-  fullTreeMode: false,
   allNodesGraph: null,
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
@@ -272,6 +291,18 @@ const state = {
     loading: false,
     loaded: false,
     requests: [],
+  },
+  // "Trees you may belong to" - discovery matches by email, shown on the
+  // tree-list landing page. Recomputed every time loadDiscoveryMatches() runs
+  // (see loadSession()), not a one-time modal. `dismissed` reflects whether
+  // the CURRENT match-set's hash equals the stored per-user dismissed hash
+  // (see get/setDismissedDiscoveryHash), so a changed match-set (new match
+  // appears, or the dismissed one disappears) always resurfaces.
+  discovery: {
+    loading: false,
+    loaded: false,
+    trees: [],
+    dismissed: false,
   },
   // Public legal pages (Terms & Conditions, Privacy Policy) are reachable at
   // /terms and /privacy regardless of sign-in state - see syncRouteFromLocation
@@ -1833,6 +1864,52 @@ function attachCompactJoinSearchCollapseListeners() {
   });
 }
 
+function attachDiscoverySectionListeners() {
+  document.querySelector('#discovery-dismiss-btn')?.addEventListener('click', handleDismissDiscovery);
+  document.querySelectorAll('.discovery-join-request-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openDiscoveryJoinRoleModal(Number(btn.dataset.treeId)));
+  });
+}
+
+// Same shape as openJoinRoleModal, but reads from state.discovery.trees
+// instead of state.joinSearch.results, and removes the tree from the
+// discovery list (rather than flipping a membershipStatus flag) on success,
+// since a matched tree's card should just disappear once a request has been
+// sent for it.
+function openDiscoveryJoinRoleModal(treeId) {
+  const tree = state.discovery.trees.find((t) => t.id === treeId);
+  if (!tree) return;
+
+  const modal = showModal({
+    bodyHtml: renderJoinRoleModalBody({ treeName: tree.name }),
+  });
+
+  modal.root.querySelector('#join-role-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#join-role-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const role = String(formData.get('role') || 'viewer');
+    const message = String(formData.get('message') || '').trim();
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/request-join`, {
+        method: 'POST',
+        body: JSON.stringify({ role, message: message || undefined }),
+      });
+      modal.close();
+      showToast('Request sent to the tree owner.');
+      state.discovery.trees = state.discovery.trees.filter((t) => t.id !== treeId);
+      state.myRequests.loaded = false;
+      renderTreeGrid();
+    } catch (error) {
+      showToast(error.message || 'Could not send request.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
+}
+
 async function handleJoinSearch(event) {
   event.preventDefault();
   const query = String(new FormData(event.target).get('query') || '').trim();
@@ -1958,14 +2035,18 @@ function renderTreeGrid() {
     return;
   }
 
+  const discoveryHtml =
+    !state.discovery.dismissed && state.discovery.trees.length ? renderDiscoverySectionMarkup({ trees: state.discovery.trees }) : '';
+
   if (state.trees.length === 0) {
-    body.innerHTML = renderTreesEmptyStateMarkup(state.joinSearch);
+    body.innerHTML = discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
     document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
     document.querySelector('#skip-search-create-btn').addEventListener('click', () => {
       state.dashboardView = 'createTree';
       render();
     });
     attachJoinResultListeners();
+    attachDiscoverySectionListeners();
     return;
   }
 
@@ -1975,6 +2056,7 @@ function renderTreeGrid() {
       sort: state.treeSort,
       discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query, expanded: state.joinSearch.expanded }),
     })}
+    ${discoveryHtml}
     <div id="discover-search-results">${renderCompactJoinSearchResults(state.joinSearch)}</div>
     <div id="tree-grid" class="tree-grid"></div>
   `;
@@ -2006,6 +2088,7 @@ function renderTreeGrid() {
     });
   }
   attachJoinResultListeners();
+  attachDiscoverySectionListeners();
 
   renderActiveTreeGrid();
 }
@@ -2258,18 +2341,12 @@ function renderTreeViewerMarkup() {
     ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
     <div id="tree-focus-target" class="tree-focus-target">
       <div class="tree-toolbar-row">
-        <div class="tree-toolbar-left">
-          <div id="view-mode-toggle"></div>
-          ${renderResetViewButton()}
-          ${renderFullTreeToggleButton({ fullTreeMode: state.fullTreeMode })}
-          ${renderFocusModeButton()}
-          ${renderMediaLibraryButton()}
-          ${renderTimelineButton()}
-          ${renderFamilyFeedButton()}
-        </div>
-        ${renderMemberSearch()}
+        <div id="view-mode-toggle"></div>
       </div>
-      <div id="FamilyChart" class="f3 chart-container"></div>
+      <div class="chart-canvas-wrap">
+        <div id="FamilyChart" class="f3 chart-container"></div>
+        ${renderCanvasFloatingControls()}
+      </div>
     </div>
     ${renderFamilyFeedPanel()}
   `;
@@ -2482,20 +2559,10 @@ function attachTreeViewerListeners() {
   document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
+  document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
-  document.querySelector('#full-tree-toggle-btn')?.addEventListener('click', handleToggleFullTree);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
-  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
-    state.mediaLibrary = createMediaLibraryPageState();
-    state.dashboardView = 'mediaLibrary';
-    render();
-  });
-  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
-    state.timeline = createTimelinePageState();
-    state.dashboardView = 'timeline';
-    render();
-  });
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2772,26 +2839,23 @@ function syncFocusModeToolbarState() {
   focusModeController?.setActionDisabled('center', disabled);
 }
 
-// The ancestry/progeny depth cap this toggle lifts only applies to the
-// Focused-mode card tree (see renderChart()) - All Nodes already shows
-// everyone, and Relationships/Duplicates don't render a depth-limited tree
-// at all, so disable it there rather than let it silently do nothing.
-function syncFullTreeToggleState() {
-  const btn = document.querySelector('#full-tree-toggle-btn');
-  if (!btn) return;
-  btn.disabled = state.viewMode !== 'focused';
-}
+// Member search lives in Row 2 (.viewer-header) now, which Focus Mode hides
+// entirely along with the rest of the page chrome - so it has to physically
+// move into #tree-focus-target to stay usable while maximized, then move
+// back on exit rather than leaving a detached duplicate behind.
+let memberSearchHomeMarker = null;
 
-function handleToggleFullTree() {
-  state.fullTreeMode = !state.fullTreeMode;
-  renderChart();
-  const btn = document.querySelector('#full-tree-toggle-btn');
-  if (btn) {
-    btn.classList.toggle('chip-active', state.fullTreeMode);
-    btn.setAttribute('aria-pressed', String(state.fullTreeMode));
-    btn.title = state.fullTreeMode
-      ? 'Showing every generation - click to limit again'
-      : 'Show every connected generation, not just the nearby ones';
+function relocateMemberSearchForFocusMode(active) {
+  const memberSearch = document.querySelector('#member-search');
+  if (!memberSearch) return;
+  if (active) {
+    memberSearchHomeMarker = document.createComment('member-search-home');
+    memberSearch.after(memberSearchHomeMarker);
+    document.querySelector('#tree-focus-target')?.prepend(memberSearch);
+  } else if (memberSearchHomeMarker) {
+    memberSearchHomeMarker.after(memberSearch);
+    memberSearchHomeMarker.remove();
+    memberSearchHomeMarker = null;
   }
 }
 
@@ -2800,6 +2864,7 @@ function handleToggleFullTree() {
 // refit against a container that's still mid-resize).
 function onFocusModeTransitionEnd(active) {
   document.querySelector('#focus-mode-btn')?.setAttribute('aria-pressed', String(active));
+  relocateMemberSearchForFocusMode(active);
   if (active) syncFocusModeToolbarState();
   refitActiveView(0);
 }
@@ -2814,6 +2879,7 @@ function setupFocusMode() {
     actions: [
       { id: 'exit', label: 'Exit Focus Mode (Esc)', iconName: 'minimize', onClick: () => focusModeController.exit() },
       'separator',
+      { id: 'reset-view', label: "Reset to the tree's default view", iconName: 'home', onClick: () => handleResetView() },
       { id: 'zoom-in', label: 'Zoom In', iconName: 'zoomIn', onClick: () => focusModeZoom(1.3) },
       { id: 'zoom-out', label: 'Zoom Out', iconName: 'zoomOut', onClick: () => focusModeZoom(1 / 1.3) },
       { id: 'fit', label: 'Fit Tree', iconName: 'scan', onClick: () => refitActiveView(400) },
@@ -3172,7 +3238,6 @@ function clearSelectedTreeView() {
   state.focusedMainId = null;
   state.defaultMainId = null;
   state.treeDefaultMainId = null;
-  state.fullTreeMode = false;
   state.relationshipManager = createRelationshipManagerState();
   state.duplicateManager = createDuplicateManagerState();
   closeMemberSearchResults();
@@ -3292,13 +3357,12 @@ function renderChart() {
     // report.
     .setShowSiblingsOfMain(true);
 
-  // "Full Tree" toggle (toolbar) lifts the generation cap for this session,
-  // and the tree owner can separately configure "unlimited" as the default
-  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. Either
-  // way, just skip setAncestryDepth/setProgenyDepth entirely rather than
-  // passing some sentinel "unlimited" value, since calculateTree only
+  // The tree owner can configure "unlimited" as the default
+  // (state.ancestryDepth/progenyDepth === null) from the Settings tab. In
+  // that case, just skip setAncestryDepth/setProgenyDepth entirely rather
+  // than passing some sentinel "unlimited" value, since calculateTree only
   // applies a cap when state.ancestry_depth/progeny_depth is not undefined.
-  if (!state.fullTreeMode && state.ancestryDepth !== null && state.progenyDepth !== null) {
+  if (state.ancestryDepth !== null && state.progenyDepth !== null) {
     state.chart.setAncestryDepth(state.ancestryDepth).setProgenyDepth(state.progenyDepth);
   }
 
@@ -3534,7 +3598,6 @@ function setupViewModeToggle() {
     if (treeSettingsBtn) treeSettingsBtn.disabled = state.viewMode === 'settings';
     syncSaveButtonAvailability();
     syncFocusModeToolbarState();
-    syncFullTreeToggleState();
   };
 
   const saveFocusedMainId = () => {
@@ -3577,6 +3640,21 @@ function setupViewModeToggle() {
     state.viewMode = 'settings';
     renderChart();
     syncModeButtons();
+  });
+
+  // Media Library/Timeline chips are rendered inside #view-mode-toggle
+  // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
+  // their DOM nodes too - re-wire them every call rather than once in
+  // attachTreeViewerListeners(), which would only ever bind the first copy.
+  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
+    state.mediaLibrary = createMediaLibraryPageState();
+    state.dashboardView = 'mediaLibrary';
+    render();
+  });
+  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
+    state.timeline = createTimelinePageState();
+    state.dashboardView = 'timeline';
+    render();
   });
 
   syncModeButtons();
@@ -4605,7 +4683,16 @@ async function loadSession() {
     await getCurrentUser();
     const payload = await api('/api/auth/me');
     state.user = payload.user;
-    await loadTrees();
+    // discovery-check (auto-grant) and loadDiscoveryMatches (list-for-display)
+    // fire in parallel rather than sequentially - a tree that gets
+    // auto-granted mid-flight simply won't show in this load's discovery
+    // list, which is harmless (matches the "recomputed every time" semantics;
+    // it'll simply be absent next time discovery is fetched).
+    await Promise.all([
+      loadTrees(),
+      api('/api/auth/discovery-check', { method: 'POST' }).catch(() => {}),
+      loadDiscoveryMatches(),
+    ]);
     render();
     await maybeOpenDeepLinkedTicket();
   } catch (_error) {
@@ -4648,6 +4735,38 @@ async function loadTrees() {
   }
 }
 
+// "Trees you may belong to" - trees where a person-node's email matches this
+// user's own account email. Recomputed on every call (see loadSession()),
+// not a one-time "seen it" flag, so a match created later (e.g. an owner
+// adds someone's email after the fact) still surfaces. `dismissed` compares
+// the current match-set's hash against the last-dismissed hash stored in
+// localStorage, so a changed match-set always resurfaces even if the user
+// previously dismissed a different set of matches.
+async function loadDiscoveryMatches() {
+  state.discovery.loading = true;
+  try {
+    const payload = await api('/api/trees/discovery');
+    state.discovery.trees = payload.trees;
+    const hash = hashTreeIds(payload.trees);
+    state.discovery.dismissed = payload.trees.length === 0 || hash === getDismissedDiscoveryHash(state.user.id);
+  } catch (_error) {
+    state.discovery.trees = [];
+    state.discovery.dismissed = true;
+  } finally {
+    state.discovery.loading = false;
+    state.discovery.loaded = true;
+  }
+  if (state.user && state.dashboardView === 'trees' && !state.selectedTreeId) {
+    renderTreeGrid();
+  }
+}
+
+function handleDismissDiscovery() {
+  state.discovery.dismissed = true;
+  setDismissedDiscoveryHash(state.user.id, hashTreeIds(state.discovery.trees));
+  renderTreeGrid();
+}
+
 async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   cleanupAllNodesGraph();
   const payload = await api(`/api/trees/${treeId}`);
@@ -4665,9 +4784,9 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   // configured a depth for, and for one where the owner explicitly chose
   // Unlimited. There's no separate "unset" state to distinguish from that.
   state.treeDefaultGenerationDepth = payload.tree.default_generation_depth ?? null;
+  state.treeEmailAutoVisibility = payload.tree.email_auto_visibility ?? false;
   state.ancestryDepth = state.treeDefaultGenerationDepth;
   state.progenyDepth = state.treeDefaultGenerationDepth;
-  state.fullTreeMode = false;
 
   // Prefer the owner-configured default focus person; fall back to the
   // largest-connected-component heuristic if it's unset, or if it points at
@@ -4765,6 +4884,7 @@ function renderTreeSettingsViewMode() {
   container.innerHTML = renderTreeSettingsPanel(state.selectedTreeData, {
     currentDefaultMainId: state.treeDefaultMainId,
     currentGenerationDepth: state.treeDefaultGenerationDepth,
+    currentEmailAutoVisibility: state.treeEmailAutoVisibility,
   });
 
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
@@ -4781,12 +4901,14 @@ async function handleSaveTreeSettings() {
   const select = document.querySelector('#tree-settings-default-main-select');
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
   const depthInput = document.querySelector('#tree-settings-generation-depth-input');
+  const emailAutoVisibilityCheckbox = document.querySelector('#tree-settings-email-auto-visibility-checkbox');
   const errorEl = document.querySelector('#tree-settings-error');
   const saveBtn = document.querySelector('#tree-settings-save-btn');
-  if (!select || !unlimitedCheckbox || !depthInput || !saveBtn) return;
+  if (!select || !unlimitedCheckbox || !depthInput || !emailAutoVisibilityCheckbox || !saveBtn) return;
 
   const defaultMainId = select.value || null;
   const defaultGenerationDepth = unlimitedCheckbox.checked ? null : Number(depthInput.value);
+  const emailAutoVisibility = emailAutoVisibilityCheckbox.checked;
 
   errorEl.textContent = '';
   if (!unlimitedCheckbox.checked && (!Number.isInteger(defaultGenerationDepth) || defaultGenerationDepth < MIN_GENERATION_DEPTH || defaultGenerationDepth > MAX_GENERATION_DEPTH)) {
@@ -4801,17 +4923,17 @@ async function handleSaveTreeSettings() {
   try {
     const result = await api(`/api/trees/${state.selectedTreeId}/settings`, {
       method: 'PATCH',
-      body: JSON.stringify({ default_main_id: defaultMainId, default_generation_depth: defaultGenerationDepth }),
+      body: JSON.stringify({
+        default_main_id: defaultMainId,
+        default_generation_depth: defaultGenerationDepth,
+        email_auto_visibility: emailAutoVisibility,
+      }),
     });
     state.treeDefaultMainId = result.default_main_id;
     state.treeDefaultGenerationDepth = result.default_generation_depth;
-    // Only re-applies live if the current session hasn't already overridden
-    // it via the "Full Tree" toggle - matches the same "session choice wins"
-    // precedence renderChart() itself uses.
-    if (!state.fullTreeMode) {
-      state.ancestryDepth = state.treeDefaultGenerationDepth;
-      state.progenyDepth = state.treeDefaultGenerationDepth;
-    }
+    state.treeEmailAutoVisibility = result.email_auto_visibility;
+    state.ancestryDepth = state.treeDefaultGenerationDepth;
+    state.progenyDepth = state.treeDefaultGenerationDepth;
     showToast('Tree settings updated.');
   } catch (error) {
     errorEl.textContent = error.message || 'Could not save these settings.';
