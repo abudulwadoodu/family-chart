@@ -6231,10 +6231,19 @@ button.admin-stat-card {
 }
 
 .lightbox-description-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: var(--sp-1) 0 0;
+}
+
+/* Long descriptions still need to wrap and grow past a single inline
+   line's content width - override the inline-flex sizing above for that
+   one case rather than adding a second class. */
+.lightbox-description-row:has(.lightbox-description) {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-2);
-  margin: var(--sp-1) 0 0;
+  width: 100%;
 }
 
 .lightbox-description {
@@ -6298,6 +6307,25 @@ button.admin-stat-card {
 }
 
 .lightbox-title-row #lightbox-edit-btn {
+  flex-shrink: 0;
+}
+
+/* Groups the title text tightly with its edit pencil (timelinePanel.js) so
+   the pencil sits right next to the word it edits instead of drifting to
+   the far right of the title row alongside the visibility badge. */
+.lightbox-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lightbox-title-group .page-title {
+  flex: 1 1 auto;
+}
+
+.lightbox-title-group .icon-btn {
   flex-shrink: 0;
 }
 
@@ -6389,6 +6417,44 @@ button.admin-stat-card {
 
 .timeline-media-header .lightbox-tags-title {
   margin: 0;
+}
+
+/* Consolidated media + reactions block: the media grid (or empty state) and
+   the emoji reaction bar live inside one panel rather than as two detached
+   pieces of the page. */
+.timeline-media-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 20px;
+  margin: var(--sp-2) 0 var(--sp-4);
+}
+
+.timeline-media-panel .media-grid {
+  margin: 0;
+}
+
+.timeline-media-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  text-align: center;
+  padding: var(--sp-4) 0;
+}
+
+.timeline-media-empty .muted {
+  margin: 0;
+}
+
+.timeline-media-panel .reaction-bar {
+  justify-content: center;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .lightbox-tag-list {
@@ -6512,15 +6578,24 @@ button.admin-stat-card {
   padding: 0;
 }
 
+/* Each comment reads as a self-contained card/bubble rather than a bare
+   row - trash icon pinned to the card's own top-right corner (position:
+   relative on the card, position: absolute on the button) instead of
+   sitting inline with the avatar and text. */
 .comment-item {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
+  background: var(--bg-inset);
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
 }
 
 .comment-item-body {
   flex: 1;
   min-width: 0;
+  padding-right: var(--sp-5);
 }
 
 .comment-item-meta {
@@ -6547,19 +6622,29 @@ button.admin-stat-card {
 }
 
 .comment-delete-btn {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
   flex-shrink: 0;
 }
 
+/* Post sits underneath the textarea, aligned to its bottom-right, instead
+   of stretching full-height in a row beside it. */
 .comment-form {
   display: flex;
+  flex-direction: column;
   gap: var(--sp-2);
-  align-items: flex-end;
   margin-bottom: var(--sp-3);
 }
 
 .comment-form textarea {
-  flex: 1;
+  width: 100%;
   resize: vertical;
+}
+
+.comment-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Media library */
@@ -6677,19 +6762,14 @@ button.admin-stat-card {
 
 /* Event detail is text/form-heavy (title, description, participants) - keep
    it readable instead of stretching to the full wide page width used by the
-   list/grid views. The back-link and page-header stay full width. */
-.timeline-page .lightbox-title-row,
-.timeline-page .page-subtitle,
-.timeline-page .modal-message,
-.timeline-page .lightbox-description-add-btn,
-.timeline-page .lightbox-visibility-badge,
-.timeline-page .lightbox-edit-form,
-.timeline-page .lightbox-tags-title,
-.timeline-page .lightbox-tag-list,
-.timeline-page .lightbox-tag-add,
-.timeline-page .timeline-media-header,
-.timeline-page .lightbox-stub {
-  max-width: 760px;
+   list/grid views. Wraps the entire detail view (header included), so it's
+   the single desktop width constraint - nothing inside it needs its own
+   max-width anymore. Left-aligned (not centered) so it lines up with the
+   rest of the dashboard's page content instead of floating mid-page. */
+.timeline-detail-wrap {
+  max-width: 1000px;
+  margin: 0;
+  padding: 24px 24px 24px 0;
 }
 
 .timeline-page .breadcrumb-link {

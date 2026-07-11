@@ -30,8 +30,23 @@ function relativeTime(isoString) {
   return new Date(isoString).toLocaleDateString();
 }
 
+// Never surface the raw email (with its @domain) as a display name - fall
+// back to the local-part with dot/underscore/digit separators turned into
+// spaces and title-cased, e.g. "jane.doe23@example.com" -> "Jane Doe".
+function nameFromEmail(email) {
+  const localPart = email.split('@')[0];
+  const words = localPart
+    .replace(/[._-]+/g, ' ')
+    .replace(/\d+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return 'Someone';
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
 function commenterLabel(comment) {
-  return comment.user_full_name || comment.user_email || 'Someone';
+  return comment.user_full_name || (comment.user_email ? nameFromEmail(comment.user_email) : 'Someone');
 }
 
 function commenterInitial(comment) {
@@ -66,7 +81,11 @@ export async function loadCommentSection(state, { api, treeId, targetType, targe
   }
 }
 
-function reactionBar(state, { idPrefix, readOnly }) {
+// Exported so callers with their own media panel (timelinePanel.js) can
+// embed the reaction bar inside that panel instead of above the comment
+// list - attachCommentSectionListeners finds it via [data-id-prefix]
+// regardless of where in the DOM it ends up.
+export function renderReactionBarHtml(state, { idPrefix, readOnly = false }) {
   const countByEmoji = new Map(state.reactionSummary.map((r) => [r.emoji, r.count]));
   return `
     <div class="reaction-bar" data-id-prefix="${idPrefix}">
@@ -87,6 +106,7 @@ function commentRow(comment, { currentUserId, readOnly }) {
   const canDelete = !readOnly && comment.user_id === currentUserId;
   return `
     <li class="comment-item" data-comment-id="${comment.id}">
+      ${canDelete ? `<button type="button" class="icon-btn comment-delete-btn" data-comment-id="${comment.id}" aria-label="Delete comment">${icon('trash')}</button>` : ''}
       <span class="user-avatar user-avatar-sm">${escapeHtml(commenterInitial(comment))}</span>
       <div class="comment-item-body">
         <p class="comment-item-meta">
@@ -95,7 +115,6 @@ function commentRow(comment, { currentUserId, readOnly }) {
         </p>
         <p class="comment-item-text">${escapeHtml(comment.body)}</p>
       </div>
-      ${canDelete ? `<button type="button" class="icon-btn comment-delete-btn" data-comment-id="${comment.id}" aria-label="Delete comment">${icon('trash')}</button>` : ''}
     </li>
   `;
 }
@@ -106,10 +125,13 @@ function sortedComments(comments) {
   return [...comments].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
-export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readOnly = false }) {
+// `hideReactionBar` lets callers (timelinePanel.js) render the reaction bar
+// themselves via renderReactionBarHtml, embedded inside their own media
+// panel instead of above the comment list.
+export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readOnly = false, hideReactionBar = false }) {
   return `
     <div class="comment-section" data-id-prefix="${idPrefix}">
-      ${reactionBar(state, { idPrefix, readOnly })}
+      ${hideReactionBar ? '' : renderReactionBarHtml(state, { idPrefix, readOnly })}
       <p class="lightbox-tags-title comment-section-title">Comments</p>
       ${
         !state.loaded
@@ -121,7 +143,9 @@ export function renderCommentSectionHtml(state, { idPrefix, currentUserId, readO
             : `
           <div class="comment-form">
             <textarea id="${idPrefix}-comment-input" placeholder="Add a comment&hellip;" maxlength="2000" rows="2">${escapeHtml(state.draft)}</textarea>
-            <button type="button" class="btn btn-primary" id="${idPrefix}-comment-submit-btn" ${state.draft.trim() && !state.submitting ? '' : 'disabled'}>Post</button>
+            <div class="comment-form-actions">
+              <button type="button" class="btn btn-primary" id="${idPrefix}-comment-submit-btn" ${state.draft.trim() && !state.submitting ? '' : 'disabled'}>Post</button>
+            </div>
           </div>
         `
         }
@@ -146,7 +170,12 @@ export function attachCommentSectionListeners(root, state, { api, treeId, target
   const section = root.querySelector('.comment-section');
   if (!section) return;
 
-  section.querySelectorAll('.reaction-chip').forEach((btn) => {
+  const idPrefix = section.dataset.idPrefix;
+  // The reaction bar may live outside .comment-section (embedded in a media
+  // panel by timelinePanel.js) - look it up by [data-id-prefix] across the
+  // whole root rather than assuming it's a descendant of `section`.
+  const reactionBarEl = root.querySelector(`.reaction-bar[data-id-prefix="${idPrefix}"]`);
+  reactionBarEl?.querySelectorAll('.reaction-chip').forEach((btn) => {
     if (btn.disabled) return;
     btn.addEventListener('click', async () => {
       const emoji = btn.dataset.emoji;
@@ -167,7 +196,6 @@ export function attachCommentSectionListeners(root, state, { api, treeId, target
 
   if (readOnly) return;
 
-  const idPrefix = section.dataset.idPrefix;
   const input = section.querySelector(`#${idPrefix}-comment-input`);
   const submitBtn = section.querySelector(`#${idPrefix}-comment-submit-btn`);
   // Updates the Post button in place rather than calling rerenderFn() (a full

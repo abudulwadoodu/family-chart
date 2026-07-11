@@ -22,6 +22,7 @@ import {
   createCommentSectionState,
   loadCommentSection,
   renderCommentSectionHtml,
+  renderReactionBarHtml,
   attachCommentSectionListeners,
 } from './commentSection.js';
 
@@ -214,8 +215,10 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
         ? eventTitleEditForm(titleDraft)
         : `
       <div class="lightbox-title-row">
-        <h1 class="page-title">${escapeHtml(event.title)}</h1>
-        ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-title-btn" aria-label="Edit title">${icon('pencil')}</button>`}
+        <span class="lightbox-title-group">
+          <h1 class="page-title">${escapeHtml(event.title)}</h1>
+          ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-title-btn" aria-label="Edit title">${icon('pencil')}</button>`}
+        </span>
         ${editingVisibility ? '' : eventVisibilityBadge(event, shareCount, readOnly)}
       </div>
     `
@@ -227,10 +230,10 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
         : editingTitle
           ? ''
           : `
-      <div class="lightbox-description-row">
+      <span class="lightbox-description-row">
         <p class="page-subtitle">${event.event_date ? escapeHtml(event.event_date) : 'Undated'}</p>
         ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-date-btn" aria-label="Edit date">${icon('pencil')}</button>`}
-      </div>
+      </span>
     `
     }
     ${
@@ -240,14 +243,14 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
           ? ''
           : event.location
             ? `
-      <div class="lightbox-description-row">
+      <span class="lightbox-description-row">
         <p class="page-subtitle">${escapeHtml(event.location)}</p>
         ${readOnly ? '' : `<button type="button" class="icon-btn" id="timeline-edit-location-btn" aria-label="Edit location">${icon('pencil')}</button>`}
-      </div>
+      </span>
     `
             : readOnly
               ? ''
-              : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-location-btn">${icon('pencil')}<span>Add a location&hellip;</span></button>`
+              : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-location-btn"><span>Add a location&hellip;</span>${icon('pencil')}</button>`
     }
     ${
       editingDescription
@@ -263,7 +266,7 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
     `
             : readOnly
               ? ''
-              : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-description-btn">${icon('pencil')}<span>Add a description&hellip;</span></button>`
+              : `<button type="button" class="lightbox-description-add-btn" id="timeline-edit-description-btn"><span>Add a description&hellip;</span>${icon('pencil')}</button>`
     }
 
     ${
@@ -316,22 +319,28 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
       <p class="lightbox-tags-title">Media</p>
       ${readOnly ? '' : `<button type="button" class="btn btn-secondary" id="timeline-attach-media-btn">${icon('image')}<span>Attach Media</span></button>`}
     </div>
-    ${
-      media.length
-        ? `<div class="media-grid">
-             ${media
-               .map(
-                 (item) => `
-               <button type="button" class="media-grid-item" data-media-id="${item.id}">
-                 ${mediaThumbHtml(item)}
-               </button>`
-               )
-               .join('')}
-           </div>`
-        : '<p class="muted">No media attached.</p>'
-    }
+    <div class="timeline-media-panel">
+      ${
+        media.length
+          ? `<div class="media-grid">
+               ${media
+                 .map(
+                   (item) => `
+                 <button type="button" class="media-grid-item" data-media-id="${item.id}">
+                   ${mediaThumbHtml(item)}
+                 </button>`
+                 )
+                 .join('')}
+             </div>`
+          : `<div class="timeline-media-empty">
+               <p class="muted">No media attached.</p>
+               ${readOnly ? '' : `<button type="button" class="btn btn-secondary" id="timeline-attach-media-empty-btn">${icon('image')}<span>Attach Media</span></button>`}
+             </div>`
+      }
+      ${renderReactionBarHtml(commentState, { idPrefix: 'timeline', readOnly })}
+    </div>
 
-    ${renderCommentSectionHtml(commentState, { idPrefix: 'timeline', currentUserId })}
+    ${renderCommentSectionHtml(commentState, { idPrefix: 'timeline', currentUserId, readOnly, hideReactionBar: true })}
     `
     }
   `;
@@ -514,35 +523,35 @@ export function createTimelinePageState() {
 }
 
 export function renderTimelinePageContent(pageState, { memberIndex, readOnly, currentUserId, treeName }) {
+  const isDetail = pageState.view === 'detail' && pageState.detail;
+  const body = isDetail
+    ? eventDetail({
+        event: pageState.detail,
+        participants: pageState.participants,
+        media: pageState.media,
+        memberIndex,
+        readOnly,
+        memberQuery: pageState.memberQuery,
+        memberResults: pageState.memberResults,
+        editingTitle: pageState.editingTitle,
+        titleDraft: pageState.titleDraft,
+        editingDate: pageState.editingDate,
+        dateDraft: pageState.dateDraft,
+        editingLocation: pageState.editingLocation,
+        locationDraft: pageState.locationDraft,
+        editingDescription: pageState.editingDescription,
+        descriptionDraft: pageState.descriptionDraft,
+        editingVisibility: pageState.editingVisibility,
+        editVisibilityPicker: pageState.editVisibilityPicker,
+        shareCount: pageState.detailShareCount,
+        commentState: pageState.commentState,
+        currentUserId,
+        treeName,
+      })
+    : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName });
   return `
     <div class="timeline-page">
-      ${
-        pageState.view === 'detail' && pageState.detail
-          ? eventDetail({
-              event: pageState.detail,
-              participants: pageState.participants,
-              media: pageState.media,
-              memberIndex,
-              readOnly,
-              memberQuery: pageState.memberQuery,
-              memberResults: pageState.memberResults,
-              editingTitle: pageState.editingTitle,
-              titleDraft: pageState.titleDraft,
-              editingDate: pageState.editingDate,
-              dateDraft: pageState.dateDraft,
-              editingLocation: pageState.editingLocation,
-              locationDraft: pageState.locationDraft,
-              editingDescription: pageState.editingDescription,
-              descriptionDraft: pageState.descriptionDraft,
-              editingVisibility: pageState.editingVisibility,
-              editVisibilityPicker: pageState.editVisibilityPicker,
-              shareCount: pageState.detailShareCount,
-              commentState: pageState.commentState,
-              currentUserId,
-              treeName,
-            })
-          : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName })
-      }
+      ${isDetail ? `<div class="timeline-detail-wrap">${body}</div>` : body}
     </div>
   `;
 }
@@ -891,7 +900,7 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
       });
     });
 
-    root.querySelector('#timeline-attach-media-btn')?.addEventListener('click', () => {
+    const openTimelineMediaPicker = () => {
       openMediaPicker({
         api,
         treeId,
@@ -908,7 +917,9 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
           }
         },
       });
-    });
+    };
+    root.querySelector('#timeline-attach-media-btn')?.addEventListener('click', openTimelineMediaPicker);
+    root.querySelector('#timeline-attach-media-empty-btn')?.addEventListener('click', openTimelineMediaPicker);
 
     root.querySelector('#timeline-delete-event-btn')?.addEventListener('click', async () => {
       try {
