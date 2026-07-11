@@ -6372,8 +6372,7 @@ button.admin-stat-card {
 /* Media library */
 
 .media-library-page {
-  max-width: 1100px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .media-library-page .breadcrumb-link {
@@ -6481,8 +6480,24 @@ button.admin-stat-card {
 /* Timeline */
 
 .timeline-page {
-  max-width: 900px;
-  margin: 0 auto;
+  width: 100%;
+}
+
+/* Event detail is text/form-heavy (title, description, participants) - keep
+   it readable instead of stretching to the full wide page width used by the
+   list/grid views. The back-link and page-header stay full width. */
+.timeline-page .lightbox-title-row,
+.timeline-page .page-subtitle,
+.timeline-page .modal-message,
+.timeline-page .lightbox-description-add-btn,
+.timeline-page .lightbox-visibility-badge,
+.timeline-page .lightbox-edit-form,
+.timeline-page .lightbox-tags-title,
+.timeline-page .lightbox-tag-list,
+.timeline-page .lightbox-tag-add,
+.timeline-page .timeline-media-header,
+.timeline-page .lightbox-stub {
+  max-width: 760px;
 }
 
 .timeline-page .breadcrumb-link {
