@@ -25,6 +25,7 @@ vi.mock('@aws-sdk/client-ses', () => ({
 
 const { app } = await import('../app.js');
 const { query } = await import('../db/index.js');
+const { resetRateLimits } = await import('../middleware/rateLimit.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -53,6 +54,7 @@ beforeEach(async () => {
   sendMock.mockReset();
   sendMock.mockResolvedValue({});
   await resetDb();
+  resetRateLimits();
 });
 
 describe('POST /api/support/tickets', () => {
@@ -140,6 +142,77 @@ describe('POST /api/support/tickets', () => {
       expect(res.status).toBe(201);
     }
     const res = await createTicket(user);
+    expect(res.status).toBe(429);
+  });
+});
+
+describe('POST /api/support/public-tickets', () => {
+  function submitPublicContact(overrides = {}) {
+    const payload = {
+      subject: 'I cannot import my CSV',
+      category: 'Technical Support',
+      message: 'This is a sufficiently long message describing the problem in detail.',
+      email: 'visitor@example.com',
+      ...overrides,
+    };
+    let req = request(app).post('/api/support/public-tickets');
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined) req = req.field(key, value);
+    });
+    return req;
+  }
+
+  it('does not require authentication', async () => {
+    const res = await submitPublicContact();
+    expect(res.status).toBe(201);
+  });
+
+  it('emails the support inbox with the visitor email as Reply-To, and creates no ticket', async () => {
+    const res = await submitPublicContact();
+
+    expect(res.status).toBe(201);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const [[{ input }]] = sendMock.mock.calls;
+    const raw = input.RawMessage.Data.toString('utf8');
+    expect(raw).toContain('Reply-To: visitor@example.com');
+
+    const { rows } = await query('SELECT COUNT(*) AS c FROM support_tickets');
+    expect(Number(rows[0].c)).toBe(0);
+  });
+
+  it('requires a valid email address', async () => {
+    const res = await submitPublicContact({ email: 'not-an-email' });
+    expect(res.status).toBe(400);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('requires a subject', async () => {
+    const res = await submitPublicContact({ subject: 'hi' });
+    expect(res.status).toBe(400);
+  });
+
+  it('requires a recognized category', async () => {
+    const res = await submitPublicContact({ category: 'Not A Category' });
+    expect(res.status).toBe(400);
+  });
+
+  it('enforces a minimum message length', async () => {
+    const res = await submitPublicContact({ message: 'too short' });
+    expect(res.status).toBe(400);
+  });
+
+  it('silently no-ops when the honeypot field is filled in', async () => {
+    const res = await submitPublicContact({ website: 'http://spam.example' });
+    expect(res.status).toBe(201);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('rate limits repeated submissions from the same IP', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const res = await submitPublicContact();
+      expect(res.status).toBe(201);
+    }
+    const res = await submitPublicContact();
     expect(res.status).toBe(429);
   });
 });

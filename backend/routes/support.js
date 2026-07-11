@@ -3,12 +3,12 @@ import multer from 'multer';
 
 import { requireAuth } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
-import { isNonEmptyString } from '../utils/validation.js';
+import { isNonEmptyString, isValidEmail } from '../utils/validation.js';
 import { findUserById } from '../models/userModel.js';
 import { createTicket, getTicketForUser, listTicketsForUser } from '../models/ticketModel.js';
 import { createMessage, listMessagesForTicket, getMessageAttachment } from '../models/messageModel.js';
 import { onUserReply } from '../services/ticketWorkflow.js';
-import { sendTicketCreatedEmail, sendUserReplyEmail } from '../utils/supportEmail.js';
+import { sendTicketCreatedEmail, sendUserReplyEmail, sendPublicContactEmail } from '../utils/supportEmail.js';
 import {
   SUPPORT_CATEGORIES,
   SUBJECT_MIN_LENGTH,
@@ -26,6 +26,67 @@ export { SUPPORT_CATEGORIES };
 
 export const supportRouter = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ATTACHMENT_BYTES } });
+
+function parsePublicUpload(req, res, next) {
+  upload.single('file')(req, res, (error) => {
+    if (!error) return next();
+    if (error.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Attachment must be 10 MB or smaller' });
+    return res.status(400).json({ error: 'Could not process the uploaded file' });
+  });
+}
+
+// Signed-out visitors (e.g. from the login page's "Contact support" link)
+// have no account and no Cognito token, so they can't use the ticket system
+// below - requireAuth is applied after this route on purpose. This just
+// relays the message straight to support by email rather than creating a
+// support_tickets row, since that table requires an owning user_id.
+supportRouter.post(
+  '/public-tickets',
+  rateLimit({ windowMs: 10 * 60 * 1000, max: 3, keyFn: (req) => req.ip }),
+  parsePublicUpload,
+  async (req, res, next) => {
+    try {
+      const { subject, category, message, email, website } = req.body || {};
+
+      // Honeypot: a filled-in hidden field means a bot submitted the form.
+      if (website) return res.status(201).json({ ok: true });
+
+      const trimmedSubject = typeof subject === 'string' ? subject.trim() : '';
+      if (!isNonEmptyString(subject, SUBJECT_MAX_LENGTH) || trimmedSubject.length < SUBJECT_MIN_LENGTH) {
+        return res
+          .status(400)
+          .json({ error: `Subject must be between ${SUBJECT_MIN_LENGTH} and ${SUBJECT_MAX_LENGTH} characters` });
+      }
+      if (!SUPPORT_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: 'Please choose a valid category' });
+      }
+      const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+      if (!isValidEmail(trimmedEmail)) {
+        return res.status(400).json({ error: 'Please enter a valid email address' });
+      }
+      const { error: messageError, trimmed: trimmedMessage } = validateMessageLength(message, {
+        min: TICKET_MESSAGE_MIN_LENGTH,
+        max: TICKET_MESSAGE_MAX_LENGTH,
+      });
+      if (messageError) return res.status(400).json({ error: messageError });
+
+      const attachmentError = validateAttachment(req.file);
+      if (attachmentError) return res.status(400).json({ error: attachmentError });
+
+      await sendPublicContactEmail({
+        fromEmail: trimmedEmail,
+        subject: trimmedSubject,
+        category,
+        message: trimmedMessage,
+        attachment: req.file,
+      });
+
+      return res.status(201).json({ ok: true });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
 
 supportRouter.use(requireAuth);
 

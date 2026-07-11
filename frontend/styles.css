@@ -317,6 +317,65 @@ h1, h2, h3 {
   margin-bottom: var(--sp-7);
 }
 
+/* Public /support page (signed-out visitor variant) - the auth card is
+   500px max-width, too narrow for the two-column .contact-grid used on the
+   authenticated dashboard's Contact Us page, so this renders just the form
+   card on its own, widened slightly and given a top-left "back to login"
+   link in place of the sidebar nav. */
+.support-page-anonymous {
+  width: 100%;
+}
+
+.support-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.support-back-link:hover {
+  color: var(--text-primary);
+}
+
+.support-back-link .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.support-page-anonymous .contact-form-card {
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+
+/* Prominent support link shown on every auth-flow step (sign in/up, MFA,
+   forgot/reset password) via renderAuthShell - a plainer, always-visible
+   sibling to the Terms/Privacy disclaimer above it. */
+.auth-support-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-support-link:hover {
+  color: var(--accent);
+}
+
+.auth-support-link .icon {
+  width: 15px;
+  height: 15px;
+}
+
 .auth-brand-icon {
   display: inline-flex;
   align-items: center;

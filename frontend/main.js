@@ -83,6 +83,7 @@ import {
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
+  renderContactFormCard,
   renderFooter,
   renderThemeToggle,
   renderTreesEmptyStateMarkup,
@@ -104,6 +105,7 @@ import {
   loadTicketDetail,
   attachTicketDetailListeners,
   createTicketFromContact,
+  submitPublicContactForm,
   attachmentUrlForUser,
 } from './support/logic.js';
 import { renderAdminShellMarkup, renderAdminEmptyState } from './admin/shared/components.js';
@@ -460,7 +462,7 @@ document.addEventListener(
 // this app - see maybeOpenDeepLinkedTicket's note on the ?ticket= param).
 // Maps a URL pathname to the publicView it should activate; anything else
 // falls through to the normal auth/dashboard flow.
-const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy' };
+const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy', '/support': 'support' };
 
 function syncRouteFromLocation() {
   state.publicView = PUBLIC_ROUTES[window.location.pathname] || null;
@@ -489,18 +491,24 @@ document.addEventListener('click', (event) => {
   navigateTo(link.getAttribute('data-internal-link'));
 });
 
-// "Contact Us" links point at `mailto:` by default (works for signed-out
-// visitors). Signed-in users get redirected to the in-app Contact Us page
-// instead, since that page can pre-fill their account email.
+// "Contact Us" links point at `mailto:` as a no-JS/fallback href, but both
+// signed-in and signed-out visitors get redirected to the in-app Contact Us
+// page instead - signed-in users get their account email pre-filled, and
+// signed-out visitors land on the public /support form instead of depending
+// on the visitor having a mail client configured.
 document.addEventListener('click', (event) => {
   const link = event.target.closest('[data-contact-link]');
-  if (!link || !state.user) return;
+  if (!link) return;
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  state.publicView = null;
-  if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
-  state.dashboardView = 'contact';
-  render();
+  if (state.user) {
+    state.publicView = null;
+    if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
+    state.dashboardView = 'contact';
+    render();
+  } else {
+    navigateTo('/support');
+  }
 });
 
 // Fires once Amplify finishes exchanging the Hosted UI's ?code= for tokens
@@ -525,9 +533,72 @@ Hub.listen('auth', ({ payload }) => {
 const DEFAULT_TITLE = 'Secure Family Chart';
 
 function render() {
+  // Checked before state.user so /support renders the same shell-choice logic
+  // regardless of sign-in state - this is what makes it a "public" route in
+  // an app with no router/middleware layer to bypass.
+  if (state.publicView === 'support') return renderSupportPage();
   if (state.publicView) return renderLegalPage();
   if (document.title !== DEFAULT_TITLE) clearLegalSeo(DEFAULT_TITLE);
   return state.user ? renderDashboard() : renderAuth();
+}
+
+// Reuses the exact same Contact Us form markup/logic as the authenticated
+// dashboard page (renderContactPageContent/attachContactPageListeners) - only
+// the surrounding shell differs, so there's no duplicated form/validation code
+// between the signed-in and signed-out variants below.
+function renderSupportPage() {
+  return state.user ? renderSupportPageAuthed() : renderSupportPageAnonymous();
+}
+
+function renderSupportPageAuthed() {
+  app.innerHTML = `
+    <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
+      ${renderSidebarNav({
+        email: state.user.email,
+        activeView: 'contact',
+        isAdmin: Boolean(state.user.is_admin),
+        activeTheme: state.theme,
+        collapsed: state.sidebarCollapsed,
+      })}
+      <div class="main-area">
+        ${renderMobileTopbar()}
+        <main class="content">
+          ${renderContactPageContent()}
+        </main>
+      </div>
+    </div>
+  `;
+  attachShellListeners();
+  attachContactPageListeners();
+}
+
+function renderSupportPageAnonymous() {
+  app.innerHTML = `
+    <main class="auth-page">
+      <section class="auth-card auth-card--settled">
+        <div class="auth-card-toggle">
+          ${renderThemeToggle({ activeTheme: state.theme, idPrefix: 'support-theme-toggle' })}
+        </div>
+        <div class="auth-shell-content support-page-anonymous">
+          <a href="/" data-internal-link="/" class="support-back-link">${icon('home')}<span>Back to Login</span></a>
+          <div class="auth-brand">
+            <span class="auth-brand-icon">${icon('logo')}</span>
+            <h1 class="auth-brand-title">Contact Us</h1>
+            <p class="auth-brand-subtitle">Send us a message and we'll get back to you by email.</p>
+          </div>
+          ${renderContactFormCard({ email: '', anonymous: true })}
+        </div>
+        <p class="auth-legal-disclaimer">
+          By continuing, you agree to our
+          <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
+          <a href="/privacy" data-internal-link="/privacy">Privacy Policy</a>.
+        </p>
+      </section>
+      ${renderFooter({ variant: 'auth', showLinks: false })}
+    </main>
+  `;
+  attachThemeToggleListeners();
+  attachContactPageListeners();
 }
 
 function renderLegalPage() {
@@ -608,6 +679,7 @@ function renderAuthShell(heading, subtitleHtml, bodyHtml) {
           <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
           <a href="/privacy" data-internal-link="/privacy">Privacy Policy</a>.
         </p>
+        <a href="/support" data-internal-link="/support" class="auth-support-link">${icon('mail')}<span>Need help? Contact support</span></a>
       </section>
       ${renderFooter({ variant: 'auth', showLinks: false })}
     </main>
@@ -1579,32 +1651,45 @@ function renderDashboard() {
   renderTreeGrid();
 }
 
+// Sidebar nav is reachable from the authed /support shell (state.publicView
+// === 'support'), which - unlike dashboardView - render() checks *before*
+// state.user (that's what makes /support public). Leaving publicView set
+// while switching dashboardView would trap an authed user on the support
+// shell after they click e.g. My Trees, so every nav action clears it and
+// resets the URL, matching the data-contact-link/legal-page "back to app"
+// pattern used elsewhere.
+function navigateToDashboardView(view) {
+  state.publicView = null;
+  if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
+  state.dashboardView = view;
+}
+
 function attachShellListeners() {
   document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
   document.querySelector('#nav-trees-btn').addEventListener('click', () => {
-    state.dashboardView = 'trees';
+    navigateToDashboardView('trees');
     clearSelectedTreeView();
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-security-btn').addEventListener('click', () => {
-    state.dashboardView = 'security';
+    navigateToDashboardView('security');
     setSidebarOpen(false);
     render();
     loadMfaStatus();
   });
   document.querySelector('#nav-support-btn').addEventListener('click', () => {
-    state.dashboardView = 'contact';
+    navigateToDashboardView('contact');
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-requests-btn').addEventListener('click', () => {
-    state.dashboardView = 'myRequests';
+    navigateToDashboardView('myRequests');
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-admin-btn')?.addEventListener('click', () => {
-    state.dashboardView = 'admin';
+    navigateToDashboardView('admin');
     state.admin.section = 'dashboard';
     setSidebarOpen(false);
     render();
@@ -3103,6 +3188,7 @@ const CONTACT_MESSAGE_MAX_LENGTH = 5000;
 const CONTACT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const CONTACT_ALLOWED_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
 const CONTACT_ALLOWED_ATTACHMENT_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.txt'];
+const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function renderContactPageContent() {
   return renderContactPageMarkup({ email: state.user.email });
@@ -3169,12 +3255,18 @@ function validateContactForm(form) {
   const category = String(data.get('category') || '');
   const message = String(data.get('message') || '').trim();
   const file = form.querySelector('#contact-file-input').files?.[0];
+  const isAnonymous = form.dataset.anonymous === 'true';
+  const email = String(data.get('email') || '').trim();
 
   let firstInvalidId = null;
   const markInvalid = (field, message_, inputId) => {
     setContactFieldError(field, message_);
     if (message_ && !firstInvalidId) firstInvalidId = inputId;
   };
+
+  if (isAnonymous) {
+    markInvalid('email', !CONTACT_EMAIL_PATTERN.test(email) ? 'Please enter a valid email address.' : '', 'contact-email-input');
+  }
 
   markInvalid(
     'subject',
@@ -3225,8 +3317,20 @@ async function handleContactSubmit(event) {
   setButtonBusy(submitBtn, true, 'Sending...');
 
   try {
-    const ticket = await createTicketFromContact(state, render, new FormData(form));
-    showToast(`Ticket ${ticket.ticket_number} created. We'll be in touch soon.`);
+    if (form.dataset.anonymous === 'true') {
+      await submitPublicContactForm(new FormData(form));
+      showToast("Message sent. We'll be in touch soon.");
+      // The authed path replaces this form entirely via render() (navigates
+      // to the new ticket), so it never needs a manual reset - but this
+      // anonymous form stays mounted after a successful send, so it has to
+      // clear itself and restore the button explicitly.
+      form.reset();
+      handleContactFileChange(document.querySelector('#contact-file-input'));
+      if (document.body.contains(submitBtn)) setButtonBusy(submitBtn, false, 'Send Message');
+    } else {
+      const ticket = await createTicketFromContact(state, render, new FormData(form));
+      showToast(`Ticket ${ticket.ticket_number} created. We'll be in touch soon.`);
+    }
   } catch (error) {
     formErrorEl.textContent = error.message || 'Could not send your message. Please try again.';
     showToast(error.message || 'Could not send your message.', { type: 'error' });

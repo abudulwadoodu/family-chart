@@ -4,6 +4,14 @@
 // without adding a Redis dependency.
 const buckets = new Map();
 
+// Test-only: routes keyed by req.ip (e.g. public/unauthenticated endpoints)
+// otherwise accumulate hits across every test in the same process, since
+// supertest requests all share one loopback IP. Authenticated routes don't
+// need this - each test there already uses a distinct user id as the key.
+export function resetRateLimits() {
+  buckets.clear();
+}
+
 export function rateLimit({ windowMs, max, keyFn = (req) => req.user?.id }) {
   return (req, res, next) => {
     const key = keyFn(req);
