@@ -3387,16 +3387,21 @@ function addCardIcon(cardEl, horizontalPosition, iconHtml, onClick, tooltipLabel
   const positionStyle = isCentered
     ? 'left: 50%;'
     : `right: ${horizontalPosition}px;`;
-  d3.select(cardEl)
+  const iconSelection = d3.select(cardEl)
     .append('div')
-    .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''}`)
+    // `relative` so this icon's own box (not the card's) becomes the
+    // offset parent for a popover appended inside it (see openCardMoreMenu),
+    // letting the popover anchor to the icon instead of the whole card.
+    .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''} relative`)
     .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: ${topOffset}px; ${positionStyle}`)
     .attr('data-tooltip', tooltipLabel)
     .attr('data-tooltip-position', 'bottom')
-    .html(iconHtml)
+    .html(iconHtml);
+  iconSelection
     .select('svg')
     .style('padding', '0')
     .on('click', onClick);
+  return iconSelection.node();
 }
 
 // Closes the tree card "more" popover (see openCardMoreMenu in renderChart
@@ -3569,9 +3574,9 @@ function renderChart() {
       // directly here (not the app's shared dropdownMenu()) since that
       // helper targets static page markup and app-icon set, not per-card
       // D3-driven re-renders using f3.icons' inline SVGs.
-      addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
+      const moreIconEl = addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
         e.stopPropagation();
-        openCardMoreMenu(cardEl, d);
+        openCardMoreMenu(moreIconEl, d);
       }, 'More');
     });
 
@@ -3580,8 +3585,16 @@ function renderChart() {
     // components.js's dropdownMenu()) since it's driven by f3's per-card
     // TreeDatum rather than static page state, and needs direct click
     // handlers rather than the data-action dispatch used elsewhere.
-    function openCardMoreMenu(cardEl, d) {
-      const alreadyOpenForThisCard = cardEl.querySelector('.f3-card-more-menu');
+    //
+    // Anchored to the "..." icon itself (anchorEl), not the whole card - the
+    // icon div is `position: absolute` inside the card, so it isn't itself an
+    // offset parent, but appending the menu as its child still positions the
+    // menu relative to the icon's own box (top-left corner) rather than the
+    // card's, which is what previously made the popover anchor to the
+    // bottom of the entire card instead of tucking under the small circular
+    // button.
+    function openCardMoreMenu(anchorEl, d) {
+      const alreadyOpenForThisCard = anchorEl.querySelector('.f3-card-more-menu');
       closeCardMoreMenu();
       if (alreadyOpenForThisCard) return;
 
@@ -3619,7 +3632,7 @@ function renderChart() {
 
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
-      cardEl.appendChild(menu);
+      anchorEl.appendChild(menu);
     }
 
     // Plain card click opens the profile panel (view-first: setEditFirst(false)
