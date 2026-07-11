@@ -12,10 +12,12 @@ export default defineConfig(({ mode }) => {
     envDir: __dirname,
     base: env.VITE_BASE || '/',
     server: {
-      // Deliberately different from the main worktree's 8080 so both can run
-      // `npm run dev:app` at the same time without colliding on a port (see
-      // FRONTEND_ORIGIN in this worktree's .env, which already expects 8081).
-      port: 8081,
+      // Fixed per-worktree so `npm run dev:app` never collides across worktrees
+      // running concurrently: main 8080, ui-enhancements 8081, feature-enhancements
+      // 8082 (see FRONTEND_ORIGIN in this worktree's .env). strictPort makes Vite
+      // fail fast instead of silently picking a different port when this one is busy.
+      port: 8082,
+      strictPort: true,
       proxy: {
         '^/api/': {
           target: env.VITE_DEV_API_ORIGIN || 'http://localhost:3001',

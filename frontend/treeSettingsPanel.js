@@ -2,13 +2,11 @@
 // (who Focused mode opens onto for every viewer of this tree) and the
 // default generation depth (how many generations of ancestry/progeny
 // Focused mode renders before trimming - see setAncestryDepth/
-// setProgenyDepth in main.js's renderChart(), and the "Full Tree" toolbar
-// toggle that lifts it for one session). Both persisted server-side via a
-// single PATCH /api/trees/:id/settings call, distinct from the per-session
-// "Reset View" target and "Full Tree" toggle in main.js. Mirrors the shell
-// pattern used by duplicateManager/relationshipManager: a components.js
-// markup builder plus a listeners function that main.js calls after
-// mounting it.
+// setProgenyDepth in main.js's renderChart()). Both persisted server-side
+// via a single PATCH /api/trees/:id/settings call, distinct from the
+// per-session "Reset View" target in main.js. Mirrors the shell pattern
+// used by duplicateManager/relationshipManager: a components.js markup
+// builder plus a listeners function that main.js calls after mounting it.
 import { escapeHtml } from './utils.js';
 
 export const MIN_GENERATION_DEPTH = 1;
@@ -51,8 +49,7 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
         <h2 class="tree-settings-title">Generations to show</h2>
         <p class="tree-settings-desc">
           How many generations of ancestors and descendants Focused mode renders around the focused person
-          before trimming the rest, so large trees stay fast and readable. Anyone can still lift this for one
-          session with the "Full Tree" toolbar toggle. Set to unlimited to never trim.
+          before trimming the rest, so large trees stay fast and readable. Set to unlimited to never trim.
         </p>
         <div class="tree-settings-row">
           <label class="tree-settings-checkbox-label">
