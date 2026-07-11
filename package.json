@@ -49,6 +49,7 @@
     "dev": "vite",
     "dev:frontend": "vite",
     "dev:backend": "node backend/server.js",
+    "predev:app": "node scripts/free-dev-ports.js",
     "dev:app": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "db:seed": "node backend/db/seed.js",
     "db:migrate-sqlite-to-postgres": "node backend/db/migrateSqliteToPostgres.js",
