@@ -5,6 +5,7 @@
 import { showModal, showToast } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
+import { renderTreeBreadcrumb } from './components.js';
 import { searchMembers } from './memberSearch.js';
 import * as mediaApi from './mediaApi.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
@@ -359,11 +360,11 @@ function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttac
   return modal;
 }
 
-function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
+function listBody(pageState, { memberIndex, readOnly, currentUserId, treeName }) {
   const events = pageState.mineOnly ? pageState.events.filter((ev) => ev.created_by === currentUserId) : pageState.events;
   const groups = groupByYear(events);
   return `
-    <button type="button" id="timeline-back-btn" class="breadcrumb-link">&larr; Back to Tree</button>
+    ${renderTreeBreadcrumb({ treeName, activeTab: 'Timeline' })}
     <header class="page-header">
       <h1 class="page-title">Timeline</h1>
       <p class="page-subtitle">Events for this tree</p>
@@ -373,15 +374,15 @@ function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
         ? '<p class="muted">Loading&hellip;</p>'
         : `
     <div class="media-library-filters">
+      <button type="button" class="chip ${!pageState.mineOnly ? 'chip-active' : ''}" id="timeline-all-toggle">All events</button>
       <button type="button" class="chip ${pageState.mineOnly ? 'chip-active' : ''}" id="timeline-mine-toggle">My events</button>
+      ${
+        readOnly
+          ? ''
+          : `<button type="button" class="btn btn-primary media-library-upload-label" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>`
+      }
     </div>
-    ${
-      readOnly
-        ? ''
-        : pageState.creating
-          ? eventForm(pageState)
-          : `<button type="button" class="btn btn-primary" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>`
-    }
+    ${readOnly || !pageState.creating ? '' : eventForm(pageState)}
     ${
       groups.length
         ? groups
@@ -422,7 +423,7 @@ export function createTimelinePageState() {
   };
 }
 
-export function renderTimelinePageContent(pageState, { memberIndex, readOnly, currentUserId }) {
+export function renderTimelinePageContent(pageState, { memberIndex, readOnly, currentUserId, treeName }) {
   return `
     <div class="timeline-page">
       ${
@@ -441,7 +442,7 @@ export function renderTimelinePageContent(pageState, { memberIndex, readOnly, cu
               editVisibilityPicker: pageState.editVisibilityPicker,
               shareCount: pageState.detailShareCount,
             })
-          : listBody(pageState, { memberIndex, readOnly, currentUserId })
+          : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName })
       }
     </div>
   `;
@@ -476,10 +477,12 @@ async function openDetail(pageState, { api, treeId }, eventId, rerender) {
   }
 }
 
-// `onBack` navigates back to the tree viewer; `rerender` re-invokes the
-// page's own render (main.js's render()), which calls renderTimelinePageContent
-// again with the same pageState and then re-runs this attach function.
-export function attachTimelinePageListeners(pageState, { api, treeId, memberIndex, currentUserId, readOnly = false }, rerender, onBack) {
+// `onBack` navigates back to the tree viewer (breadcrumb tree-name link);
+// `onExitTree` navigates all the way out to the My Trees list (breadcrumb
+// "My Trees" link). `rerender` re-invokes the page's own render (main.js's
+// render()), which calls renderTimelinePageContent again with the same
+// pageState and then re-runs this attach function.
+export function attachTimelinePageListeners(pageState, { api, treeId, memberIndex, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
   const root = document.querySelector('.timeline-page');
   if (!root) return;
 
@@ -700,14 +703,20 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
     return;
   }
 
-  root.querySelector('#timeline-back-btn').addEventListener('click', onBack);
+  root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
+  root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
 
   root.querySelectorAll('.timeline-event-row').forEach((row) => {
     row.addEventListener('click', () => openDetail(pageState, { api, treeId }, Number(row.dataset.eventId), rerender));
   });
 
+  root.querySelector('#timeline-all-toggle')?.addEventListener('click', () => {
+    pageState.mineOnly = false;
+    rerender();
+  });
+
   root.querySelector('#timeline-mine-toggle')?.addEventListener('click', () => {
-    pageState.mineOnly = !pageState.mineOnly;
+    pageState.mineOnly = true;
     rerender();
   });
 
