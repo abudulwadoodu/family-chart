@@ -98,12 +98,28 @@ mediaRouter.get('/:mediaId/file', requireTreeRole(['owner', 'editor', 'viewer'])
     if (access !== 'full') {
       return res.status(404).json({ error: 'Media not found' });
     }
-    const stream = await storeGetObjectStream(media.storage_key);
-    res.setHeader('Content-Type', media.mime_type);
-    if (media.title) {
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(media.title)}"`);
+    let stream;
+    try {
+      stream = await storeGetObjectStream(media.storage_key);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Media not found' });
+      }
+      throw error;
     }
-    stream.on('error', next);
+    stream.on('error', (error) => {
+      if (res.headersSent) return next(error);
+      if (error.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Media not found' });
+      }
+      next(error);
+    });
+    stream.on('open', () => {
+      res.setHeader('Content-Type', media.mime_type);
+      if (media.title) {
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(media.title)}"`);
+      }
+    });
     stream.pipe(res);
   } catch (error) {
     return next(error);
