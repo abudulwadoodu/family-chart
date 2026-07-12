@@ -815,7 +815,7 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError }) {
+export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing }) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -830,14 +830,42 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   const rows = permissions
     .map((permission) => {
       const isOwnerRow = permission.role === 'owner';
-      const actions = isOwnerRow
+      const menuId = `member-role-menu-${permission.user_id}`;
+      const roleLabel = MEMBER_ROLE_LABELS[permission.role] || permission.role;
+
+      const actions = isOwnerRow || !isOwnerViewing
         ? ''
         : `
-          <select class="member-role-select" data-user-id="${permission.user_id}" aria-label="Role for ${escapeHtml(permission.email)}">
-            <option value="editor" ${permission.role === 'editor' ? 'selected' : ''}>Editor</option>
-            <option value="viewer" ${permission.role === 'viewer' ? 'selected' : ''}>Viewer</option>
-          </select>
-          <button type="button" class="btn btn-ghost btn-sm" data-remove-user-id="${permission.user_id}">Remove</button>
+          <div class="member-role-menu-wrap">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm menu-trigger member-role-trigger"
+              data-menu-trigger="${menuId}"
+              aria-label="Change role or access for ${escapeHtml(permission.email)}"
+            >${escapeHtml(roleLabel)}${icon('chevronDown')}</button>
+            <div class="dropdown-menu member-role-menu" data-menu-id="${menuId}">
+              <button type="button" class="dropdown-item" data-role-option="editor" data-user-id="${permission.user_id}">
+                ${permission.role === 'editor' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Editor</span>
+              </button>
+              <button type="button" class="dropdown-item" data-role-option="viewer" data-user-id="${permission.user_id}">
+                ${permission.role === 'viewer' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Viewer</span>
+              </button>
+              ${
+                isOwnerViewing
+                  ? `
+                <div class="dropdown-divider"></div>
+                <button type="button" class="dropdown-item" data-transfer-owner-user-id="${permission.user_id}">
+                  <span class="dropdown-item-icon-spacer"></span><span>Transfer ownership</span>
+                </button>
+              `
+                  : ''
+              }
+              <div class="dropdown-divider"></div>
+              <button type="button" class="dropdown-item dropdown-item-danger" data-remove-user-id="${permission.user_id}">
+                <span class="dropdown-item-icon-spacer"></span><span>Remove access</span>
+              </button>
+            </div>
+          </div>
         `;
 
       return `
@@ -847,7 +875,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
             <div>
               <p class="member-email">${escapeHtml(permission.email)}</p>
               <p class="member-meta">
-                <span class="badge badge-role-${permission.role}">${MEMBER_ROLE_LABELS[permission.role] || permission.role}</span>
+                <span class="badge badge-role-${permission.role}">${roleLabel}</span>
               </p>
             </div>
           </div>

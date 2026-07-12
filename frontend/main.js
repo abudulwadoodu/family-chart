@@ -2646,7 +2646,14 @@ function attachFamilyFeedListeners() {
   });
 }
 
-function attachTreeViewerListeners() {
+// Binds everything that lives inside .viewer-header (breadcrumb, save,
+// share/rename/import, the settings dropdown, and member search - which
+// renders inside the header markup). Split out from attachTreeViewerListeners
+// so a role change (e.g. after transferring ownership) can re-render just the
+// header and rebind it, without rebuilding the focus-mode controller or
+// re-attaching the family feed listeners (those live outside the header and
+// are only meant to be wired once per tree-viewer mount).
+function attachTreeViewerHeaderListeners() {
   document.querySelector('#breadcrumb-trees-btn').addEventListener('click', () => {
     clearSelectedTreeView();
     render();
@@ -2656,8 +2663,6 @@ function attachTreeViewerListeners() {
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
-  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
-  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2666,6 +2671,26 @@ function attachTreeViewerListeners() {
   });
 
   attachMemberSearchListeners();
+}
+
+// Re-renders .viewer-header from current state (used after an action that can
+// change the signed-in user's role on the currently open tree, e.g.
+// transferring ownership away) so owner-only controls (Share button, Delete
+// Tree, etc.) disappear immediately instead of staying visible until the next
+// full page load - clicking them afterwards would just 403 against the server,
+// which otherwise reads as "I lost access to my tree".
+function refreshTreeViewerHeader() {
+  const header = document.querySelector('.viewer-header');
+  if (!header) return;
+  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole });
+  attachTreeViewerHeaderListeners();
+}
+
+function attachTreeViewerListeners() {
+  attachTreeViewerHeaderListeners();
+  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
+  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
+
   attachFamilyFeedListeners();
   setupFocusMode();
 }
@@ -3106,7 +3131,12 @@ function bindShareModalClose(modal) {
 async function refreshShareModal(modal, treeId, treeName, formError = '') {
   try {
     const payload = await api(`/api/trees/${treeId}/permissions`);
-    modal.setBody(renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError }));
+    const isOwnerViewing = payload.permissions.some(
+      (permission) => permission.role === 'owner' && permission.user_id === state.user.id
+    );
+    modal.setBody(
+      renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError, isOwnerViewing })
+    );
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
   } catch (error) {
@@ -3144,10 +3174,12 @@ function bindShareModalActions(modal, treeId, treeName) {
     }
   });
 
-  modal.root.querySelectorAll('.member-role-select').forEach((select) => {
-    select.addEventListener('change', async () => {
-      const userId = Number(select.dataset.userId);
-      const role = select.value;
+  bindDropdownTriggers(modal.root);
+
+  modal.root.querySelectorAll('[data-role-option]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = Number(btn.dataset.userId);
+      const role = btn.dataset.roleOption;
       try {
         await api(`/api/trees/${treeId}/share/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) });
         showToast('Role updated.');
@@ -3156,6 +3188,31 @@ function bindShareModalActions(modal, treeId, treeName) {
       } catch (error) {
         showToast(error.message || 'Could not update role.', { type: 'error' });
         await refreshShareModal(modal, treeId, treeName);
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-transfer-owner-user-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const toUserId = Number(btn.dataset.transferOwnerUserId);
+      if (!window.confirm('Make this person the owner? You will become an editor and lose owner-only controls.')) return;
+
+      btn.disabled = true;
+      try {
+        await api(`/api/account/trees/${treeId}/transfer-ownership`, {
+          method: 'POST',
+          body: JSON.stringify({ toUserId }),
+        });
+        showToast('Ownership transferred.');
+        if (state.selectedTreeId === treeId) {
+          state.selectedTreeRole = 'editor';
+          refreshTreeViewerHeader();
+        }
+        await refreshShareModal(modal, treeId, treeName);
+        loadTrees();
+      } catch (error) {
+        showToast(error.message || 'Could not transfer ownership.', { type: 'error' });
+        btn.disabled = false;
       }
     });
   });

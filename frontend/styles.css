@@ -4119,16 +4119,11 @@ dialog.modal-overlay[open] {
   border-top: 1px solid var(--border-subtle);
 }
 
-.member-role-select {
-  min-height: 30px;
-  padding: 4px 8px;
-  font-size: 0.82rem;
-}
-
 .member-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   padding: var(--sp-3);
   border: 1px solid var(--border-subtle);
@@ -4157,8 +4152,33 @@ dialog.modal-overlay[open] {
 
 .member-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.member-role-menu-wrap {
+  position: relative;
+}
+
+.member-role-trigger {
+  gap: var(--sp-1);
+}
+
+.member-role-menu {
+  min-width: 190px;
+}
+
+.dropdown-item-icon-spacer {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+.dropdown-divider {
+  margin: var(--sp-1) 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .visibility-picker {
