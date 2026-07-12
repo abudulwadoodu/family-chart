@@ -7,6 +7,7 @@ import { icon } from '../icons.js';
 import { toLabel } from '../relationshipDialog.js';
 import { findDuplicateCandidates, pairKey, sortDuplicateCandidates } from './duplicateDetection.js';
 import { getExactMatchCandidates, getSparseDuplicateCandidates, openBulkResolveModal } from './bulkResolveModal.js';
+import { saveDismissed } from './state.js';
 
 function debounce(fn, delay = 250) {
   let timer;
@@ -189,7 +190,10 @@ function attachListWrapListeners(state, render) {
       const key = btn.dataset.key;
       const wasSelected = dm.selectedPairKey === key;
       const previousCandidates = getFilteredSortedCandidates(dm, data);
-      if (!dm.dismissed.includes(key)) dm.dismissed.push(key);
+      if (!dm.dismissed.includes(key)) {
+        dm.dismissed.push(key);
+        saveDismissed(state.selectedTreeId, dm.dismissed);
+      }
       if (wasSelected) {
         dm.keepFirst = true;
         dm.fieldChoices = {};

@@ -31,7 +31,7 @@ import { attachBuilderPanelListeners } from './relationshipManager/builderPanel.
 import { attachTreeHierarchyListeners } from './relationshipManager/treeHierarchyPanel.js';
 import { attachRelationshipManagerKeyboard } from './relationshipManager/keyboardNav.js';
 import { undo as undoRelationship, redo as redoRelationship, canUndo as canUndoRelationship, canRedo as canRedoRelationship } from './relationshipManager/undoStack.js';
-import { createDuplicateManagerState } from './duplicateManager/state.js';
+import { createDuplicateManagerState, loadDismissed } from './duplicateManager/state.js';
 import { renderDuplicateManagerMode } from './duplicateManager/components.js';
 import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
 import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
@@ -5106,6 +5106,8 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   state.defaultMainId = state.focusedMainId;
   state.relationshipBuilder = createRelationshipBuilderState();
   state.relationshipManager = createRelationshipManagerState();
+  state.duplicateManager = createDuplicateManagerState();
+  state.duplicateManager.dismissed = loadDismissed(treeId);
   setSidebarOpen(false);
   render();
 }
