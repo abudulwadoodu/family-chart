@@ -11,7 +11,7 @@ import { icon } from '../icons.js';
 import { validateRelationship } from '../relationshipValidator.js';
 import { applyRelationship } from '../relationshipMutations.js';
 import { searchMembers, buildMemberSearchIndex } from '../memberSearch.js';
-import { TYPE_OPTIONS, PARENT_SUBTYPES, SIBLING_SUBTYPES, toLabel, describeRelationship } from '../relationshipDialog.js';
+import { TYPE_OPTIONS, PARENT_SUBTYPES, SIBLING_SUBTYPES, toLabel, describeRelationship, getTypeHelp } from '../relationshipDialog.js';
 import { suggestMatches } from './suggestions.js';
 import { recordRecentMember, recordRecentType, getRecentMembers, getRecentTypes } from './recentContext.js';
 import { pushCommand } from './undoStack.js';
@@ -163,8 +163,12 @@ function renderSelectTargetStep(rm, data) {
 
 function renderChooseTypeStep(rm, data) {
   const availability = typeAvailability(data, rm.selectedSourceIds, rm.builder.targetId);
-  const optionsHtml = TYPE_OPTIONS.map(({ type, label, help }, index) => {
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const sourceLabel = rm.selectedSourceIds.map((id) => toLabel(byId.get(id))).join(', ');
+  const targetLabel = toLabel(byId.get(rm.builder.targetId));
+  const optionsHtml = TYPE_OPTIONS.map(({ type, label }, index) => {
     const enabled = availability[type];
+    const help = getTypeHelp(type, sourceLabel, targetLabel);
     return `
       <label class="relationship-type-option ${enabled ? '' : 'is-disabled'}">
         <input type="radio" name="rm-rel-type" value="${type}" ${enabled ? '' : 'disabled'} />
