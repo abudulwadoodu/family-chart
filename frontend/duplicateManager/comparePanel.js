@@ -6,6 +6,7 @@ import { escapeHtml } from '../utils.js';
 import { toLabel } from '../relationshipDialog.js';
 import { diffFields, applyMerge } from './duplicateMerge.js';
 import { pushCommand, undo, redo } from './undoStack.js';
+import { getFilteredSortedCandidates, selectNextCandidate } from './duplicateListPanel.js';
 
 const FIELD_LABELS = {
   'first name': 'First name',
@@ -30,6 +31,15 @@ function fieldLabel(field) {
 function relCount(datum) {
   const rels = datum?.rels || {};
   return (rels.parents || []).length + (rels.children || []).length + (rels.spouses || []).length;
+}
+
+// Names (with disambiguating meta token) of the relatives relCount() is
+// counting, in parents/children/spouses order - so "Will also inherit 2
+// relationships" isn't just a bare number the user has to take on faith.
+function relativeNames(datum, byId) {
+  const rels = datum?.rels || {};
+  const ids = [...(rels.parents || []), ...(rels.children || []), ...(rels.spouses || [])];
+  return ids.map((id) => byId.get(id)).filter(Boolean).map((person) => nameWithMeta(person));
 }
 
 function birthYearLabel(datum) {
@@ -109,6 +119,13 @@ export function renderComparePanel(dm, data, candidate) {
     : `<div class="dm-empty-state">No conflicting fields - all values match.</div>`;
 
   const inheritedCount = relCount(b);
+  const MAX_NAMES_SHOWN = 3;
+  const inheritedNames = relativeNames(b, byId);
+  const shownNames = inheritedNames.slice(0, MAX_NAMES_SHOWN);
+  const extraCount = inheritedNames.length - shownNames.length;
+  const namesHtml = shownNames.length
+    ? ` (${shownNames.join(', ')}${extraCount > 0 ? `, +${extraCount} more` : ''})`
+    : '';
 
   return `
     <div class="dm-panel-header">
@@ -129,7 +146,7 @@ export function renderComparePanel(dm, data, candidate) {
       <div class="dm-field-list">${fieldsHtml}</div>
       <div class="dm-rel-preview">
         ${inheritedCount > 0
-          ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${nameWithMeta(b)}.`
+          ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${nameWithMeta(b)}${namesHtml}.`
           : `${nameWithMeta(b)} has no relationships to inherit.`}
       </div>
       <button type="button" id="dm-merge-btn" class="btn btn-primary">Merge into ${escapeHtml(toLabel(a))}</button>
@@ -172,16 +189,18 @@ export function attachComparePanelListeners(state, render) {
   });
 
   document.querySelector('#dm-merge-btn')?.addEventListener('click', () => {
-    const [sortedA, sortedB] = dm.selectedPairKey.split('::');
+    const resolvedKey = dm.selectedPairKey;
+    const previousCandidates = getFilteredSortedCandidates(dm, data);
+    const [sortedA, sortedB] = resolvedKey.split('::');
     const keepId = dm.keepFirst ? sortedA : sortedB;
     const dropId = dm.keepFirst ? sortedB : sortedA;
     const command = applyMerge(data, { keepId, dropId, fieldChoices: { ...dm.fieldChoices } });
     if (!command) return;
     pushCommand(dm.undoStack, command);
     dm.dirty = true;
-    dm.selectedPairKey = null;
     dm.keepFirst = true;
     dm.fieldChoices = {};
+    selectNextCandidate(dm, data, previousCandidates, resolvedKey);
     render();
   });
 }

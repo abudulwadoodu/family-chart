@@ -6,7 +6,7 @@ import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { toLabel } from '../relationshipDialog.js';
 import { findDuplicateCandidates, pairKey, sortDuplicateCandidates } from './duplicateDetection.js';
-import { getExactMatchCandidates, openBulkResolveModal } from './bulkResolveModal.js';
+import { getExactMatchCandidates, getSparseDuplicateCandidates, openBulkResolveModal } from './bulkResolveModal.js';
 
 function debounce(fn, delay = 250) {
   let timer;
@@ -47,7 +47,7 @@ export function getVisibleCandidates(dm, data) {
 // getVisibleCandidates(). Search matches either person's name or any reason
 // chip, since "same birth year" / "2 shared relatives" are often what a user
 // remembers about a pair, not just the name.
-function getFilteredSortedCandidates(dm, data) {
+export function getFilteredSortedCandidates(dm, data) {
   const byId = new Map(data.map((d) => [d.id, d]));
   const candidates = getVisibleCandidates(dm, data);
   const query = dm.search.trim().toLowerCase();
@@ -62,6 +62,23 @@ function getFilteredSortedCandidates(dm, data) {
     : candidates;
 
   return sortDuplicateCandidates(filtered, dm.sort, byId);
+}
+
+// After dismissing or merging the selected pair, moves selection to whatever
+// candidate now sits at the same position in the list - so the user can
+// keep working down the list without re-clicking after every action. Takes
+// the pre-action list (captured before the mutation) so it knows where the
+// resolved pair used to sit; `data` is read fresh since a merge already
+// mutated it in place by the time this runs.
+export function selectNextCandidate(dm, data, previousCandidates, resolvedKey) {
+  const index = previousCandidates.findIndex((c) => c.key === resolvedKey);
+  const remaining = getFilteredSortedCandidates(dm, data);
+  if (remaining.length === 0) {
+    dm.selectedPairKey = null;
+    return;
+  }
+  const nextIndex = Math.min(Math.max(index, 0), remaining.length - 1);
+  dm.selectedPairKey = remaining[nextIndex].key;
 }
 
 function renderDuplicateListBody(dm, data) {
@@ -102,14 +119,28 @@ function renderDuplicateListBody(dm, data) {
 function renderBulkBanner(dm, data, canEdit) {
   if (!canEdit) return '';
   const byId = new Map(data.map((d) => [d.id, d]));
-  const exactMatches = getExactMatchCandidates(getVisibleCandidates(dm, data), byId);
-  if (exactMatches.length === 0) return '';
-  return `
-    <div class="dm-bulk-banner" id="dm-bulk-banner">
-      <span>${exactMatches.length} pair${exactMatches.length === 1 ? '' : 's'} match exactly - no conflicting fields.</span>
-      <button type="button" class="chip" id="dm-bulk-resolve-btn">Resolve all&hellip;</button>
-    </div>
-  `;
+  const visible = getVisibleCandidates(dm, data);
+  const exactMatches = getExactMatchCandidates(visible, byId);
+  const sparseDuplicates = getSparseDuplicateCandidates(visible, byId);
+
+  const banners = [];
+  if (exactMatches.length > 0) {
+    banners.push(`
+      <div class="dm-bulk-banner" id="dm-bulk-banner">
+        <span>${exactMatches.length} pair${exactMatches.length === 1 ? '' : 's'} match exactly - no conflicting fields.</span>
+        <button type="button" class="chip" id="dm-bulk-resolve-btn">Resolve all&hellip;</button>
+      </div>
+    `);
+  }
+  if (sparseDuplicates.length > 0) {
+    banners.push(`
+      <div class="dm-bulk-banner" id="dm-bulk-sparse-banner">
+        <span>${sparseDuplicates.length} pair${sparseDuplicates.length === 1 ? '' : 's'} share a name and have no relationships to inherit.</span>
+        <button type="button" class="chip" id="dm-bulk-sparse-resolve-btn">Resolve all&hellip;</button>
+      </div>
+    `);
+  }
+  return banners.join('');
 }
 
 export function renderDuplicateListPanel(dm, data, { canEdit = false } = {}) {
@@ -148,6 +179,7 @@ export function renderDuplicateListPanel(dm, data, { canEdit = false } = {}) {
 // since the latter replaces this subtree too.
 function attachListWrapListeners(state, render) {
   const dm = state.duplicateManager;
+  const data = state.selectedTreeData;
   const list = document.querySelector('#dm-pair-list');
   if (!list) return;
 
@@ -155,11 +187,13 @@ function attachListWrapListeners(state, render) {
     btn.addEventListener('click', (event) => {
       event.stopPropagation();
       const key = btn.dataset.key;
+      const wasSelected = dm.selectedPairKey === key;
+      const previousCandidates = getFilteredSortedCandidates(dm, data);
       if (!dm.dismissed.includes(key)) dm.dismissed.push(key);
-      if (dm.selectedPairKey === key) {
-        dm.selectedPairKey = null;
+      if (wasSelected) {
         dm.keepFirst = true;
         dm.fieldChoices = {};
+        selectNextCandidate(dm, data, previousCandidates, key);
       }
       render();
     });
@@ -217,7 +251,14 @@ export function attachDuplicateListListeners(state, render) {
     const byId = new Map(data.map((d) => [d.id, d]));
     const candidates = getExactMatchCandidates(getVisibleCandidates(dm, data), byId);
     if (candidates.length === 0) return;
-    openBulkResolveModal({ candidates, data, dm, render });
+    openBulkResolveModal({ candidates, data, dm, render, mode: 'exact' });
+  });
+
+  document.querySelector('#dm-bulk-sparse-resolve-btn')?.addEventListener('click', () => {
+    const byId = new Map(data.map((d) => [d.id, d]));
+    const candidates = getSparseDuplicateCandidates(getVisibleCandidates(dm, data), byId);
+    if (candidates.length === 0) return;
+    openBulkResolveModal({ candidates, data, dm, render, mode: 'sparse' });
   });
 
   attachListWrapListeners(state, render);
