@@ -5174,8 +5174,18 @@ function renderDuplicateManagerViewMode() {
   state.editor = null;
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
 
+  // Selecting a row (or any other action here) redraws the whole view via
+  // innerHTML, which would otherwise reset #dm-pair-list's scrollTop to 0 on
+  // every click - save/restore it across the swap so scanning down a long
+  // candidate list doesn't keep jumping back to the top. #dm-pair-list (not
+  // its #dm-pair-list-wrap parent) is the actual overflow-y: auto element.
+  const prevScrollTop = document.querySelector('#dm-pair-list')?.scrollTop ?? 0;
+
   const container = document.querySelector('#FamilyChart');
   container.innerHTML = renderDuplicateManagerMode(state.duplicateManager, state.selectedTreeData, { canEdit });
+
+  const pairList = document.querySelector('#dm-pair-list');
+  if (pairList) pairList.scrollTop = prevScrollTop;
 
   attachDuplicateListListeners(state, renderDuplicateManagerViewMode);
   if (canEdit) {
