@@ -10,7 +10,7 @@ function debounce(fn, delay = 300) {
 }
 
 export function createAuditLogsState() {
-  return { search: '', action: 'all', page: 1, pageSize: 20, logs: [], total: 0, actions: [], loading: false };
+  return { search: '', action: 'all', page: 1, pageSize: 20, logs: [], total: 0, actions: [], loading: false, expandedLogId: null };
 }
 
 export async function loadAuditLogs(state, render) {
@@ -62,6 +62,13 @@ export function attachAuditLogsListeners(state, render) {
     btn.addEventListener('click', () => {
       state.admin.auditLogs.page = Number(btn.dataset.page);
       loadAuditLogs(state, render);
+    });
+  });
+  document.querySelectorAll('[data-log-id]').forEach((row) => {
+    row.addEventListener('click', () => {
+      const logId = Number(row.dataset.logId);
+      state.admin.auditLogs.expandedLogId = state.admin.auditLogs.expandedLogId === logId ? null : logId;
+      render();
     });
   });
 }
