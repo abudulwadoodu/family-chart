@@ -32,12 +32,38 @@ function relCount(datum) {
   return (rels.parents || []).length + (rels.children || []).length + (rels.spouses || []).length;
 }
 
+function birthYearLabel(datum) {
+  const raw = datum?.data?.birthday;
+  if (!raw) return '';
+  const year = new Date(raw).getFullYear();
+  return Number.isNaN(year) ? '' : String(year);
+}
+
+// Short disambiguating fragment for two records that may share a display
+// name - prefers birth year, then location, then falls back to a truncated
+// id suffix so there's always *something* distinguishing "Saleem" from
+// "Saleem" in the compare heading.
+function metaToken(datum) {
+  const year = birthYearLabel(datum);
+  if (year) return year;
+  const location = datum?.data?.location;
+  if (location) return String(location);
+  const id = String(datum?.id ?? '');
+  return id ? `id ${id.slice(-4)}` : '';
+}
+
+function nameWithMeta(datum) {
+  const label = escapeHtml(toLabel(datum));
+  const token = escapeHtml(metaToken(datum));
+  return token ? `${label} <span class="dm-meta-token">(${token})</span>` : label;
+}
+
 function renderFieldRow(field, valueA, valueB, choice, byId) {
   const display = (v) => {
     if (v === '' || v === undefined || v === null) return '<em>(empty)</em>';
     if (PERSON_REF_FIELDS.has(field)) {
       const referenced = byId.get(v);
-      return escapeHtml(referenced ? toLabel(referenced) : String(v));
+      return referenced ? nameWithMeta(referenced) : escapeHtml(String(v));
     }
     return escapeHtml(String(v));
   };
@@ -86,30 +112,27 @@ export function renderComparePanel(dm, data, candidate) {
 
   return `
     <div class="dm-panel-header">
-      <h3>
-        Compare &amp; Merge
-        <button type="button" id="dm-swap-btn" class="chip dm-swap-btn" title="Swap which record is kept">Swap</button>
-      </h3>
+      <h3>Compare &amp; Merge</h3>
     </div>
     <div class="dm-compare-body">
-      <div class="dm-field-row dm-field-row-header">
-        <span class="dm-field-name"></span>
-        <span class="dm-field-col-label dm-field-col-keep">Keep: ${escapeHtml(toLabel(a))}</span>
-        <span class="dm-field-col-label dm-field-col-remove">Remove: ${escapeHtml(toLabel(b))}</span>
+      <div class="dm-compare-heading">
+        <span class="dm-compare-col dm-compare-col-keep">
+          <span class="dm-target-badge dm-target-badge-keep">Keep</span>
+          <span class="dm-compare-name">${nameWithMeta(a)}</span>
+        </span>
+        <button type="button" id="dm-swap-btn" class="chip" title="Swap which record is kept">Swap</button>
+        <span class="dm-compare-col dm-compare-col-remove">
+          <span class="dm-target-badge dm-target-badge-remove">Remove</span>
+          <span class="dm-compare-name">${nameWithMeta(b)}</span>
+        </span>
       </div>
       <div class="dm-field-list">${fieldsHtml}</div>
       <div class="dm-rel-preview">
         ${inheritedCount > 0
-          ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${escapeHtml(toLabel(b))}.`
-          : `${escapeHtml(toLabel(b))} has no relationships to inherit.`}
+          ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${nameWithMeta(b)}.`
+          : `${nameWithMeta(b)} has no relationships to inherit.`}
       </div>
-      <div class="dm-field-row dm-field-row-actions">
-        <span class="dm-field-name"></span>
-        <span class="dm-field-col-keep">
-          <button type="button" id="dm-merge-btn" class="btn btn-primary" title="Keep ${escapeHtml(toLabel(a))} and merge ${escapeHtml(toLabel(b))} into it">Accept</button>
-        </span>
-        <span></span>
-      </div>
+      <button type="button" id="dm-merge-btn" class="btn btn-primary">Merge into ${escapeHtml(toLabel(a))}</button>
     </div>
   `;
 }

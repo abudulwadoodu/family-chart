@@ -3438,10 +3438,63 @@ button.secondary:active,
   gap: var(--sp-3);
 }
 
-.dm-swap-btn {
-  margin-left: auto;
+.dm-compare-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.dm-compare-col {
+  min-width: 0;
+  overflow-wrap: break-word;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+}
+
+.dm-compare-col-keep {
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+}
+
+.dm-compare-col-remove {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+}
+
+.dm-target-badge {
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dm-target-badge-keep {
+  background: var(--success);
+  color: var(--bg-surface);
+}
+
+.dm-target-badge-remove {
+  background: var(--danger);
+  color: var(--bg-surface);
+}
+
+.dm-compare-name {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.dm-meta-token {
+  color: var(--text-tertiary);
   font-weight: 400;
-  font-size: 0.78rem;
 }
 
 .dm-field-list {
@@ -3458,30 +3511,6 @@ button.secondary:active,
   padding: var(--sp-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-}
-
-.dm-field-row-header {
-  border: none;
-  padding: 0 var(--sp-2);
-}
-
-.dm-field-row-actions {
-  border: none;
-  padding: 0 var(--sp-2);
-}
-
-.dm-field-col-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  overflow-wrap: break-word;
-}
-
-.dm-field-col-keep {
-  color: var(--success);
-}
-
-.dm-field-col-remove {
-  color: var(--text-tertiary);
 }
 
 .dm-field-name {
