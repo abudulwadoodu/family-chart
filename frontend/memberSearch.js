@@ -2,7 +2,7 @@
 // main.js and from the family-chart library so the matching/ranking logic
 // can be tested and tuned independently of the UI wiring.
 
-function getLabel(datum) {
+export function getLabel(datum) {
   const first = datum?.data?.['first name'] || '';
   const last = datum?.data?.['last name'] || '';
   const label = `${first} ${last}`.trim();
