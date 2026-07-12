@@ -6,6 +6,7 @@ import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { toLabel } from '../relationshipDialog.js';
 import { findDuplicateCandidates, pairKey, sortDuplicateCandidates } from './duplicateDetection.js';
+import { getExactMatchCandidates, openBulkResolveModal } from './bulkResolveModal.js';
 
 function debounce(fn, delay = 250) {
   let timer;
@@ -98,12 +99,26 @@ function renderDuplicateListBody(dm, data) {
   return `<ul class="dm-pair-list" id="dm-pair-list" role="listbox">${rowsHtml}</ul>`;
 }
 
-export function renderDuplicateListPanel(dm, data) {
+function renderBulkBanner(dm, data, canEdit) {
+  if (!canEdit) return '';
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const exactMatches = getExactMatchCandidates(getVisibleCandidates(dm, data), byId);
+  if (exactMatches.length === 0) return '';
+  return `
+    <div class="dm-bulk-banner" id="dm-bulk-banner">
+      <span>${exactMatches.length} pair${exactMatches.length === 1 ? '' : 's'} match exactly - no conflicting fields.</span>
+      <button type="button" class="chip" id="dm-bulk-resolve-btn">Resolve all&hellip;</button>
+    </div>
+  `;
+}
+
+export function renderDuplicateListPanel(dm, data, { canEdit = false } = {}) {
   const count = getFilteredSortedCandidates(dm, data).length;
 
   return `
     <div class="dm-panel-header">
       <h3>Possible Duplicates <span class="rm-count-badge" id="dm-pair-count">${count}</span></h3>
+      ${renderBulkBanner(dm, data, canEdit)}
       <label class="search-box dm-search-box">
         ${icon('search')}
         <input
@@ -196,6 +211,13 @@ export function attachDuplicateListListeners(state, render) {
   document.querySelector('#dm-pair-sort-select')?.addEventListener('change', (event) => {
     dm.sort = event.target.value;
     render();
+  });
+
+  document.querySelector('#dm-bulk-resolve-btn')?.addEventListener('click', () => {
+    const byId = new Map(data.map((d) => [d.id, d]));
+    const candidates = getExactMatchCandidates(getVisibleCandidates(dm, data), byId);
+    if (candidates.length === 0) return;
+    openBulkResolveModal({ candidates, data, dm, render });
   });
 
   attachListWrapListeners(state, render);

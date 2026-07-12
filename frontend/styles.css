@@ -3507,6 +3507,77 @@ button.secondary:active,
   }
 }
 
+.dm-bulk-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+/* Bulk-resolve modal (exact-match duplicates table) */
+
+.modal-dialog.modal-dm-bulk-resolve {
+  width: min(100%, 760px);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.dm-bulk-table-wrap {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.dm-bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dm-bulk-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dm-bulk-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.dm-bulk-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.dm-bulk-select-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.dm-bulk-year {
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+}
+
+.dm-bulk-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
 /* ------------------------------------------------------------------ */
 /* Tree settings (owner-only view mode)                               */
 /* ------------------------------------------------------------------ */
