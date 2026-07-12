@@ -11,6 +11,7 @@ const ROLE_PERMISSIONS = {
     'users:suspend',
     'tickets:*',
     'trees:view',
+    'trees:suspend',
     'members:view',
     'analytics:view',
     'auditLogs:view',

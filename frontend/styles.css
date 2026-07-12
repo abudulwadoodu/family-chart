@@ -2065,6 +2065,20 @@ button.secondary:active,
   color: var(--danger);
 }
 
+.badge-status-disabled {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.tree-card-disabled {
+  opacity: 0.65;
+}
+
+.tree-card-disabled .tree-card-title {
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Dropdown menus                                                      */
 /* ------------------------------------------------------------------ */
@@ -3373,6 +3387,10 @@ button.secondary:active,
   height: 100%;
 }
 
+.tree-settings-danger-zone {
+  border-color: var(--danger-border);
+}
+
 .tree-settings-title {
   margin: 0 0 var(--sp-2);
   font-size: 1.05rem;
@@ -4133,16 +4151,11 @@ dialog.modal-overlay[open] {
   border-top: 1px solid var(--border-subtle);
 }
 
-.member-role-select {
-  min-height: 30px;
-  padding: 4px 8px;
-  font-size: 0.82rem;
-}
-
 .member-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   padding: var(--sp-3);
   border: 1px solid var(--border-subtle);
@@ -4171,8 +4184,33 @@ dialog.modal-overlay[open] {
 
 .member-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.member-role-menu-wrap {
+  position: relative;
+}
+
+.member-role-trigger {
+  gap: var(--sp-1);
+}
+
+.member-role-menu {
+  min-width: 190px;
+}
+
+.dropdown-item-icon-spacer {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+.dropdown-divider {
+  margin: var(--sp-1) 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .visibility-picker {
@@ -4242,19 +4280,25 @@ dialog.modal-overlay[open] {
 /* ------------------------------------------------------------------ */
 /* Toasts                                                              */
 /*                                                                      */
-/* Toasts stack inside a single fixed container (bottom-right) instead */
+/* Toasts stack inside a single fixed container (top-center) instead   */
 /* of positioning each toast independently, so appToast.show() can     */
 /* cap visible toasts at 3 and queue the rest (see appUX.js) without    */
 /* every toast needing to know about its siblings' offsets.            */
+/*                                                                      */
+/* Background/border are tied to the toast's type color (not the       */
+/* generic --bg-surface-raised, which panels/dialogs also use) so a    */
+/* toast reads as a distinct, attention-grabbing element rather than   */
+/* blending into the surrounding UI.                                   */
 /* ------------------------------------------------------------------ */
 
 .toast-container {
   position: fixed;
-  bottom: var(--sp-6);
-  right: var(--sp-6);
+  top: var(--sp-6);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 1100;
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: var(--sp-2);
   max-width: min(420px, calc(100vw - 32px));
   pointer-events: none;
@@ -4270,7 +4314,7 @@ dialog.modal-overlay[open] {
   background: var(--bg-surface-raised);
   box-shadow: var(--shadow-lg);
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
   transition: opacity var(--transition-base), transform var(--transition-base);
   pointer-events: auto;
 }
@@ -4282,7 +4326,7 @@ dialog.modal-overlay[open] {
 
 .toast-hide {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
 }
 
 .toast-icon {
@@ -4325,38 +4369,42 @@ dialog.modal-overlay[open] {
 
 .toast-success {
   border-color: var(--success-border);
+  background: var(--success-soft);
 }
 
 .toast-success .toast-icon {
-  background: var(--success-soft);
-  color: var(--success);
+  background: var(--success);
+  color: var(--text-on-accent);
 }
 
 .toast-error {
   border-color: var(--danger-border);
+  background: var(--danger-soft);
 }
 
 .toast-error .toast-icon {
-  background: var(--danger-soft);
-  color: var(--danger);
+  background: var(--danger);
+  color: var(--text-on-accent);
 }
 
 .toast-warning {
   border-color: var(--warning-border);
+  background: var(--warning-soft);
 }
 
 .toast-warning .toast-icon {
-  background: var(--warning-soft);
-  color: var(--warning);
+  background: var(--warning);
+  color: var(--text-on-accent);
 }
 
 .toast-info {
   border-color: var(--info-border);
+  background: var(--info-soft);
 }
 
 .toast-info .toast-icon {
-  background: var(--info-soft);
-  color: var(--info-on-soft);
+  background: var(--info-on-soft);
+  color: var(--text-on-inverse);
 }
 
 .toast-message {
@@ -5442,6 +5490,18 @@ button.admin-stat-card {
 }
 
 .badge-user-status-suspended {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.badge-tree-status-active {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.badge-tree-status-disabled {
   border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);

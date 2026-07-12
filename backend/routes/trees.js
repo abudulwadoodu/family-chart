@@ -68,7 +68,7 @@ async function upsertFamilyData(treeId, people) {
 treesRouter.get('/', async (req, res, next) => {
   try {
     const { rows: trees } = await query(
-      `SELECT t.id, t.name, t.owner_id, t.created_at, tp.role,
+      `SELECT t.id, t.name, t.owner_id, t.created_at, t.status, tp.role,
               COALESCE(fd.updated_at, t.created_at) AS updated_at,
               COALESCE(jsonb_array_length(fd.json_data), 0) AS member_count
        FROM trees t
@@ -284,7 +284,7 @@ treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (r
   try {
     const treeId = Number(req.params.id);
     const { rows: treeRows } = await query(
-      'SELECT id, name, owner_id, created_at, default_main_id, default_generation_depth, email_auto_visibility FROM trees WHERE id = $1',
+      'SELECT id, name, owner_id, created_at, status, default_main_id, default_generation_depth, email_auto_visibility FROM trees WHERE id = $1',
       [treeId]
     );
     const { rows: familyDataRows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
@@ -431,6 +431,35 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
     );
 
     return res.json({ ok: true, ...rows[0] });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Owner self-service disable/enable, mirroring the admin moderation action at
+// PATCH /api/admin/trees/:id/status (same trees.status column, same
+// 'active'/'disabled' values). Deliberately does NOT use requireTreeRole -
+// that middleware 403s every role (owner included) once a tree is disabled,
+// which would permanently lock an owner out of their own tree with no way
+// back in. Ownership is checked directly against trees.owner_id instead, so
+// disabling and re-enabling both stay reachable regardless of current status.
+treesRouter.patch('/:id/status', async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { status } = req.body || {};
+    if (!['active', 'disabled'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+    const { rows: treeRows } = await query('SELECT id, owner_id FROM trees WHERE id = $1', [treeId]);
+    const tree = treeRows[0];
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    if (tree.owner_id !== req.user.id) return res.status(403).json({ error: 'Only the tree owner can change its status' });
+
+    const { rows } = await query('UPDATE trees SET status = $1 WHERE id = $2 RETURNING id, name, status', [
+      status,
+      treeId,
+    ]);
+
+    return res.json({ ok: true, tree: rows[0] });
   } catch (error) {
     return next(error);
   }

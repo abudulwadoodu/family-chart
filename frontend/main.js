@@ -225,6 +225,7 @@ const state = {
   selectedTreeId: null,
   selectedTreeRole: null,
   selectedTreeName: '',
+  selectedTreeStatus: 'active',
   selectedTreeData: [],
   chart: null,
   editor: null,
@@ -1226,6 +1227,8 @@ function renderAdminSectionContent() {
       tree: state.admin.trees.selectedTree,
       collaborators: state.admin.trees.selectedCollaborators,
       backLabel: state.admin.trees.cameFromMembers ? 'Family Members' : 'Family Trees',
+      busy: state.admin.trees.busy,
+      canSuspend: hasPermission(state.user, 'trees:suspend'),
     });
   }
 
@@ -2232,9 +2235,21 @@ function renderActiveTreeGrid() {
 const TREE_CARD_INTERACTIVE_SELECTOR =
   '.tree-card-menu-wrap, .tree-rename-form, .tree-open-btn, .tree-card-title';
 
+// A disabled tree stays visible (with a badge) so owners/collaborators know
+// why it vanished, but requireTreeRole rejects every role on the backend -
+// short-circuit here instead of round-tripping a 403 into an unhandled
+// rejection from loadTree().
+function openTreeIfEnabled(treeId, card) {
+  if (card?.dataset.treeStatus === 'disabled') {
+    showToast('This family tree has been disabled and cannot be opened.', { type: 'error' });
+    return;
+  }
+  loadTree(treeId);
+}
+
 function bindTreeGridListeners(container) {
   container.querySelectorAll('.tree-open-btn, .tree-card-title').forEach((el) => {
-    el.addEventListener('click', () => loadTree(Number(el.dataset.treeId)));
+    el.addEventListener('click', () => openTreeIfEnabled(Number(el.dataset.treeId), el.closest('.tree-card-clickable')));
   });
 
   // Whole-card click/keyboard-activation to open the tree, per the
@@ -2245,14 +2260,14 @@ function bindTreeGridListeners(container) {
     card.addEventListener('click', (event) => {
       if (event.target.closest(TREE_CARD_INTERACTIVE_SELECTOR)) return;
       if (card.querySelector('.tree-rename-form')) return;
-      loadTree(Number(card.dataset.treeId));
+      openTreeIfEnabled(Number(card.dataset.treeId), card);
     });
     card.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       if (event.target.closest(TREE_CARD_INTERACTIVE_SELECTOR)) return;
       if (card.querySelector('.tree-rename-form')) return;
       event.preventDefault();
-      loadTree(Number(card.dataset.treeId));
+      openTreeIfEnabled(Number(card.dataset.treeId), card);
     });
   });
 
@@ -2293,9 +2308,33 @@ function handleTreeCardAction(action, treeId) {
   if (action === 'tree-settings') {
     return loadTree(treeId, { viewMode: 'settings' });
   }
+  if (action === 'share') {
+    return openShareModal(treeId);
+  }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
     promptDeleteTree(treeId, tree?.name || 'this tree');
+  }
+  if (action === 'enable-tree') {
+    return handleEnableTreeFromCard(treeId);
+  }
+}
+
+// The only card action offered on a disabled tree (see renderTreeCard) -
+// every other action, including "Tree Settings", calls a requireTreeRole-
+// gated route and would 403 while disabled, so re-enabling can't go through
+// loadTree()/the settings panel at all. Operates on the card directly
+// instead: no viewer is open, so there's no selectedTree* state to update or
+// clear, just the grid's own tree list.
+async function handleEnableTreeFromCard(treeId) {
+  const tree = state.trees.find((t) => t.id === treeId);
+  try {
+    const payload = await api(`/api/trees/${treeId}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) });
+    if (tree) tree.status = payload.tree.status;
+    renderTreeGrid();
+    showToast(`"${tree?.name || payload.tree.name}" has been re-enabled.`);
+  } catch (error) {
+    showToast(error.message || 'Could not enable this tree.', { type: 'error' });
   }
 }
 
@@ -2646,7 +2685,14 @@ function attachFamilyFeedListeners() {
   });
 }
 
-function attachTreeViewerListeners() {
+// Binds everything that lives inside .viewer-header (breadcrumb, save,
+// share/rename/import, the settings dropdown, and member search - which
+// renders inside the header markup). Split out from attachTreeViewerListeners
+// so a role change (e.g. after transferring ownership) can re-render just the
+// header and rebind it, without rebuilding the focus-mode controller or
+// re-attaching the family feed listeners (those live outside the header and
+// are only meant to be wired once per tree-viewer mount).
+function attachTreeViewerHeaderListeners() {
   document.querySelector('#breadcrumb-trees-btn').addEventListener('click', () => {
     clearSelectedTreeView();
     render();
@@ -2656,8 +2702,6 @@ function attachTreeViewerListeners() {
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
-  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
-  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2666,6 +2710,26 @@ function attachTreeViewerListeners() {
   });
 
   attachMemberSearchListeners();
+}
+
+// Re-renders .viewer-header from current state (used after an action that can
+// change the signed-in user's role on the currently open tree, e.g.
+// transferring ownership away) so owner-only controls (Share button, Delete
+// Tree, etc.) disappear immediately instead of staying visible until the next
+// full page load - clicking them afterwards would just 403 against the server,
+// which otherwise reads as "I lost access to my tree".
+function refreshTreeViewerHeader() {
+  const header = document.querySelector('.viewer-header');
+  if (!header) return;
+  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole });
+  attachTreeViewerHeaderListeners();
+}
+
+function attachTreeViewerListeners() {
+  attachTreeViewerHeaderListeners();
+  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
+  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
+
   attachFamilyFeedListeners();
   setupFocusMode();
 }
@@ -3089,7 +3153,7 @@ function handleExportCurrentTree(format) {
 // ---------------------------------------------------------------------------
 
 async function openShareModal(treeId) {
-  const treeName = state.selectedTreeName || state.trees.find((t) => t.id === treeId)?.name || '';
+  const treeName = state.trees.find((t) => t.id === treeId)?.name || state.selectedTreeName || '';
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
@@ -3106,7 +3170,12 @@ function bindShareModalClose(modal) {
 async function refreshShareModal(modal, treeId, treeName, formError = '') {
   try {
     const payload = await api(`/api/trees/${treeId}/permissions`);
-    modal.setBody(renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError }));
+    const isOwnerViewing = payload.permissions.some(
+      (permission) => permission.role === 'owner' && permission.user_id === state.user.id
+    );
+    modal.setBody(
+      renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError, isOwnerViewing })
+    );
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
   } catch (error) {
@@ -3144,10 +3213,12 @@ function bindShareModalActions(modal, treeId, treeName) {
     }
   });
 
-  modal.root.querySelectorAll('.member-role-select').forEach((select) => {
-    select.addEventListener('change', async () => {
-      const userId = Number(select.dataset.userId);
-      const role = select.value;
+  bindDropdownTriggers(modal.root);
+
+  modal.root.querySelectorAll('[data-role-option]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = Number(btn.dataset.userId);
+      const role = btn.dataset.roleOption;
       try {
         await api(`/api/trees/${treeId}/share/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) });
         showToast('Role updated.');
@@ -3156,6 +3227,31 @@ function bindShareModalActions(modal, treeId, treeName) {
       } catch (error) {
         showToast(error.message || 'Could not update role.', { type: 'error' });
         await refreshShareModal(modal, treeId, treeName);
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-transfer-owner-user-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const toUserId = Number(btn.dataset.transferOwnerUserId);
+      if (!window.confirm('Make this person the owner? You will become an editor and lose owner-only controls.')) return;
+
+      btn.disabled = true;
+      try {
+        await api(`/api/account/trees/${treeId}/transfer-ownership`, {
+          method: 'POST',
+          body: JSON.stringify({ toUserId }),
+        });
+        showToast('Ownership transferred.');
+        if (state.selectedTreeId === treeId) {
+          state.selectedTreeRole = 'editor';
+          refreshTreeViewerHeader();
+        }
+        await refreshShareModal(modal, treeId, treeName);
+        loadTrees();
+      } catch (error) {
+        showToast(error.message || 'Could not transfer ownership.', { type: 'error' });
+        btn.disabled = false;
       }
     });
   });
@@ -3346,6 +3442,7 @@ function clearSelectedTreeView() {
   state.selectedTreeRole = null;
   state.selectedTreeData = [];
   state.selectedTreeName = '';
+  state.selectedTreeStatus = 'active';
   state.chart = null;
   state.editor = null;
   state.viewMode = 'focused';
@@ -4823,9 +4920,15 @@ async function loadSession() {
     ]);
     render();
     await maybeOpenDeepLinkedTicket();
-  } catch (_error) {
+  } catch (error) {
     state.user = null;
     render();
+    // 401 just means "no session yet" - expected on every page load before
+    // sign-in, and must stay silent. 403 means Cognito auth succeeded but
+    // our backend rejected the account itself (e.g. suspended) - that has a
+    // real message the caller (handleSignIn/handleAuthNextStep) should show,
+    // so it's the one case worth re-throwing instead of swallowing.
+    if (error?.status === 403) throw error;
   }
 }
 
@@ -4902,6 +5005,7 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   state.selectedTreeRole = payload.role;
   state.selectedTreeData = payload.data;
   state.selectedTreeName = payload.tree.name;
+  state.selectedTreeStatus = payload.tree.status || 'active';
   // 'settings' is only reachable here for owners (see handleTreeCardAction's
   // 'tree-settings' shortcut) - requireTreeRole on the API side is the real
   // guard, this is just so a non-owner deep link can't get stuck showing an
@@ -5013,6 +5117,7 @@ function renderTreeSettingsViewMode() {
     currentDefaultMainId: state.treeDefaultMainId,
     currentGenerationDepth: state.treeDefaultGenerationDepth,
     currentEmailAutoVisibility: state.treeEmailAutoVisibility,
+    currentStatus: state.selectedTreeStatus,
   });
 
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');
@@ -5022,7 +5127,49 @@ function renderTreeSettingsViewMode() {
   });
 
   document.querySelector('#tree-settings-save-btn')?.addEventListener('click', handleSaveTreeSettings);
+
+  document.querySelector('#tree-settings-disable-btn')?.addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Disable this tree',
+      message: `You and every collaborator will be blocked from opening "${state.selectedTreeName}" until you re-enable it. Tree data is not affected. Continue?`,
+      confirmLabel: 'Disable',
+      onConfirm: () => handleSetTreeStatus('disabled'),
+    });
+  });
+
+  document.querySelector('#tree-settings-enable-btn')?.addEventListener('click', () => handleSetTreeStatus('active'));
+
   syncSaveButtonAvailability();
+}
+
+// Disabling makes the tree immediately unreachable (requireTreeRole 403s
+// every role, owner included - see authorizeTree.js), so unlike
+// handleSaveTreeSettings this can't leave the viewer open afterwards:
+// enabling stays in place to show the result, disabling bounces back to the
+// tree grid since every other API call against this tree would now 403.
+async function handleSetTreeStatus(status) {
+  const treeId = state.selectedTreeId;
+  const treeName = state.selectedTreeName;
+  try {
+    const payload = await api(`/api/trees/${treeId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    const nextStatus = payload.tree.status;
+
+    const treeInList = state.trees.find((tree) => tree.id === treeId);
+    if (treeInList) treeInList.status = nextStatus;
+
+    if (nextStatus === 'disabled') {
+      clearSelectedTreeView();
+      render();
+      showToast(`"${treeName}" has been disabled.`);
+    } else {
+      state.selectedTreeStatus = nextStatus;
+      render();
+      showToast(`"${treeName}" has been re-enabled.`);
+    }
+  } catch (error) {
+    showToast(error.message || 'Could not update this tree.', { type: 'error' });
+    throw error;
+  }
 }
 
 async function handleSaveTreeSettings() {
@@ -5124,4 +5271,9 @@ appToast.attachToastEventBridge();
 syncRouteFromLocation();
 if (state.publicView) render();
 
-loadSession();
+// A stale-but-still-valid Cognito session can hit this on page load if the
+// account was suspended since the last visit - loadSession() re-throws that
+// case (see its 403 handling) instead of swallowing it like a fresh/expired
+// session, so it needs its own catch here rather than the caught rejection
+// silently reported to the console via handleSignIn's flow.
+loadSession().catch((error) => showToast(authErrorMessage(error), { type: 'error' }));

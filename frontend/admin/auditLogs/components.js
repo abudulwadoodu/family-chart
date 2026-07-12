@@ -6,6 +6,8 @@ const ACTION_LABELS = {
   'user.activated': 'User activated',
   'user.deleted': 'User deleted',
   'user.role_changed': 'User role changed',
+  'tree.suspended': 'Family tree disabled',
+  'tree.activated': 'Family tree enabled',
   'ticket.updated': 'Ticket updated',
   'settings.changed': 'Settings changed',
 };

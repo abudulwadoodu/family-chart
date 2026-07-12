@@ -522,12 +522,24 @@ function dropdownMenu({ id, items }) {
 
 export function renderTreeCard(tree, { renaming } = {}) {
   const menuId = `tree-${tree.id}`;
-  const items = [
-    { action: 'export-json', label: 'Export JSON', icon: 'download' },
-    { action: 'export-csv', label: 'Export CSV', icon: 'download' },
-    { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
-  ];
-  if (tree.role === 'owner') {
+  const isDisabled = tree.status === 'disabled';
+  // Every other card action (settings, rename, delete, exports) calls a
+  // requireTreeRole-gated route, which 403s for every role - including the
+  // owner - once a tree is disabled (see authorizeTree.js). "Enable tree"
+  // uses the owner-status route instead, which deliberately bypasses that
+  // middleware precisely so this is reachable; it's the one action that
+  // still works, so it's the only one offered here.
+  const items = isDisabled
+    ? tree.role === 'owner'
+      ? [{ action: 'enable-tree', label: 'Enable tree', icon: 'settings' }]
+      : []
+    : [
+        { action: 'export-json', label: 'Export JSON', icon: 'download' },
+        { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+        { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
+      ];
+  if (!isDisabled && tree.role === 'owner') {
+    items.unshift({ action: 'share', label: 'Share', icon: 'share' });
     items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
@@ -548,12 +560,17 @@ export function renderTreeCard(tree, { renaming } = {}) {
   const updatedLabel = formatRelativeTime(tree.updated_at);
 
   return `
-    <article class="tree-card tree-card-clickable" data-tree-id="${tree.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
+    <article class="tree-card tree-card-clickable${isDisabled ? ' tree-card-disabled' : ''}" data-tree-id="${tree.id}" data-tree-status="${escapeHtml(tree.status || 'active')}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
       <div class="tree-card-top">
         <div class="tree-card-icon">${icon('trees')}</div>
         <div class="tree-card-menu-wrap">
+          ${
+            items.length
+              ? `
           <button type="button" class="icon-btn menu-trigger" data-menu-trigger="${menuId}" aria-label="Tree actions">${icon('kebab')}</button>
-          ${dropdownMenu({ id: menuId, items })}
+          ${dropdownMenu({ id: menuId, items })}`
+              : ''
+          }
         </div>
       </div>
       <div class="tree-card-body">
@@ -563,7 +580,8 @@ export function renderTreeCard(tree, { renaming } = {}) {
       </div>
       <div class="tree-card-foot">
         <span class="badge badge-role-${tree.role}">${ROLE_LABELS[tree.role] || tree.role}</span>
-        <button type="button" class="btn btn-secondary btn-sm tree-open-btn" data-tree-id="${tree.id}">Open</button>
+        ${isDisabled ? '<span class="badge badge-status-disabled">Disabled</span>' : ''}
+        <button type="button" class="btn btn-secondary btn-sm tree-open-btn" data-tree-id="${tree.id}" ${isDisabled ? 'disabled' : ''}>Open</button>
       </div>
     </article>
   `;
@@ -825,7 +843,7 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError }) {
+export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing }) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -840,14 +858,42 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   const rows = permissions
     .map((permission) => {
       const isOwnerRow = permission.role === 'owner';
-      const actions = isOwnerRow
+      const menuId = `member-role-menu-${permission.user_id}`;
+      const roleLabel = MEMBER_ROLE_LABELS[permission.role] || permission.role;
+
+      const actions = isOwnerRow || !isOwnerViewing
         ? ''
         : `
-          <select class="member-role-select" data-user-id="${permission.user_id}" aria-label="Role for ${escapeHtml(permission.email)}">
-            <option value="editor" ${permission.role === 'editor' ? 'selected' : ''}>Editor</option>
-            <option value="viewer" ${permission.role === 'viewer' ? 'selected' : ''}>Viewer</option>
-          </select>
-          <button type="button" class="btn btn-ghost btn-sm" data-remove-user-id="${permission.user_id}">Remove</button>
+          <div class="member-role-menu-wrap">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm menu-trigger member-role-trigger"
+              data-menu-trigger="${menuId}"
+              aria-label="Change role or access for ${escapeHtml(permission.email)}"
+            >${escapeHtml(roleLabel)}${icon('chevronDown')}</button>
+            <div class="dropdown-menu member-role-menu" data-menu-id="${menuId}">
+              <button type="button" class="dropdown-item" data-role-option="editor" data-user-id="${permission.user_id}">
+                ${permission.role === 'editor' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Editor</span>
+              </button>
+              <button type="button" class="dropdown-item" data-role-option="viewer" data-user-id="${permission.user_id}">
+                ${permission.role === 'viewer' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Viewer</span>
+              </button>
+              ${
+                isOwnerViewing
+                  ? `
+                <div class="dropdown-divider"></div>
+                <button type="button" class="dropdown-item" data-transfer-owner-user-id="${permission.user_id}">
+                  <span class="dropdown-item-icon-spacer"></span><span>Transfer ownership</span>
+                </button>
+              `
+                  : ''
+              }
+              <div class="dropdown-divider"></div>
+              <button type="button" class="dropdown-item dropdown-item-danger" data-remove-user-id="${permission.user_id}">
+                <span class="dropdown-item-icon-spacer"></span><span>Remove access</span>
+              </button>
+            </div>
+          </div>
         `;
 
       return `
@@ -857,7 +903,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
             <div>
               <p class="member-email">${escapeHtml(permission.email)}</p>
               <p class="member-meta">
-                <span class="badge badge-role-${permission.role}">${MEMBER_ROLE_LABELS[permission.role] || permission.role}</span>
+                <span class="badge badge-role-${permission.role}">${roleLabel}</span>
               </p>
             </div>
           </div>

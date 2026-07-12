@@ -7,6 +7,8 @@ export const AUDIT_ACTIONS = {
   USER_ACTIVATED: 'user.activated',
   USER_DELETED: 'user.deleted',
   USER_ROLE_CHANGED: 'user.role_changed',
+  TREE_SUSPENDED: 'tree.suspended',
+  TREE_ACTIVATED: 'tree.activated',
   TICKET_UPDATED: 'ticket.updated',
   SETTINGS_CHANGED: 'settings.changed',
 };

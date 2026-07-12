@@ -119,8 +119,13 @@ async function setStatus(state, render, userId, status) {
   state.admin.users.busy = true;
   render();
   try {
+    // PATCH .../status returns the bare USER_COLUMNS row, not the full admin
+    // profile shape (owned_trees/storage_bytes) that GET .../:id populates -
+    // merge rather than replace, or renderUserDetailMarkup's unconditional
+    // user.owned_trees.length throws on the next render (dialog stays open,
+    // no success toast, since that throw rejects this function's promise).
     const payload = await api(`/api/admin/users/${userId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
-    state.admin.users.selectedUser = payload.user;
+    state.admin.users.selectedUser = { ...state.admin.users.selectedUser, ...payload.user };
     showToast(status === 'suspended' ? 'Account suspended.' : 'Account activated.');
   } catch (error) {
     showToast(error.message || 'Could not update the account.', { type: 'error' });
@@ -186,7 +191,7 @@ export function attachUserDetailListeners(state, render) {
     render();
     try {
       const payload = await api(`/api/admin/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ adminRole }) });
-      state.admin.users.selectedUser = payload.user;
+      state.admin.users.selectedUser = { ...state.admin.users.selectedUser, ...payload.user };
       showToast('Admin role updated.');
     } catch (error) {
       showToast(error.message || 'Could not update the admin role.', { type: 'error' });

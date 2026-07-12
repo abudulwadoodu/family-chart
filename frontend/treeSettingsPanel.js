@@ -20,7 +20,7 @@ function personLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
-export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility } = {}) {
+export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility, currentStatus = 'active' } = {}) {
   const people = [...(Array.isArray(data) ? data : [])].sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
 
   const options = people
@@ -88,6 +88,24 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
         <button type="button" id="tree-settings-save-btn" class="btn btn-primary btn-sm">Save settings</button>
       </div>
       <p class="field-error" id="tree-settings-error" role="alert"></p>
+
+      <section class="tree-settings-section tree-settings-danger-zone">
+        <h2 class="tree-settings-title">Danger zone</h2>
+        <p class="tree-settings-desc">
+          ${
+            currentStatus === 'disabled'
+              ? 'This tree is disabled. Nobody, including you, can open it until you re-enable it. Tree data is not affected.'
+              : 'Disabling this tree blocks you and every collaborator from opening it until you re-enable it. Tree data is not affected.'
+          }
+        </p>
+        <div class="tree-settings-row">
+          ${
+            currentStatus === 'disabled'
+              ? '<button type="button" id="tree-settings-enable-btn" class="btn btn-secondary btn-sm">Enable tree</button>'
+              : '<button type="button" id="tree-settings-disable-btn" class="btn btn-danger btn-sm">Disable tree</button>'
+          }
+        </div>
+      </section>
     </div>
   `;
 }
