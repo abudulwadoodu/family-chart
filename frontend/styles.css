@@ -1557,6 +1557,27 @@ button.secondary:active,
   background: transparent;
 }
 
+/* Trees Dashboard sub-nav (Active Trees / Private Vault). Reuses
+   .section-tabs/.section-tab's underline styling; the extra rules here are
+   just to keep the bar usable on narrow/mobile viewports where it sits right
+   at the top of the page instead of below a page-header. */
+.trees-tabs {
+  margin-bottom: var(--sp-5);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+
+.trees-tabs::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/WebKit */
+}
+
+.trees-tabs .section-tab {
+  padding: var(--sp-3) var(--sp-2);
+  white-space: nowrap;
+}
+
 .page-title {
   font-size: 1.7rem;
   font-weight: 700;
@@ -3651,10 +3672,6 @@ body.focus-mode-transitioning .focus-mode-target {
 
 .danger-zone-actions {
   margin-top: var(--sp-3);
-}
-
-.vault-panel {
-  margin-top: var(--sp-6);
 }
 
 .vault-panel h2 {
