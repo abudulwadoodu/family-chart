@@ -272,6 +272,11 @@ const state = {
   otpSent: false,
   otpResendAvailableAt: 0,
   dashboardView: 'trees',
+  // Which sub-panel of the Trees Dashboard is visible: 'active' (live,
+  // collaborative trees) or 'vault' (private Vault snapshots). Local to the
+  // trees landing view - toggling it only flips a CSS class via
+  // attachTreesTabListeners(), it never triggers a full renderDashboard().
+  treesTab: 'active',
   // "Search before you create" step on the Create Tree page.
   joinSearch: {
     query: '',
@@ -1693,7 +1698,6 @@ function attachShellListeners() {
     setSidebarOpen(false);
     render();
     loadMfaStatus();
-    loadVaultSnapshots();
   });
   document.querySelector('#nav-support-btn').addEventListener('click', () => {
     navigateToDashboardView('contact');
@@ -1822,51 +1826,141 @@ function bindDropdownTriggers(scopeEl) {
 // Trees landing (dashboard home)
 // ---------------------------------------------------------------------------
 
-// Only the header is static markup here - everything below it (toolbar,
-// discover-search, empty states, and the tree grid itself) is owned by
-// renderTreeGrid() into #trees-landing-body, since that's the function every
-// data-change call site (loadTrees, sort/filter, create, delete, import...)
-// already calls. That lets the empty-state vs active-state layout swap
-// happen automatically whenever the tree count changes, without having to
-// thread a full top-level render() through every one of those call sites.
+// Sub-navigation for the Trees Dashboard landing view: "Active Trees" (the
+// live, collaborative tree directory) and "Private Vault" (owner-only
+// snapshot archive, formerly a section of Security Settings). Deliberately
+// NOT built on the isXView/renderDashboard() cascade + full render() that
+// .section-tab elsewhere uses (see attachSectionTabListeners) - both panels
+// are mounted once and switching tabs just toggles a hidden/active class, so
+// the live tree grid's DOM (search/sort state, in-flight renames, etc.)
+// isn't torn down and rebuilt on every tab click.
+const TREES_TABS = [
+  { id: 'active', label: 'Active Trees', icon: 'list' },
+  { id: 'vault', label: 'Private Vault', icon: 'lock' },
+];
+
+function renderTreesTabBar(activeId) {
+  return `
+    <div class="section-tabs trees-tabs" role="tablist">
+      ${TREES_TABS.map(
+        (tab) => `
+        <button
+          type="button"
+          class="section-tab"
+          role="tab"
+          id="trees-tab-${tab.id}"
+          data-tab-id="${tab.id}"
+          aria-selected="${tab.id === activeId}"
+          aria-controls="trees-panel-${tab.id}"
+          tabindex="${tab.id === activeId ? '0' : '-1'}"
+        >${icon(tab.icon)}<span>${tab.label}</span></button>
+      `
+      ).join('')}
+    </div>
+  `;
+}
+
+// Only the header/tab-bar chrome is static markup here - everything below it
+// (toolbar, discover-search, empty states, and the tree grid itself) is
+// owned by renderTreeGrid() into #trees-landing-body, since that's the
+// function every data-change call site (loadTrees, sort/filter, create,
+// delete, import...) already calls. That lets the empty-state vs
+// active-state layout swap happen automatically whenever the tree count
+// changes, without having to thread a full top-level render() through every
+// one of those call sites.
 function renderTreesLandingMarkup() {
   return `
-    ${renderPageHeader({
-      title: 'Family Trees',
-      subtitle: 'Create, manage, and collaborate on your family trees.',
-      primaryActionId: 'new-tree-cta',
-      primaryActionLabel: 'New Tree',
-      templateMenu: {
-        id: 'landing-template-options',
-        triggerId: 'download-template-btn',
-        label: 'Download Template',
-        items: [
-          { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
-          { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
-        ],
-      },
-      importMenu: {
-        id: 'landing-import-options',
-        triggerId: 'import-tree-cta',
-        label: 'Import',
-        items: [
-          { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-          { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-        ],
-      },
-    })}
-    <div id="trees-landing-body"></div>
+    ${renderTreesTabBar(state.treesTab)}
+    <div id="trees-panel-active" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-active" ${state.treesTab === 'active' ? '' : 'hidden'}>
+      ${renderPageHeader({
+        title: 'Family Trees',
+        subtitle: 'Create, manage, and collaborate on your family trees.',
+        primaryActionId: 'new-tree-cta',
+        primaryActionLabel: 'New Tree',
+        templateMenu: {
+          id: 'landing-template-options',
+          triggerId: 'download-template-btn',
+          label: 'Download Template',
+          items: [
+            { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
+            { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
+          ],
+        },
+        importMenu: {
+          id: 'landing-import-options',
+          triggerId: 'import-tree-cta',
+          label: 'Import',
+          items: [
+            { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+            { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+          ],
+        },
+      })}
+      <div id="trees-landing-body"></div>
+    </div>
+    <div id="trees-panel-vault" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-vault" ${state.treesTab === 'vault' ? '' : 'hidden'}>
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Private Vault</h1>
+          <p class="page-subtitle">Instant, owner-only snapshot backups of your trees.</p>
+        </div>
+      </header>
+      <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
+    </div>
   `;
 }
 
 function attachTreesLandingListeners() {
+  attachTreesTabListeners();
+
   document.querySelector('#new-tree-cta').addEventListener('click', () => {
     state.dashboardView = 'createTree';
     render();
   });
-  bindDropdownTriggers(document.querySelector('.page-header'));
-  document.querySelectorAll('.page-header .dropdown-item').forEach((btn) => {
+  bindDropdownTriggers(document.querySelector('#trees-panel-active .page-header'));
+  document.querySelectorAll('#trees-panel-active .page-header .dropdown-item').forEach((btn) => {
     btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
+  });
+
+  attachVaultDrawerListeners();
+  if (!state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
+}
+
+// Toggles the Active Trees / Private Vault panels via a plain class swap -
+// no render() call, so the live tree grid (and its in-flight search/sort/
+// rename DOM state) is never torn down just from switching tabs. Mirrors
+// attachSectionTabListeners' roving-tabindex keyboard behavior.
+function attachTreesTabListeners() {
+  const tabs = document.querySelectorAll('.trees-tabs .section-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const tabId = tab.dataset.tabId;
+      if (tabId === state.treesTab) return;
+      state.treesTab = tabId;
+
+      tabs.forEach((t) => {
+        const selected = t === tab;
+        t.setAttribute('aria-selected', String(selected));
+        t.tabIndex = selected ? 0 : -1;
+      });
+      document.querySelectorAll('.trees-tab-panel').forEach((panel) => {
+        panel.hidden = panel.id !== `trees-panel-${tabId}`;
+      });
+
+      if (tabId === 'vault' && !state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
+    });
+  });
+
+  const tabList = document.querySelector('.trees-tabs');
+  tabList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const list = Array.from(tabs);
+    const currentIndex = list.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const next = list[(currentIndex + delta + list.length) % list.length];
+    next.click();
+    next.focus();
   });
 }
 
@@ -4186,7 +4280,6 @@ function renderSecuritySettingsMarkup() {
       </div>
     </header>
     <section class="security-panel">${body}</section>
-    <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
     <section class="security-panel danger-zone">
       <h2 class="danger-zone-title">Delete Account</h2>
       <p class="muted">Permanently delete your account and remove your personal data. This action cannot be undone.</p>
@@ -4218,8 +4311,6 @@ function attachSecuritySettingsListeners() {
       onConfirm: handleDisableMfa,
     });
   });
-
-  attachVaultDrawerListeners();
 }
 
 // ---------------------------------------------------------------------------
@@ -5170,6 +5261,8 @@ async function handleSignOut() {
   state.totpSetup = null;
   state.dashboardView = 'trees';
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
+  state.vault = { snapshots: [], loading: false, loaded: false, creatingTreeId: null };
+  state.treesTab = 'active';
   state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
   state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
   resetAuthCardEntrance();
