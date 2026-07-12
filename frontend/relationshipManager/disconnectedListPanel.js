@@ -129,11 +129,14 @@ export function renderDisconnectedListPanel(rm, data, searchIndex) {
           value="${escapeHtml(rm.disconnectedSearch)}"
         />
       </label>
-      <select id="rm-disconnected-sort-select" aria-label="Sort members">
-        <option value="name" ${rm.disconnectedSort === 'name' ? 'selected' : ''}>Name</option>
-        <option value="birthYear" ${rm.disconnectedSort === 'birthYear' ? 'selected' : ''}>Birth year</option>
-        <option value="recent" ${rm.disconnectedSort === 'recent' ? 'selected' : ''}>Recently selected</option>
-      </select>
+      <div class="sort-box">
+        <span class="sort-box-label">Sort by</span>
+        <select id="rm-disconnected-sort-select" aria-label="Sort members">
+          <option value="name" ${rm.disconnectedSort === 'name' ? 'selected' : ''}>Name</option>
+          <option value="birthYear" ${rm.disconnectedSort === 'birthYear' ? 'selected' : ''}>Birth year</option>
+          <option value="recent" ${rm.disconnectedSort === 'recent' ? 'selected' : ''}>Recently selected</option>
+        </select>
+      </div>
       <label class="rm-show-all-toggle">
         <input type="checkbox" id="rm-show-all-toggle" ${rm.showAllMembers ? 'checked' : ''} />
         Show all members (including already-connected)

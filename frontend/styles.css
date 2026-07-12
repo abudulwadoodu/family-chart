@@ -2767,7 +2767,8 @@ button.secondary:active,
   font-size: 0.8rem;
 }
 
-.rm-search-box {
+.rm-search-box,
+.dm-search-box {
   max-width: none;
   width: 100%;
 }

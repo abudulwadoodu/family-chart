@@ -19,5 +19,7 @@ export function createDuplicateManagerState() {
     dismissed: [], // pair keys the user explicitly said "not a duplicate"
     undoStack: createUndoStack(),
     dirty: false,
+    search: '',
+    sort: 'score', // 'score' | 'name' | 'birthYear'
   };
 }
