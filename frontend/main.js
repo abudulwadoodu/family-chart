@@ -2293,6 +2293,9 @@ function handleTreeCardAction(action, treeId) {
   if (action === 'tree-settings') {
     return loadTree(treeId, { viewMode: 'settings' });
   }
+  if (action === 'share') {
+    return openShareModal(treeId);
+  }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
     promptDeleteTree(treeId, tree?.name || 'this tree');
@@ -3114,7 +3117,7 @@ function handleExportCurrentTree(format) {
 // ---------------------------------------------------------------------------
 
 async function openShareModal(treeId) {
-  const treeName = state.selectedTreeName || state.trees.find((t) => t.id === treeId)?.name || '';
+  const treeName = state.trees.find((t) => t.id === treeId)?.name || state.selectedTreeName || '';
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',

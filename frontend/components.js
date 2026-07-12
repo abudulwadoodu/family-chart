@@ -528,6 +528,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
     { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
   ];
   if (tree.role === 'owner') {
+    items.unshift({ action: 'share', label: 'Share', icon: 'share' });
     items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
