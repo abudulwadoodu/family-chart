@@ -103,3 +103,44 @@ export function removeRelationship(data, draft) {
   clearRelMeta(source, targetId);
   clearRelMeta(target, sourceId);
 }
+
+/**
+ * Detaches a person from every parent, spouse, and child they currently
+ * have, leaving them an isolated node. Used by the All Nodes view's node
+ * click menu ("Remove relation") as a bulk counterpart to removeRelationship
+ * (which only ever handles one source/target pair at a time).
+ *
+ * @param {import('../src/types/data').Data} data
+ * @param {string} personId
+ */
+export function removeAllRelations(data, personId) {
+  const byId = buildIndex(data);
+  const person = byId.get(personId);
+  if (!person) return;
+
+  const parentIds = [...(person.rels.parents || [])];
+  const spouseIds = [...(person.rels.spouses || [])];
+  const childIds = [...(person.rels.children || [])];
+
+  parentIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'parent' }));
+  spouseIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'spouse' }));
+  childIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'child' }));
+}
+
+/**
+ * Removes a person from the tree entirely: strips them out of every other
+ * person's rels arrays and relMeta, then deletes their own record. Simpler
+ * than the family-chart library's own deletePerson (src/store/edit.ts),
+ * which special-cases keeping the *main* tree connected to a single root -
+ * that notion doesn't apply to the All Nodes view, which shows every
+ * disconnected family island at once, so a plain unconditional removal is
+ * the correct (and only sensible) semantics here.
+ *
+ * @param {import('../src/types/data').Data} data
+ * @param {string} personId
+ */
+export function deleteNode(data, personId) {
+  removeAllRelations(data, personId);
+  const index = data.findIndex((d) => d.id === personId);
+  if (index !== -1) data.splice(index, 1);
+}

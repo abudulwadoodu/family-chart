@@ -7430,6 +7430,20 @@ button.admin-stat-card {
   flex-shrink: 0;
 }
 
+/* Options menu opened by clicking a node in the All Nodes graph (see
+   openAllNodesOptionsMenu in main.js). The graph is raw SVG with no DOM
+   element to anchor a normal .dropdown-menu against, so this is appended
+   straight to <body> and positioned at the click's viewport coordinates via
+   inline left/top - the position:fixed here just overrides the base rule's
+   `position: absolute; top: calc(100% + 6px); right: 0`, which would
+   otherwise anchor it to body's own box instead of the click point. */
+.all-nodes-options-menu.dropdown-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 50;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tooltips                                                             */
 /*                                                                      */
