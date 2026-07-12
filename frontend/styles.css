@@ -2591,6 +2591,141 @@ button.secondary:active,
   animation: member-search-pulse 1.1s ease-out 2;
 }
 
+/* ------------------------------------------------------------------ */
+/* Relationship Finder                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Standalone tree-detail page (see relationshipFinder.js), same wrapper
+   convention as .media-library-page/.timeline-page. Reuses
+   .member-search-box/.member-search-results styling for the input and
+   dropdown - this block only adds the mobile-first wrapper and result card. */
+.relationship-finder-page {
+  width: 100%;
+}
+
+.relationship-finder-page .breadcrumb {
+  margin-bottom: var(--sp-4);
+}
+
+.relationship-finder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.relationship-finder .member-search {
+  max-width: none;
+  min-width: 0;
+}
+
+.relationship-card {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.relationship-card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Profile header: name + primary kinship title + optional birth-year meta */
+.relationship-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  text-align: center;
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.relationship-card-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.relationship-card-kinship {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent-hover);
+  text-transform: capitalize;
+}
+
+.relationship-card-meta {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+.relationship-card-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+}
+
+/* "Their relation to you" - accent border to distinguish it at a glance
+   from "your relation to them" below, per the dual-perspective design. */
+.relationship-card-row-theirs {
+  border-left-color: var(--accent);
+}
+
+.relationship-card-row-yours {
+  border-left-color: var(--success);
+}
+
+.relationship-card-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.relationship-card-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.relationship-card-distance {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.relationship-card-empty-text {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 480px) {
+  .relationship-card {
+    padding: var(--sp-4);
+    border-radius: var(--radius-md);
+  }
+
+  .relationship-card-name {
+    font-size: 1.1rem;
+  }
+
+  .relationship-card-value {
+    font-size: 1rem;
+  }
+}
+
 .chart-canvas-wrap {
   position: relative;
 }
@@ -3186,6 +3321,13 @@ button.secondary:active,
   font-size: 0.95rem;
 }
 
+#dm-pair-list-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .dm-pair-list {
   list-style: none;
   margin: 0;
@@ -3329,6 +3471,51 @@ button.secondary:active,
 .dm-compare-col {
   min-width: 0;
   overflow-wrap: break-word;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+}
+
+.dm-compare-col-keep {
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+}
+
+.dm-compare-col-remove {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+}
+
+.dm-target-badge {
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dm-target-badge-keep {
+  background: var(--success);
+  color: var(--bg-surface);
+}
+
+.dm-target-badge-remove {
+  background: var(--danger);
+  color: var(--bg-surface);
+}
+
+.dm-compare-name {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.dm-meta-token {
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
 
 .dm-field-list {
@@ -3384,6 +3571,77 @@ button.secondary:active,
     grid-auto-rows: minmax(260px, 1fr);
     overflow-y: auto;
   }
+}
+
+.dm-bulk-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+/* Bulk-resolve modal (exact-match duplicates table) */
+
+.modal-dialog.modal-dm-bulk-resolve {
+  width: min(100%, 760px);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.dm-bulk-table-wrap {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.dm-bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dm-bulk-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dm-bulk-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.dm-bulk-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.dm-bulk-select-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.dm-bulk-detail {
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+}
+
+.dm-bulk-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
 }
 
 /* ------------------------------------------------------------------ */

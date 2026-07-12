@@ -32,7 +32,7 @@ import { attachBuilderPanelListeners } from './relationshipManager/builderPanel.
 import { attachTreeHierarchyListeners } from './relationshipManager/treeHierarchyPanel.js';
 import { attachRelationshipManagerKeyboard } from './relationshipManager/keyboardNav.js';
 import { undo as undoRelationship, redo as redoRelationship, canUndo as canUndoRelationship, canRedo as canRedoRelationship } from './relationshipManager/undoStack.js';
-import { createDuplicateManagerState } from './duplicateManager/state.js';
+import { createDuplicateManagerState, loadDismissed } from './duplicateManager/state.js';
 import { renderDuplicateManagerMode } from './duplicateManager/components.js';
 import { attachDuplicateListListeners } from './duplicateManager/duplicateListPanel.js';
 import { attachComparePanelListeners } from './duplicateManager/comparePanel.js';
@@ -50,6 +50,7 @@ import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slu
 import { icon } from './icons.js';
 import { api, fetchAttachment } from './api.js';
 import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
+import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
@@ -1479,6 +1480,19 @@ function renderDashboard() {
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
     Boolean(state.selectedTreeId);
+  const isRelationshipFinderView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    !isAdminView &&
+    !isMediaLibraryView &&
+    !isTimelineView &&
+    state.dashboardView === 'relationshipFinder' &&
+    Boolean(state.selectedTreeId);
   const isViewerView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1490,6 +1504,7 @@ function renderDashboard() {
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
+    !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
   // "Requests" and "Support" are each a single sidebar nav item covering two
@@ -1555,9 +1570,15 @@ function renderDashboard() {
                                     currentUserId: state.user?.id,
                                     treeName: state.selectedTreeName,
                                   })
-                                : isViewerView
-                                  ? renderTreeViewerMarkup()
-                                  : renderTreesLandingMarkup()
+                                : isRelationshipFinderView
+                                  ? renderRelationshipFinderPageContent({
+                                      data: state.selectedTreeData,
+                                      rootId: state.focusedMainId,
+                                      treeName: state.selectedTreeName,
+                                    })
+                                  : isViewerView
+                                    ? renderTreeViewerMarkup()
+                                    : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
@@ -1659,6 +1680,20 @@ function renderDashboard() {
     if (!state.timeline.loaded) {
       loadTimelinePage(state.timeline, { api, treeId: state.selectedTreeId }, render);
     }
+    return;
+  }
+
+  if (isRelationshipFinderView) {
+    attachRelationshipFinderPageListeners(
+      () => {
+        state.dashboardView = 'trees';
+        render();
+      },
+      () => {
+        clearSelectedTreeView();
+        render();
+      }
+    );
     return;
   }
 
@@ -4026,6 +4061,10 @@ function setupViewModeToggle() {
     state.dashboardView = 'timeline';
     render();
   });
+  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => {
+    state.dashboardView = 'relationshipFinder';
+    render();
+  });
   document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
 
   syncModeButtons();
@@ -5463,6 +5502,8 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   state.defaultMainId = state.focusedMainId;
   state.relationshipBuilder = createRelationshipBuilderState();
   state.relationshipManager = createRelationshipManagerState();
+  state.duplicateManager = createDuplicateManagerState();
+  state.duplicateManager.dismissed = loadDismissed(treeId);
   setSidebarOpen(false);
   render();
 }
@@ -5623,8 +5664,18 @@ function renderDuplicateManagerViewMode() {
   state.editor = null;
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
 
+  // Selecting a row (or any other action here) redraws the whole view via
+  // innerHTML, which would otherwise reset #dm-pair-list's scrollTop to 0 on
+  // every click - save/restore it across the swap so scanning down a long
+  // candidate list doesn't keep jumping back to the top. #dm-pair-list (not
+  // its #dm-pair-list-wrap parent) is the actual overflow-y: auto element.
+  const prevScrollTop = document.querySelector('#dm-pair-list')?.scrollTop ?? 0;
+
   const container = document.querySelector('#FamilyChart');
   container.innerHTML = renderDuplicateManagerMode(state.duplicateManager, state.selectedTreeData, { canEdit });
+
+  const pairList = document.querySelector('#dm-pair-list');
+  if (pairList) pairList.scrollTop = prevScrollTop;
 
   attachDuplicateListListeners(state, renderDuplicateManagerViewMode);
   if (canEdit) {
