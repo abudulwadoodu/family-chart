@@ -424,3 +424,75 @@ describe('tree settings (email auto-visibility)', () => {
     expect(getRes.body.tree.email_auto_visibility).toBe(true);
   });
 });
+
+describe('PATCH /api/trees/:id/status (owner self-service disable/enable)', () => {
+  it('lets the owner disable and re-enable their own tree', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const editor = await asUser('editor-sub', 'editor@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .post(`/api/trees/${treeId}/share`)
+      .set('Authorization', owner)
+      .send({ email: 'editor@example.com', role: 'editor' });
+
+    const disableRes = await request(app)
+      .patch(`/api/trees/${treeId}/status`)
+      .set('Authorization', owner)
+      .send({ status: 'disabled' });
+    expect(disableRes.status).toBe(200);
+    expect(disableRes.body.tree.status).toBe('disabled');
+
+    // Every role, owner included, is now blocked from the tree itself...
+    expect((await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner)).status).toBe(403);
+    expect((await request(app).get(`/api/trees/${treeId}`).set('Authorization', editor)).status).toBe(403);
+
+    // ...but the owner can still reach the status route to re-enable it, since
+    // it deliberately doesn't use requireTreeRole (see trees.js's comment).
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/status`)
+      .set('Authorization', owner)
+      .send({ status: 'active' });
+    expect(enableRes.status).toBe(200);
+    expect(enableRes.body.tree.status).toBe('active');
+
+    expect((await request(app).get(`/api/trees/${treeId}`).set('Authorization', owner)).status).toBe(200);
+  });
+
+  it('blocks a non-owner (editor) from changing tree status', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const editor = await asUser('editor-sub', 'editor@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    await request(app)
+      .post(`/api/trees/${treeId}/share`)
+      .set('Authorization', owner)
+      .send({ email: 'editor@example.com', role: 'editor' });
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/status`)
+      .set('Authorization', editor)
+      .send({ status: 'disabled' });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects an invalid status value', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' });
+
+    const res = await request(app)
+      .patch(`/api/trees/${createRes.body.id}/status`)
+      .set('Authorization', owner)
+      .send({ status: 'bogus' });
+    expect(res.status).toBe(400);
+  });
+
+  it('404s for a tree that does not exist', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const res = await request(app)
+      .patch('/api/trees/999999/status')
+      .set('Authorization', owner)
+      .send({ status: 'disabled' });
+    expect(res.status).toBe(404);
+  });
+});

@@ -99,11 +99,69 @@ describe('GET /api/admin/trees/:id/data', () => {
   });
 });
 
-describe('no write routes exist for admin trees', () => {
-  it('has no POST/PATCH/DELETE handlers mounted', async () => {
+describe('admin trees stay read-only except for status', () => {
+  it('has no POST/PATCH(bare id)/DELETE handlers mounted', async () => {
     const admin = await asAdmin();
     expect((await request(app).post('/api/admin/trees').set('Authorization', admin)).status).toBe(404);
     expect((await request(app).patch('/api/admin/trees/1').set('Authorization', admin)).status).toBe(404);
     expect((await request(app).delete('/api/admin/trees/1').set('Authorization', admin)).status).toBe(404);
+  });
+});
+
+describe('PATCH /api/admin/trees/:id/status', () => {
+  it('disables and re-enables a tree', async () => {
+    const user = await asUser('user-a', 'a@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', user).send({ name: 'Smith Family' });
+    const treeId = created.body.id;
+    const admin = await asAdmin();
+
+    const disableRes = await request(app)
+      .patch(`/api/admin/trees/${treeId}/status`)
+      .set('Authorization', admin)
+      .send({ status: 'disabled' });
+    expect(disableRes.status).toBe(200);
+    expect(disableRes.body.tree.status).toBe('disabled');
+
+    const blockedRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', user);
+    expect(blockedRes.status).toBe(403);
+
+    const enableRes = await request(app)
+      .patch(`/api/admin/trees/${treeId}/status`)
+      .set('Authorization', admin)
+      .send({ status: 'active' });
+    expect(enableRes.status).toBe(200);
+    expect(enableRes.body.tree.status).toBe('active');
+
+    const allowedRes = await request(app).get(`/api/trees/${treeId}`).set('Authorization', user);
+    expect(allowedRes.status).toBe(200);
+  });
+
+  it('rejects an invalid status value', async () => {
+    const user = await asUser('user-a', 'a@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', user).send({ name: 'Smith Family' });
+    const admin = await asAdmin();
+
+    const res = await request(app)
+      .patch(`/api/admin/trees/${created.body.id}/status`)
+      .set('Authorization', admin)
+      .send({ status: 'bogus' });
+    expect(res.status).toBe(400);
+  });
+
+  it('404s for an unknown tree', async () => {
+    const admin = await asAdmin();
+    const res = await request(app).patch('/api/admin/trees/999999/status').set('Authorization', admin).send({ status: 'disabled' });
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects non-admins', async () => {
+    const user = await asUser('user-a', 'a@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', user).send({ name: 'Smith Family' });
+
+    const res = await request(app)
+      .patch(`/api/admin/trees/${created.body.id}/status`)
+      .set('Authorization', user)
+      .send({ status: 'disabled' });
+    expect(res.status).toBe(403);
   });
 });

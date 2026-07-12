@@ -3,14 +3,19 @@ import express from 'express';
 import { query } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { requireRole } from '../middleware/requireRole.js';
 import { listMembersForAdmin } from '../models/memberModel.js';
+import { recordAuditLog, AUDIT_ACTIONS } from '../services/auditLog.js';
 
 export const adminTreesRouter = express.Router();
 
 adminTreesRouter.use(requireAuth, requireAdmin);
 
-// Every route here is read-only by design: admins may inspect trees for support
-// and moderation purposes, but must never modify tree data through this module.
+// Every route here is read-only with one deliberate exception: PATCH /:id/status
+// below, which only flips the moderation status flag (mirrors users.status) and
+// never touches family_data. Admins may inspect trees for support and moderation
+// purposes, and may suspend one in the same sense a user account is suspended,
+// but tree contents themselves cannot be modified through this module.
 
 const SORTABLE = {
   created_at: 't.created_at',
@@ -51,7 +56,7 @@ adminTreesRouter.get('/', async (req, res, next) => {
     const { limit, offset, page: safePage, pageSize: safePageSize } = resolvePagination(page, pageSize);
     const listParams = [...params, limit, offset];
     const { rows: trees } = await query(
-      `SELECT t.id, t.name, t.owner_id, t.created_at, owner.email AS owner_email,
+      `SELECT t.id, t.name, t.owner_id, t.created_at, t.status, owner.email AS owner_email,
               COALESCE(fd.updated_at, t.created_at) AS updated_at,
               COALESCE(jsonb_array_length(fd.json_data), 0) AS member_count,
               COALESCE(LENGTH(fd.json_data::text), 0) AS storage_bytes,
@@ -81,7 +86,7 @@ adminTreesRouter.get('/:id', async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
     const { rows: treeRows } = await query(
-      `SELECT t.id, t.name, t.owner_id, t.created_at, owner.email AS owner_email,
+      `SELECT t.id, t.name, t.owner_id, t.created_at, t.status, owner.email AS owner_email,
               COALESCE(fd.updated_at, t.created_at) AS updated_at,
               COALESCE(jsonb_array_length(fd.json_data), 0) AS member_count,
               COALESCE(LENGTH(fd.json_data::text), 0) AS storage_bytes
@@ -102,6 +107,34 @@ adminTreesRouter.get('/:id', async (req, res, next) => {
     );
 
     return res.json({ tree, collaborators });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// The one write route in this router - flips the moderation status flag only
+// (mirrors PATCH /api/admin/users/:id/status). Gated to the same admin roles
+// as user suspend for consistency; never touches family_data.
+adminTreesRouter.patch('/:id/status', requireRole('super_admin', 'support_admin'), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { status } = req.body || {};
+    if (!['active', 'disabled'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+    const { rows } = await query('UPDATE trees SET status = $1 WHERE id = $2 RETURNING id, name, status', [
+      status,
+      treeId,
+    ]);
+    const tree = rows[0];
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    await recordAuditLog(req, {
+      action: status === 'disabled' ? AUDIT_ACTIONS.TREE_SUSPENDED : AUDIT_ACTIONS.TREE_ACTIVATED,
+      targetType: 'tree',
+      targetId: treeId,
+      details: { name: tree.name },
+    });
+    return res.json({ ok: true, tree });
   } catch (error) {
     return next(error);
   }
