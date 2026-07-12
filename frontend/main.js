@@ -48,7 +48,7 @@ import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
-import { api } from './api.js';
+import { api, fetchAttachment } from './api.js';
 import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
@@ -321,6 +321,14 @@ const state = {
     error: '',
     success: '',
     enrollment: null, // { secret, uri, qrDataUrl }
+  },
+  // Private Vault: instant JSONB snapshots of trees the user owns. Scoped to
+  // ownership only (never editor/viewer access) - see backend/models/vaultModel.js.
+  vault: {
+    snapshots: [],
+    loading: false,
+    loaded: false,
+    creatingTreeId: null,
   },
   // "My Support Tickets" (user-facing) list + the shared ticket detail view.
   support: {
@@ -1685,6 +1693,7 @@ function attachShellListeners() {
     setSidebarOpen(false);
     render();
     loadMfaStatus();
+    loadVaultSnapshots();
   });
   document.querySelector('#nav-support-btn').addEventListener('click', () => {
     navigateToDashboardView('contact');
@@ -2315,6 +2324,9 @@ function handleTreeCardAction(action, treeId) {
   }
   if (action === 'share') {
     return openShareModal(treeId);
+  }
+  if (action === 'vault-snapshot') {
+    return handleCreateVaultSnapshotForTree(treeId);
   }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
@@ -3058,6 +3070,7 @@ function setupFocusMode() {
 
 function handleViewerSettingsAction(action) {
   if (action === 'rename') return openRenameTreeModal();
+  if (action === 'vault-snapshot') return handleCreateVaultSnapshotForTree(state.selectedTreeId);
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
   if (action === 'download-csv-template-blank') return handleDownloadBlankCsvTemplate();
   if (action === 'download-csv-template-sample') return handleDownloadSampleCsvTemplate();
@@ -4173,6 +4186,7 @@ function renderSecuritySettingsMarkup() {
       </div>
     </header>
     <section class="security-panel">${body}</section>
+    <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
     <section class="security-panel danger-zone">
       <h2 class="danger-zone-title">Delete Account</h2>
       <p class="muted">Permanently delete your account and remove your personal data. This action cannot be undone.</p>
@@ -4204,6 +4218,156 @@ function attachSecuritySettingsListeners() {
       onConfirm: handleDisableMfa,
     });
   });
+
+  attachVaultDrawerListeners();
+}
+
+// ---------------------------------------------------------------------------
+// Private Vault: instant JSONB snapshots of trees the user owns.
+//
+// Deliberately scoped to ownership only (backend/models/vaultModel.js -
+// createSnapshotForTree checks trees.owner_id, not tree_permissions
+// membership) - an editor/viewer on someone else's tree can never clone that
+// owner's data into their own permanent archive.
+// ---------------------------------------------------------------------------
+
+function renderVaultDrawerMarkup() {
+  const vault = state.vault;
+  const ownedTrees = state.trees.filter((tree) => tree.role === 'owner');
+
+  const snapshotRows = vault.snapshots.length
+    ? vault.snapshots
+        .map(
+          (snapshot) => `
+      <li class="vault-snapshot-row" data-snapshot-id="${snapshot.id}">
+        <div class="vault-snapshot-info">
+          <span class="vault-snapshot-name">${escapeHtml(snapshot.archiveName)}</span>
+          <span class="muted vault-snapshot-date">Saved on ${new Date(snapshot.createdAt).toLocaleString()}</span>
+        </div>
+        <div class="vault-snapshot-actions row">
+          <button type="button" class="btn-secondary vault-download-gedcom-btn" data-snapshot-id="${snapshot.id}">${icon('download')}<span>Download GEDCOM</span></button>
+          <button type="button" class="icon-btn vault-delete-snapshot-btn" data-snapshot-id="${snapshot.id}" aria-label="Delete archive">${icon('trash')}</button>
+        </div>
+      </li>`
+        )
+        .join('')
+    : `<p class="muted">No vault snapshots yet. Create one below to keep an instant private backup of a tree you own.</p>`;
+
+  const createControls = ownedTrees.length
+    ? `
+      <div class="vault-create-row row">
+        <select id="vault-create-tree-select">
+          ${ownedTrees.map((tree) => `<option value="${tree.id}">${escapeHtml(tree.name)}</option>`).join('')}
+        </select>
+        <button type="button" id="vault-create-snapshot-btn" class="btn btn-primary" ${vault.creatingTreeId ? 'disabled' : ''}>
+          ${icon('save')}<span>${vault.creatingTreeId ? 'Saving...' : 'Create Snapshot'}</span>
+        </button>
+      </div>`
+    : `<p class="muted">You don't own any trees yet, so there's nothing to snapshot.</p>`;
+
+  return `
+    <h2>${icon('lock')}<span>Private Vault</span></h2>
+    <p class="muted">Instant private backups of trees you own, stored separately from the live tree. Each snapshot can also be downloaded as a GEDCOM file.</p>
+    ${createControls}
+    <ul class="vault-snapshot-list">${vault.loading ? '<p class="muted">Loading archives...</p>' : snapshotRows}</ul>
+  `;
+}
+
+function attachVaultDrawerListeners() {
+  document.querySelector('#vault-create-snapshot-btn')?.addEventListener('click', handleCreateVaultSnapshot);
+
+  document.querySelectorAll('.vault-download-gedcom-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDownloadVaultSnapshotGedcom(Number(btn.dataset.snapshotId)));
+  });
+
+  document.querySelectorAll('.vault-delete-snapshot-btn').forEach((btn) => {
+    const snapshotId = Number(btn.dataset.snapshotId);
+    btn.addEventListener('click', () => {
+      showConfirmDialog({
+        title: 'Delete Archive',
+        message: 'Are you sure you want to delete this vault snapshot? This cannot be undone.',
+        confirmLabel: 'Delete',
+        onConfirm: () => handleDeleteVaultSnapshot(snapshotId),
+      });
+    });
+  });
+}
+
+async function loadVaultSnapshots() {
+  state.vault.loading = true;
+  render();
+  try {
+    const { snapshots } = await api('/api/vault/snapshots');
+    state.vault.snapshots = snapshots;
+  } catch (error) {
+    showToast(error.message || 'Could not load vault snapshots.', { type: 'error' });
+  } finally {
+    state.vault.loading = false;
+    state.vault.loaded = true;
+    render();
+  }
+}
+
+async function handleCreateVaultSnapshot() {
+  const select = document.querySelector('#vault-create-tree-select');
+  const treeId = Number(select?.value);
+  if (!treeId) return;
+
+  const tree = state.trees.find((t) => t.id === treeId);
+  state.vault.creatingTreeId = treeId;
+  render();
+  try {
+    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ archiveName: tree?.name || '' }),
+    });
+    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
+    showToast('Snapshot saved to your vault.');
+  } catch (error) {
+    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
+  } finally {
+    state.vault.creatingTreeId = null;
+    render();
+  }
+}
+
+// Entry point for the "Save to Vault" action in the tree-card menu and the
+// viewer's settings menu - unlike handleCreateVaultSnapshot (vault drawer's
+// own tree picker), the tree is already known from context here.
+async function handleCreateVaultSnapshotForTree(treeId) {
+  const tree = state.trees.find((t) => t.id === treeId);
+  const archiveName = tree?.name || state.selectedTreeName || '';
+  try {
+    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ archiveName }),
+    });
+    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
+    state.vault.loaded = true;
+    showToast('Snapshot saved to your vault.');
+  } catch (error) {
+    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
+  }
+}
+
+async function handleDownloadVaultSnapshotGedcom(snapshotId) {
+  try {
+    const { blob, filename } = await fetchAttachment(`/api/vault/snapshots/${snapshotId}/export/gedcom`);
+    downloadBlob(blob, filename);
+  } catch (error) {
+    showToast(error.message || 'Could not download GEDCOM file.', { type: 'error' });
+  }
+}
+
+async function handleDeleteVaultSnapshot(snapshotId) {
+  try {
+    await api(`/api/vault/snapshots/${snapshotId}`, { method: 'DELETE' });
+    state.vault.snapshots = state.vault.snapshots.filter((snapshot) => snapshot.id !== snapshotId);
+    render();
+    showToast('Archive deleted.');
+  } catch (error) {
+    showToast(error.message || 'Could not delete archive.', { type: 'error' });
+  }
 }
 
 async function loadMfaStatus() {

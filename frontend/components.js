@@ -542,6 +542,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
     items.unshift({ action: 'share', label: 'Share', icon: 'share' });
     items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
+    items.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
   }
 
@@ -656,6 +657,7 @@ export function renderTreeViewerHeader({ treeName, role }) {
     settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
   }
   if (isOwner) {
+    settingsItems.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
     settingsItems.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
   }
 
