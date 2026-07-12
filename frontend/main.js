@@ -49,6 +49,7 @@ import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slu
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
@@ -1393,6 +1394,19 @@ function renderDashboard() {
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
     Boolean(state.selectedTreeId);
+  const isRelationshipFinderView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    !isAdminView &&
+    !isMediaLibraryView &&
+    !isTimelineView &&
+    state.dashboardView === 'relationshipFinder' &&
+    Boolean(state.selectedTreeId);
   const isViewerView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1404,6 +1418,7 @@ function renderDashboard() {
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
+    !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
   // "Requests" and "Support" are each a single sidebar nav item covering two
@@ -1469,9 +1484,15 @@ function renderDashboard() {
                                     currentUserId: state.user?.id,
                                     treeName: state.selectedTreeName,
                                   })
-                                : isViewerView
-                                  ? renderTreeViewerMarkup()
-                                  : renderTreesLandingMarkup()
+                                : isRelationshipFinderView
+                                  ? renderRelationshipFinderPageContent({
+                                      data: state.selectedTreeData,
+                                      rootId: state.focusedMainId,
+                                      treeName: state.selectedTreeName,
+                                    })
+                                  : isViewerView
+                                    ? renderTreeViewerMarkup()
+                                    : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
@@ -1573,6 +1594,20 @@ function renderDashboard() {
     if (!state.timeline.loaded) {
       loadTimelinePage(state.timeline, { api, treeId: state.selectedTreeId }, render);
     }
+    return;
+  }
+
+  if (isRelationshipFinderView) {
+    attachRelationshipFinderPageListeners(
+      () => {
+        state.dashboardView = 'trees';
+        render();
+      },
+      () => {
+        clearSelectedTreeView();
+        render();
+      }
+    );
     return;
   }
 
@@ -3705,6 +3740,10 @@ function setupViewModeToggle() {
   document.querySelector('#timeline-btn')?.addEventListener('click', () => {
     state.timeline = createTimelinePageState();
     state.dashboardView = 'timeline';
+    render();
+  });
+  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => {
+    state.dashboardView = 'relationshipFinder';
     render();
   });
 
