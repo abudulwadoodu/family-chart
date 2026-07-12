@@ -18,6 +18,7 @@ vi.mock('aws-jwt-verify', () => ({
 }));
 
 const { app } = await import('../app.js');
+const { query } = await import('../db/index.js');
 
 function authHeader(sub, email) {
   return `Bearer ${sub}::${email}`;
@@ -30,6 +31,14 @@ async function asUser(sub, email) {
 
 async function asAdmin() {
   return asUser('admin-sub', 'admin@example.com');
+}
+
+async function asSupportAdmin() {
+  const auth = await asUser('support-admin-sub', 'support-admin@example.com');
+  await query("UPDATE users SET is_admin = true, admin_role = 'support_admin' WHERE email = $1", [
+    'support-admin@example.com',
+  ]);
+  return auth;
 }
 
 beforeEach(async () => {
@@ -163,5 +172,102 @@ describe('PATCH /api/admin/trees/:id/status', () => {
       .set('Authorization', user)
       .send({ status: 'disabled' });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('access overrides', () => {
+  it('grants, lists, and revokes an override on a tree', async () => {
+    const owner = await asUser('owner-a', 'owner@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Smith Family' });
+    const treeId = created.body.id;
+    const grantee = await asUser('grantee-a', 'grantee@example.com');
+    const admin = await asAdmin();
+
+    const emptyList = await request(app).get(`/api/admin/trees/${treeId}/access-overrides`).set('Authorization', admin);
+    expect(emptyList.status).toBe(200);
+    expect(emptyList.body.overrides).toEqual([]);
+
+    const grantRes = await request(app)
+      .post(`/api/admin/trees/${treeId}/access-overrides`)
+      .set('Authorization', admin)
+      .send({ email: 'grantee@example.com', permissionLevel: 'read_write' });
+    expect(grantRes.status).toBe(201);
+    expect(grantRes.body.override.user_email).toBe('grantee@example.com');
+    expect(grantRes.body.override.permission_level).toBe('read_write');
+
+    const listRes = await request(app).get(`/api/admin/trees/${treeId}/access-overrides`).set('Authorization', admin);
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.overrides).toHaveLength(1);
+    expect(listRes.body.overrides[0].granted_by_email).toBe('admin@example.com');
+
+    const granteeUserId = grantRes.body.override.user_id;
+    const revokeRes = await request(app)
+      .delete(`/api/admin/trees/${treeId}/access-overrides/${granteeUserId}`)
+      .set('Authorization', admin);
+    expect(revokeRes.status).toBe(200);
+
+    const afterRevoke = await request(app).get(`/api/admin/trees/${treeId}/access-overrides`).set('Authorization', admin);
+    expect(afterRevoke.body.overrides).toEqual([]);
+  });
+
+  it('404s granting an override to an email with no account', async () => {
+    const owner = await asUser('owner-a', 'owner@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Smith Family' });
+    const admin = await asAdmin();
+
+    const res = await request(app)
+      .post(`/api/admin/trees/${created.body.id}/access-overrides`)
+      .set('Authorization', admin)
+      .send({ email: 'nobody@example.com', permissionLevel: 'read_only' });
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects an invalid permission level', async () => {
+    const owner = await asUser('owner-a', 'owner@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Smith Family' });
+    const admin = await asAdmin();
+
+    const res = await request(app)
+      .post(`/api/admin/trees/${created.body.id}/access-overrides`)
+      .set('Authorization', admin)
+      .send({ email: 'owner@example.com', permissionLevel: 'bogus' });
+    expect(res.status).toBe(400);
+  });
+
+  it('restricts granting and revoking to super_admin, not support_admin', async () => {
+    const owner = await asUser('owner-a', 'owner@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Smith Family' });
+    const treeId = created.body.id;
+    const supportAdmin = await asSupportAdmin();
+
+    const grantRes = await request(app)
+      .post(`/api/admin/trees/${treeId}/access-overrides`)
+      .set('Authorization', supportAdmin)
+      .send({ email: 'owner@example.com', permissionLevel: 'read_only' });
+    expect(grantRes.status).toBe(403);
+
+    const revokeRes = await request(app).delete(`/api/admin/trees/${treeId}/access-overrides/1`).set('Authorization', supportAdmin);
+    expect(revokeRes.status).toBe(403);
+
+    // support_admin can still read the (empty) list.
+    const listRes = await request(app).get(`/api/admin/trees/${treeId}/access-overrides`).set('Authorization', supportAdmin);
+    expect(listRes.status).toBe(200);
+  });
+
+  it('granting an override does not add a tree_permissions row - the two systems stay independent', async () => {
+    const owner = await asUser('owner-a', 'owner@example.com');
+    const created = await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Smith Family' });
+    const treeId = created.body.id;
+    await asUser('grantee-a', 'grantee@example.com');
+    const admin = await asAdmin();
+
+    await request(app)
+      .post(`/api/admin/trees/${treeId}/access-overrides`)
+      .set('Authorization', admin)
+      .send({ email: 'grantee@example.com', permissionLevel: 'read_write' });
+
+    const { rows: granteeRows } = await query('SELECT id FROM users WHERE email = $1', ['grantee@example.com']);
+    const { rows: permissionRows } = await query('SELECT user_id FROM tree_permissions WHERE tree_id = $1', [treeId]);
+    expect(permissionRows.map((r) => r.user_id)).not.toContain(granteeRows[0].id);
   });
 });

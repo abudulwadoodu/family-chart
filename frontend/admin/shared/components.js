@@ -23,11 +23,17 @@ export function renderAdminBreadcrumb({ crumbs, current }) {
 // Admin shell - sidebar-within-a-sidebar nav for the admin section, plus the
 // content slot. `user` decides which nav items are visible per role.
 // ---------------------------------------------------------------------------
+// Drill-in sections (e.g. clicking a row on the Users list opens
+// 'userDetail') aren't themselves nav items - map them back to the parent
+// nav id so that item stays highlighted while viewing the detail page.
+const SECTION_PARENT = { userDetail: 'users', treeDetail: 'trees', members: 'trees', ticketDetail: 'tickets' };
+
 export function renderAdminShellMarkup({ section, content, user }) {
+  const activeSection = SECTION_PARENT[section] || section;
   const navButtons = ADMIN_NAV_ITEMS.filter((item) => hasPermission(user, item.permission))
     .map(
       (item) => `
-    <button type="button" class="admin-nav-item ${section === item.id ? 'admin-nav-item-active' : ''}" data-admin-section="${item.id}">
+    <button type="button" class="admin-nav-item ${activeSection === item.id ? 'admin-nav-item-active' : ''}" data-admin-section="${item.id}">
       <span>${escapeHtml(item.label)}</span>
     </button>`
     )

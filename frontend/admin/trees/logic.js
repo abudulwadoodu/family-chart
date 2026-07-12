@@ -31,8 +31,11 @@ export function createTreesState() {
     selectedTreeId: null,
     selectedTree: null,
     selectedCollaborators: [],
+    selectedOverrides: [],
     selectedLoading: false,
     busy: false,
+    overridesBusy: false,
+    overrideFormError: null,
     viewerChart: null,
   };
 }
@@ -96,14 +99,57 @@ export async function loadTreeDetail(state, render, treeId) {
   state.admin.trees.selectedLoading = true;
   render();
   try {
-    const payload = await api(`/api/admin/trees/${treeId}`);
-    state.admin.trees.selectedTree = payload.tree;
-    state.admin.trees.selectedCollaborators = payload.collaborators;
+    const [treePayload, overridesPayload] = await Promise.all([
+      api(`/api/admin/trees/${treeId}`),
+      api(`/api/admin/trees/${treeId}/access-overrides`),
+    ]);
+    state.admin.trees.selectedTree = treePayload.tree;
+    state.admin.trees.selectedCollaborators = treePayload.collaborators;
+    state.admin.trees.selectedOverrides = overridesPayload.overrides;
   } catch (error) {
     showToast(error.message || 'Could not load this tree.', { type: 'error' });
     state.admin.section = 'trees';
   } finally {
     state.admin.trees.selectedLoading = false;
+    render();
+  }
+}
+
+async function reloadOverrides(state, treeId) {
+  const { overrides } = await api(`/api/admin/trees/${treeId}/access-overrides`);
+  state.admin.trees.selectedOverrides = overrides;
+}
+
+async function grantAccessOverride(state, render, treeId, { email, permissionLevel, expiresAt }) {
+  state.admin.trees.overridesBusy = true;
+  state.admin.trees.overrideFormError = null;
+  render();
+  try {
+    await api(`/api/admin/trees/${treeId}/access-overrides`, {
+      method: 'POST',
+      body: JSON.stringify({ email, permissionLevel, expiresAt: expiresAt || null }),
+    });
+    await reloadOverrides(state, treeId);
+    showToast('Access override granted.');
+  } catch (error) {
+    state.admin.trees.overrideFormError = error.message || 'Could not grant this override.';
+  } finally {
+    state.admin.trees.overridesBusy = false;
+    render();
+  }
+}
+
+async function revokeAccessOverride(state, render, treeId, userId) {
+  state.admin.trees.overridesBusy = true;
+  render();
+  try {
+    await api(`/api/admin/trees/${treeId}/access-overrides/${userId}`, { method: 'DELETE' });
+    await reloadOverrides(state, treeId);
+    showToast('Access override revoked.');
+  } catch (error) {
+    showToast(error.message || 'Could not revoke this override.', { type: 'error' });
+  } finally {
+    state.admin.trees.overridesBusy = false;
     render();
   }
 }
@@ -154,6 +200,29 @@ export function attachTreeDetailListeners(state, render, onBack) {
 
   document.querySelector('#admin-tree-enable-btn')?.addEventListener('click', () => {
     setTreeStatus(state, render, treeId, 'active');
+  });
+
+  document.querySelector('#admin-grant-override-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const email = form.email.value.trim();
+    const permissionLevel = form.permissionLevel.value;
+    const expiresAt = form.expiresAt.value;
+    grantAccessOverride(state, render, treeId, { email, permissionLevel, expiresAt }).then(() => {
+      if (!state.admin.trees.overrideFormError) form.reset();
+    });
+  });
+
+  document.querySelectorAll('[data-revoke-override-user-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const userId = Number(btn.dataset.revokeOverrideUserId);
+      showConfirmDialog({
+        title: 'Revoke access override',
+        message: 'This user will lose the extra access granted here. Their regular collaborator role (if any) is not affected. Continue?',
+        confirmLabel: 'Revoke',
+        onConfirm: () => revokeAccessOverride(state, render, treeId, userId),
+      });
+    });
   });
 
   document.querySelector('#admin-tree-view-btn')?.addEventListener('click', async (event) => {

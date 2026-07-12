@@ -5,6 +5,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { requireRole } from '../middleware/requireRole.js';
 import { listMembersForAdmin } from '../models/memberModel.js';
+import { findUserByEmail } from '../models/userModel.js';
+import { grantOverride, revokeOverride, listOverridesForTarget } from '../models/specialAccessModel.js';
 import { recordAuditLog, AUDIT_ACTIONS } from '../services/auditLog.js';
 
 export const adminTreesRouter = express.Router();
@@ -148,6 +150,86 @@ adminTreesRouter.get('/:id/data', async (req, res, next) => {
     const { rows } = await query('SELECT json_data FROM family_data WHERE tree_id = $1', [treeId]);
     if (!rows[0]) return res.status(404).json({ error: 'Tree data not found' });
     return res.json({ data: rows[0].json_data });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Object-level exceptions (special_access_overrides) scoped to this tree - lets an
+// admin grant one user read/write access to this specific tree without changing
+// their structural tree_permissions role. Read is available to any admin who can
+// view the tree; granting/revoking is a permission-bypass mechanism, so it's
+// restricted to super_admin only, unlike the support_admin-shared status toggle above.
+adminTreesRouter.get('/:id/access-overrides', async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const overrides = await listOverridesForTarget('tree', treeId);
+    return res.json({ overrides });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+adminTreesRouter.post('/:id/access-overrides', requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { email, permissionLevel, expiresAt } = req.body || {};
+
+    if (!email || typeof email !== 'string') return res.status(400).json({ error: 'Email is required' });
+    if (!['read_only', 'read_write'].includes(permissionLevel)) {
+      return res.status(400).json({ error: 'Invalid permission level' });
+    }
+    let normalizedExpiresAt = null;
+    if (expiresAt) {
+      const parsed = new Date(expiresAt);
+      if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid expiration date' });
+      normalizedExpiresAt = parsed.toISOString();
+    }
+
+    const { rows: treeRows } = await query('SELECT id, name FROM trees WHERE id = $1', [treeId]);
+    const tree = treeRows[0];
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    const user = await findUserByEmail(email.trim().toLowerCase());
+    if (!user) return res.status(404).json({ error: 'No user found with that email' });
+
+    const override = await grantOverride({
+      userId: user.id,
+      targetType: 'tree',
+      targetId: treeId,
+      permissionLevel,
+      grantedBy: req.user.id,
+      expiresAt: normalizedExpiresAt,
+    });
+
+    await recordAuditLog(req, {
+      action: AUDIT_ACTIONS.ACCESS_OVERRIDE_GRANTED,
+      targetType: 'tree',
+      targetId: treeId,
+      details: { treeName: tree.name, granteeEmail: user.email, permissionLevel, expiresAt: normalizedExpiresAt },
+    });
+
+    return res.status(201).json({ ok: true, override: { ...override, user_email: user.email } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+adminTreesRouter.delete('/:id/access-overrides/:userId', requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+
+    await revokeOverride(userId, 'tree', treeId);
+
+    await recordAuditLog(req, {
+      action: AUDIT_ACTIONS.ACCESS_OVERRIDE_REVOKED,
+      targetType: 'tree',
+      targetId: treeId,
+      details: { userId },
+    });
+
+    return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }

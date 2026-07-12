@@ -63,4 +63,26 @@ describe('GET /api/admin/audit-logs', () => {
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(0);
   });
+
+  it('surfaces the before/after diff and request metadata for a role change', async () => {
+    const admin = await asAdmin();
+    await asUser('user-a', 'a@example.com');
+    const { query } = await import('../db/index.js');
+    const { rows } = await query('SELECT id FROM users WHERE email = $1', ['a@example.com']);
+    const targetId = rows[0].id;
+
+    await request(app)
+      .patch(`/api/admin/users/${targetId}/role`)
+      .set('Authorization', admin)
+      .set('User-Agent', 'vitest-agent')
+      .send({ adminRole: 'support_admin' });
+
+    const res = await request(app).get('/api/admin/audit-logs?action=ROLE_UPDATE').set('Authorization', admin);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    const [log] = res.body.logs;
+    expect(log.old_values).toEqual({ adminRole: null });
+    expect(log.new_values).toEqual({ adminRole: 'support_admin' });
+    expect(log.user_agent).toBe('vitest-agent');
+  });
 });
