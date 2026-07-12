@@ -1154,9 +1154,13 @@ function renderAdminSectionContent() {
     return renderTreeDetailMarkup({
       tree: state.admin.trees.selectedTree,
       collaborators: state.admin.trees.selectedCollaborators,
+      overrides: state.admin.trees.selectedOverrides,
       backLabel: state.admin.trees.cameFromMembers ? 'Family Members' : 'Family Trees',
       busy: state.admin.trees.busy,
       canSuspend: hasPermission(state.user, 'trees:suspend'),
+      canManageOverrides: hasPermission(state.user, 'trees:manageOverrides'),
+      overridesBusy: state.admin.trees.overridesBusy,
+      overrideFormError: state.admin.trees.overrideFormError,
     });
   }
 

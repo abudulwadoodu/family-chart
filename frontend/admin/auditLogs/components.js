@@ -8,6 +8,8 @@ const ACTION_LABELS = {
   'user.role_changed': 'User role changed',
   'tree.suspended': 'Family tree disabled',
   'tree.activated': 'Family tree enabled',
+  'access_override.granted': 'Access override granted',
+  'access_override.revoked': 'Access override revoked',
   'ticket.updated': 'Ticket updated',
   'settings.changed': 'Settings changed',
 };

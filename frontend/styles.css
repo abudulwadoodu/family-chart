@@ -4031,6 +4031,7 @@ dialog.modal-overlay[open] {
 
 .share-form {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   margin-top: var(--sp-3);
@@ -4038,12 +4039,17 @@ dialog.modal-overlay[open] {
 
 .share-form input[type='email'] {
   flex: 1;
-  min-width: 0;
+  min-width: 160px;
 }
 
 .share-form select {
   width: auto;
   flex-shrink: 0;
+}
+
+.share-form input[type='date'] {
+  flex: 1;
+  min-width: 130px;
 }
 
 .member-list {
@@ -5402,9 +5408,31 @@ button.admin-stat-card {
   color: var(--text-secondary);
 }
 
+.badge-override-read_write {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.badge-override-read_only {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+}
+
+.admin-override-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.admin-override-row-expired {
+  opacity: 0.6;
+}
+
 .admin-detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
   gap: var(--sp-5);
   align-items: start;
 }
