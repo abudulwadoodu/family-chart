@@ -42,7 +42,11 @@ const isWindows = process.platform === 'win32';
 for (const port of ports) {
   try {
     if (isWindows) {
-      const output = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8' });
+      // No `-p tcp` filter: on some Windows netstat builds it silently drops
+      // IPv6 (TCP6) sockets, which is exactly what Vite binds to on
+      // localhost ([::1]) - the filtered form was missing the frontend
+      // port's listener entirely and only ever freeing the backend port.
+      const output = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8' });
       const pids = new Set();
       for (const line of output.split('\n')) {
         const parts = line.trim().split(/\s+/);
