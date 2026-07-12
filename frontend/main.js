@@ -48,7 +48,7 @@ import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
-import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
@@ -3610,6 +3610,11 @@ function renderChart() {
       .editTree()
       .setFields(['first name', 'last name', { id: 'birthday', type: 'date', label: 'birthday' }, 'location', 'email', 'notes', 'avatar'])
       .setEditFirst(true)
+      .setLinkExistingRelConfig({
+        title: 'Link to an existing member instead?',
+        select_placeholder: 'Select existing member',
+        linkRelLabel: (d) => getMemberLabel(d),
+      })
       .setOnFormCreation(({ cont, form_creator }) => {
         hydrateAvatarPreview(cont);
         // attachAvatarUpload needs the full datum (not just datum_id) to tag
@@ -3720,20 +3725,49 @@ function renderChart() {
       addRelativeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         closeCardMoreMenu();
-        const alreadyActiveForThisPerson =
-          state.editor.isAddingRelative() && state.editor.addRelativeInstance.datum?.id === d.data.id;
-        if (alreadyActiveForThisPerson) {
-          cancelAddRelative();
-          return;
-        }
-        cancelAddRelative();
-        state.chart.updateMainId(d.data.id);
-        state.editor.addRelativeInstance.activate(d.data);
+        activateAddRelative(d.data, { linkMode: false });
+      });
+
+      // Link existing member: activates the same placeholder-slot flow as
+      // "Add relative" (father/mother/spouse/son/daughter), but in link mode
+      // the placeholder cards read "Link Father"/"Link Mother"/etc (via
+      // setAddRelLabels below) and clicking one opens a form that shows
+      // *only* the "existing member" picker (wired via
+      // setLinkExistingRelConfig above) - the create-new name/birthday/etc
+      // fields are hidden entirely so linking can't be confused with
+      // creating a new person.
+      const linkExistingBtn = document.createElement('button');
+      linkExistingBtn.type = 'button';
+      linkExistingBtn.className = 'dropdown-item';
+      linkExistingBtn.innerHTML = `${f3.icons.linkSvgIcon()}<span>Link existing member</span>`;
+      linkExistingBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeCardMoreMenu();
+        activateAddRelative(d.data, { linkMode: true });
       });
 
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
+      menu.appendChild(linkExistingBtn);
       anchorEl.appendChild(menu);
+    }
+
+    const addRelLabelsDefault = { father: 'Add Father', mother: 'Add Mother', spouse: 'Add Spouse', son: 'Add Son', daughter: 'Add Daughter' };
+    const addRelLabelsLinkMode = { father: 'Link Father', mother: 'Link Mother', spouse: 'Link Spouse', son: 'Link Son', daughter: 'Link Daughter' };
+
+    function activateAddRelative(datum, { linkMode }) {
+      const alreadyActiveForThisPersonAndMode =
+        state.editor.isAddingRelative() &&
+        state.editor.addRelativeInstance.datum?.id === datum.id &&
+        state.editor.addRelativeInstance.link_mode === linkMode;
+      if (alreadyActiveForThisPersonAndMode) {
+        cancelAddRelative();
+        return;
+      }
+      cancelAddRelative();
+      state.chart.updateMainId(datum.id);
+      state.editor.setAddRelLabels(linkMode ? addRelLabelsLinkMode : addRelLabelsDefault);
+      state.editor.addRelativeInstance.activate(datum, { link_mode: linkMode });
     }
 
     // Plain card click opens the profile panel (view-first: setEditFirst(false)

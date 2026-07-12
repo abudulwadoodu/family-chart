@@ -15,6 +15,7 @@ export interface FormCreatorSetupProps {
   editFirst: boolean
   no_edit: boolean
   link_existing_rel_config?: {linkRelLabel: (d: Datum) => string, title?: string, select_placeholder?: string}
+  link_mode?: boolean
   onFormCreation: EditTree['onFormCreation']
   addRelative?: AddRelative
   removeRelative?: RemoveRelative
@@ -59,6 +60,7 @@ export interface NewRelFormCreator extends BaseFormCreator {
   title: string;
   new_rel: boolean;
   editable: boolean;
+  link_mode?: boolean;
 }
 
 export type FormCreator = EditDatumFormCreator | NewRelFormCreator;
