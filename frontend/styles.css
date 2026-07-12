@@ -3300,6 +3300,13 @@ button.secondary:active,
   font-size: 0.95rem;
 }
 
+#dm-pair-list-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .dm-pair-list {
   list-style: none;
   margin: 0;
