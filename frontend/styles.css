@@ -1978,6 +1978,20 @@ button.secondary:active,
   color: var(--danger);
 }
 
+.badge-status-disabled {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.tree-card-disabled {
+  opacity: 0.65;
+}
+
+.tree-card-disabled .tree-card-title {
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Dropdown menus                                                      */
 /* ------------------------------------------------------------------ */
@@ -3282,6 +3296,10 @@ button.secondary:active,
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   padding: var(--sp-4);
+}
+
+.tree-settings-danger-zone {
+  border-color: var(--danger-border);
 }
 
 .tree-settings-title {
@@ -5345,6 +5363,18 @@ button.admin-stat-card {
 }
 
 .badge-user-status-suspended {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.badge-tree-status-active {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.badge-tree-status-disabled {
   border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);

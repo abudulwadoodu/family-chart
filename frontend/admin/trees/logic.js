@@ -1,6 +1,6 @@
 import f3 from '../../../src/index.ts';
 import { api } from '../../api.js';
-import { showToast } from '../../ui.js';
+import { showToast, showConfirmDialog } from '../../ui.js';
 
 function debounce(fn, delay = 300) {
   let timer;
@@ -32,6 +32,7 @@ export function createTreesState() {
     selectedTree: null,
     selectedCollaborators: [],
     selectedLoading: false,
+    busy: false,
     viewerChart: null,
   };
 }
@@ -107,6 +108,21 @@ export async function loadTreeDetail(state, render, treeId) {
   }
 }
 
+async function setTreeStatus(state, render, treeId, status) {
+  state.admin.trees.busy = true;
+  render();
+  try {
+    const payload = await api(`/api/admin/trees/${treeId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.admin.trees.selectedTree = { ...state.admin.trees.selectedTree, status: payload.tree.status };
+    showToast(status === 'disabled' ? 'Family tree disabled.' : 'Family tree enabled.');
+  } catch (error) {
+    showToast(error.message || 'Could not update this tree.', { type: 'error' });
+  } finally {
+    state.admin.trees.busy = false;
+    render();
+  }
+}
+
 // `onBack()` lets the caller (main.js) decide which section to return to and
 // load its data, since a tree can be opened either from the Family Trees
 // list or the Family Members list - avoids this module importing the
@@ -125,6 +141,19 @@ export function attachTreeDetailListeners(state, render, onBack) {
     state.admin.section = 'trees';
     render();
     loadTrees(state, render);
+  });
+
+  document.querySelector('#admin-tree-disable-btn')?.addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Disable family tree',
+      message: 'The owner and all collaborators will lose access to this tree until it is re-enabled. Tree data is not affected. Continue?',
+      confirmLabel: 'Disable',
+      onConfirm: () => setTreeStatus(state, render, treeId, 'disabled'),
+    });
+  });
+
+  document.querySelector('#admin-tree-enable-btn')?.addEventListener('click', () => {
+    setTreeStatus(state, render, treeId, 'active');
   });
 
   document.querySelector('#admin-tree-view-btn')?.addEventListener('click', async (event) => {

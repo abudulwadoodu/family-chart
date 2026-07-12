@@ -85,7 +85,12 @@ function confirm({
       await onConfirm?.();
       settled = true;
       close();
-    } catch (_error) {
+    } catch (error) {
+      // onConfirm handlers are expected to catch and toast their own errors
+      // (see e.g. admin/users/logic.js's setStatus) - this is a last-resort
+      // net so an unexpected throw doesn't leave the dialog silently stuck
+      // with no explanation at all.
+      console.error('[appModal.confirm] onConfirm threw', error);
       setLoading(false);
     }
   });

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS trees (
   name TEXT NOT NULL,
   owner_id INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

@@ -522,12 +522,23 @@ function dropdownMenu({ id, items }) {
 
 export function renderTreeCard(tree, { renaming } = {}) {
   const menuId = `tree-${tree.id}`;
-  const items = [
-    { action: 'export-json', label: 'Export JSON', icon: 'download' },
-    { action: 'export-csv', label: 'Export CSV', icon: 'download' },
-    { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
-  ];
-  if (tree.role === 'owner') {
+  const isDisabled = tree.status === 'disabled';
+  // Every other card action (settings, rename, delete, exports) calls a
+  // requireTreeRole-gated route, which 403s for every role - including the
+  // owner - once a tree is disabled (see authorizeTree.js). "Enable tree"
+  // uses the owner-status route instead, which deliberately bypasses that
+  // middleware precisely so this is reachable; it's the one action that
+  // still works, so it's the only one offered here.
+  const items = isDisabled
+    ? tree.role === 'owner'
+      ? [{ action: 'enable-tree', label: 'Enable tree', icon: 'settings' }]
+      : []
+    : [
+        { action: 'export-json', label: 'Export JSON', icon: 'download' },
+        { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+        { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
+      ];
+  if (!isDisabled && tree.role === 'owner') {
     items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
@@ -548,12 +559,17 @@ export function renderTreeCard(tree, { renaming } = {}) {
   const updatedLabel = formatRelativeTime(tree.updated_at);
 
   return `
-    <article class="tree-card tree-card-clickable" data-tree-id="${tree.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
+    <article class="tree-card tree-card-clickable${isDisabled ? ' tree-card-disabled' : ''}" data-tree-id="${tree.id}" data-tree-status="${escapeHtml(tree.status || 'active')}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
       <div class="tree-card-top">
         <div class="tree-card-icon">${icon('trees')}</div>
         <div class="tree-card-menu-wrap">
+          ${
+            items.length
+              ? `
           <button type="button" class="icon-btn menu-trigger" data-menu-trigger="${menuId}" aria-label="Tree actions">${icon('kebab')}</button>
-          ${dropdownMenu({ id: menuId, items })}
+          ${dropdownMenu({ id: menuId, items })}`
+              : ''
+          }
         </div>
       </div>
       <div class="tree-card-body">
@@ -563,7 +579,8 @@ export function renderTreeCard(tree, { renaming } = {}) {
       </div>
       <div class="tree-card-foot">
         <span class="badge badge-role-${tree.role}">${ROLE_LABELS[tree.role] || tree.role}</span>
-        <button type="button" class="btn btn-secondary btn-sm tree-open-btn" data-tree-id="${tree.id}">Open</button>
+        ${isDisabled ? '<span class="badge badge-status-disabled">Disabled</span>' : ''}
+        <button type="button" class="btn btn-secondary btn-sm tree-open-btn" data-tree-id="${tree.id}" ${isDisabled ? 'disabled' : ''}>Open</button>
       </div>
     </article>
   `;

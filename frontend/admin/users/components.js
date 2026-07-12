@@ -75,8 +75,9 @@ export function renderUsersPageMarkup({ users, total, page, pageSize, search, st
 }
 
 export function renderUserDetailMarkup({ user, busy, canManageRoles, canDelete }) {
-  const treesRows = user.owned_trees.length
-    ? user.owned_trees
+  const ownedTrees = user.owned_trees || [];
+  const treesRows = ownedTrees.length
+    ? ownedTrees
         .map(
           (tree) => `
       <li class="admin-owned-tree-row">
@@ -112,7 +113,7 @@ export function renderUserDetailMarkup({ user, busy, canManageRoles, canDelete }
           <div><dt>Email verification</dt><dd>${icon('check')} Verified via Cognito</dd></div>
           <div><dt>Last login</dt><dd>${user.last_login_at ? escapeHtml(formatRelativeTime(user.last_login_at)) : 'Never'}</dd></div>
           <div><dt>Storage usage</dt><dd>${formatBytes(user.storage_bytes)}</dd></div>
-          <div><dt>Owned family trees</dt><dd>${user.owned_trees.length}</dd></div>
+          <div><dt>Owned family trees</dt><dd>${ownedTrees.length}</dd></div>
         </dl>
         <h2 class="contact-card-title">Owned Family Trees</h2>
         <ul class="admin-owned-tree-list">${treesRows}</ul>
