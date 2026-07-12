@@ -4245,6 +4245,7 @@ function renderVaultDrawerMarkup() {
           <span class="muted vault-snapshot-date">Saved on ${new Date(snapshot.createdAt).toLocaleString()}</span>
         </div>
         <div class="vault-snapshot-actions row">
+          <button type="button" class="btn-secondary vault-restore-snapshot-btn" data-snapshot-id="${snapshot.id}">${icon('upload')}<span>Restore</span></button>
           <button type="button" class="btn-secondary vault-download-gedcom-btn" data-snapshot-id="${snapshot.id}">${icon('download')}<span>Download GEDCOM</span></button>
           <button type="button" class="icon-btn vault-delete-snapshot-btn" data-snapshot-id="${snapshot.id}" aria-label="Delete archive">${icon('trash')}</button>
         </div>
@@ -4275,6 +4276,10 @@ function renderVaultDrawerMarkup() {
 
 function attachVaultDrawerListeners() {
   document.querySelector('#vault-create-snapshot-btn')?.addEventListener('click', handleCreateVaultSnapshot);
+
+  document.querySelectorAll('.vault-restore-snapshot-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openVaultRestoreModal(Number(btn.dataset.snapshotId)));
+  });
 
   document.querySelectorAll('.vault-download-gedcom-btn').forEach((btn) => {
     btn.addEventListener('click', () => handleDownloadVaultSnapshotGedcom(Number(btn.dataset.snapshotId)));
@@ -4368,6 +4373,139 @@ async function handleDeleteVaultSnapshot(snapshotId) {
   } catch (error) {
     showToast(error.message || 'Could not delete archive.', { type: 'error' });
   }
+}
+
+// Lets a snapshot be replayed either into a brand-new tree or over an
+// existing tree the user owns (only owned trees, mirroring the same
+// ownership-only guarantee createSnapshotForTree already enforces - see
+// backend/models/vaultModel.js's restoreSnapshotIntoTree). Deliberately a
+// small standalone modal rather than reusing openGedcomImportWizard: there's
+// no file to upload or validate here, the data's already a frozen, trusted
+// past snapshot.
+function openVaultRestoreModal(snapshotId) {
+  const snapshot = state.vault.snapshots.find((s) => s.id === snapshotId);
+  const ownedTrees = state.trees.filter((tree) => tree.role === 'owner');
+  const restoreState = {
+    mode: 'new',
+    newTreeName: snapshot?.archiveName || '',
+    targetTreeId: ownedTrees[0]?.id ?? null,
+    submitting: false,
+  };
+
+  const modal = showModal({ bodyHtml: '<p>Loading...</p>', className: 'modal-vault-restore' });
+  const renderBody = () => {
+    modal.setBody(vaultRestoreModalMarkup(restoreState, ownedTrees));
+    bindVaultRestoreModalListeners(modal, restoreState, ownedTrees, snapshotId, renderBody);
+  };
+  renderBody();
+}
+
+function vaultRestoreModalMarkup(restoreState, ownedTrees) {
+  return `
+    <button type="button" class="icon-btn modal-close" id="vault-restore-close-btn" aria-label="Close">${icon('close')}</button>
+    <h3>Restore Snapshot</h3>
+    <p class="modal-message">Restore this vault snapshot as a new tree, or replace an existing tree you own with it.</p>
+    <div class="wizard-option-group">
+      <label class="wizard-radio-row">
+        <input type="radio" name="vault-restore-mode" value="new" ${restoreState.mode === 'new' ? 'checked' : ''} />
+        <span>Restore as a new tree</span>
+      </label>
+      ${
+        restoreState.mode === 'new'
+          ? `<input type="text" id="vault-restore-new-name" placeholder="e.g. Smith Family Tree" value="${escapeHtml(restoreState.newTreeName)}" maxlength="120" />`
+          : ''
+      }
+      <label class="wizard-radio-row">
+        <input type="radio" name="vault-restore-mode" value="replace" ${restoreState.mode === 'replace' ? 'checked' : ''} ${ownedTrees.length ? '' : 'disabled'} />
+        <span>Replace an existing tree</span>
+      </label>
+      ${
+        restoreState.mode === 'replace'
+          ? `<select id="vault-restore-target-select">
+              ${ownedTrees.map((t) => `<option value="${t.id}" ${String(t.id) === String(restoreState.targetTreeId) ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+            <p class="modal-message wizard-tone-warning">This permanently replaces everything currently in that tree with this snapshot.</p>`
+          : ''
+      }
+      ${!ownedTrees.length ? '<p class="muted">You don\'t own any trees yet to replace.</p>' : ''}
+    </div>
+    <div class="modal-actions row">
+      <button type="button" class="btn-secondary" id="vault-restore-cancel-btn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="vault-restore-confirm-btn" ${restoreState.submitting ? 'disabled' : ''}>
+        ${restoreState.submitting ? 'Restoring...' : 'Restore'}
+      </button>
+    </div>
+  `;
+}
+
+function bindVaultRestoreModalListeners(modal, restoreState, ownedTrees, snapshotId, renderBody) {
+  const root = modal.root;
+
+  root.querySelector('#vault-restore-close-btn')?.addEventListener('click', modal.close);
+  root.querySelector('#vault-restore-cancel-btn')?.addEventListener('click', modal.close);
+
+  root.querySelectorAll('input[name="vault-restore-mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      restoreState.mode = radio.value;
+      renderBody();
+    });
+  });
+
+  root.querySelector('#vault-restore-new-name')?.addEventListener('input', (event) => {
+    restoreState.newTreeName = event.target.value;
+  });
+  root.querySelector('#vault-restore-target-select')?.addEventListener('change', (event) => {
+    restoreState.targetTreeId = event.target.value;
+  });
+
+  root.querySelector('#vault-restore-confirm-btn')?.addEventListener('click', async () => {
+    if (restoreState.mode === 'replace' && !restoreState.targetTreeId) {
+      showToast('Choose a tree to replace.', { type: 'error' });
+      return;
+    }
+
+    const runRestore = async () => {
+      restoreState.submitting = true;
+      renderBody();
+      try {
+        const body =
+          restoreState.mode === 'replace'
+            ? { mode: 'replace', treeId: Number(restoreState.targetTreeId) }
+            : { mode: 'new', treeName: restoreState.newTreeName.trim() };
+
+        const { tree } = await api(`/api/vault/snapshots/${snapshotId}/restore`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+
+        modal.close();
+        await loadTrees();
+        if (restoreState.mode === 'replace' && state.selectedTreeId === tree.id) {
+          await loadTree(tree.id);
+        }
+        showToast(
+          restoreState.mode === 'replace' ? `Replaced "${tree.name}" with this snapshot.` : `Restored as "${tree.name}".`
+        );
+      } catch (error) {
+        restoreState.submitting = false;
+        renderBody();
+        showToast(error.message || 'Could not restore snapshot.', { type: 'error' });
+      }
+    };
+
+    if (restoreState.mode === 'replace') {
+      const targetName = ownedTrees.find((t) => String(t.id) === String(restoreState.targetTreeId))?.name || 'this tree';
+      showConfirmDialog({
+        title: 'Replace Tree',
+        message: `Are you sure you want to replace "${targetName}" with this snapshot? Everything currently in that tree will be permanently overwritten.`,
+        confirmLabel: 'Replace',
+        onConfirm: runRestore,
+      });
+      return;
+    }
+
+    await runRestore();
+  });
 }
 
 async function loadMfaStatus() {

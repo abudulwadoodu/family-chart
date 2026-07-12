@@ -2,11 +2,14 @@ import express from 'express';
 
 import { requireAuth } from '../middleware/auth.js';
 import { requireTreeRole } from '../middleware/authorizeTree.js';
+import { isNonEmptyString, capitalizeFirst } from '../utils/validation.js';
 import {
   createSnapshotForTree,
   getSnapshotsForUser,
   getOwnSnapshotById,
   deleteSnapshot,
+  restoreSnapshotAsNewTree,
+  restoreSnapshotIntoTree,
   VaultError,
 } from '../models/vaultModel.js';
 import { writeGedcom } from '../utils/gedcom/writer.js';
@@ -88,6 +91,45 @@ vaultRouter.get('/snapshots/:id/export/gedcom', async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     return res.send(gedcom);
   } catch (error) {
+    return next(error);
+  }
+});
+
+// Restores a snapshot's frozen family_data either into a brand-new tree
+// (mode: 'new') or by overwriting an existing tree the user owns (mode:
+// 'replace'). Both paths re-check archive/tree ownership inside
+// vaultModel.js itself (not just here), matching the same
+// "checked in the model, not just the route" guarantee createSnapshotForTree
+// already relies on.
+vaultRouter.post('/snapshots/:id/restore', async (req, res, next) => {
+  try {
+    const snapshotId = Number(req.params.id);
+    const mode = req.body?.mode === 'replace' ? 'replace' : 'new';
+
+    if (mode === 'replace') {
+      const treeId = Number(req.body?.treeId);
+      if (!treeId) return res.status(400).json({ error: 'treeId is required to replace an existing tree' });
+
+      const tree = await restoreSnapshotIntoTree(snapshotId, req.user.id, treeId);
+      return res.json({ ok: true, tree });
+    }
+
+    const rawName = typeof req.body?.treeName === 'string' ? req.body.treeName.trim() : '';
+    const treeName = isNonEmptyString(rawName, 120) ? capitalizeFirst(rawName) : '';
+
+    const tree = await restoreSnapshotAsNewTree(snapshotId, req.user.id, treeName);
+    return res.status(201).json({ ok: true, tree });
+  } catch (error) {
+    if (error instanceof VaultError) {
+      const status = error.code === 'ARCHIVE_NOT_FOUND' || error.code === 'TREE_NOT_FOUND' ? 404 : 403;
+      const message =
+        error.code === 'ARCHIVE_NOT_FOUND'
+          ? 'Archive not found'
+          : error.code === 'TREE_NOT_FOUND'
+            ? 'Tree not found'
+            : 'You can only restore snapshots into trees you own';
+      return res.status(status).json({ error: message });
+    }
     return next(error);
   }
 });

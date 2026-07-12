@@ -127,6 +127,98 @@ describe('GET /api/vault/snapshots/:id/export/gedcom', () => {
   });
 });
 
+describe('POST /api/vault/snapshots/:id/restore', () => {
+  it('restores a snapshot as a brand-new tree owned by the same user', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    const snapshotRes = await request(app)
+      .post(`/api/vault/trees/${treeId}/snapshots`)
+      .set('Authorization', owner.header)
+      .send({ archiveName: 'Family A Backup' });
+    const snapshotId = snapshotRes.body.snapshot.id;
+
+    const res = await request(app)
+      .post(`/api/vault/snapshots/${snapshotId}/restore`)
+      .set('Authorization', owner.header)
+      .send({ mode: 'new', treeName: 'Restored Family A' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.tree).toMatchObject({ name: 'Restored Family A' });
+    expect(res.body.tree.id).not.toBe(treeId);
+
+    const treesList = await request(app).get('/api/trees').set('Authorization', owner.header);
+    expect(treesList.body.trees).toHaveLength(2);
+  });
+
+  it('replaces an existing tree the user owns with the snapshot data', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const sourceRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Source' });
+    const sourceTreeId = sourceRes.body.id;
+    const snapshotRes = await request(app)
+      .post(`/api/vault/trees/${sourceTreeId}/snapshots`)
+      .set('Authorization', owner.header)
+      .send({});
+    const snapshotId = snapshotRes.body.snapshot.id;
+
+    const targetRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Target' });
+    const targetTreeId = targetRes.body.id;
+
+    const res = await request(app)
+      .post(`/api/vault/snapshots/${snapshotId}/restore`)
+      .set('Authorization', owner.header)
+      .send({ mode: 'replace', treeId: targetTreeId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.tree).toMatchObject({ id: targetTreeId, name: 'Target' });
+
+    const targetTree = await request(app).get(`/api/trees/${targetTreeId}`).set('Authorization', owner.header);
+    const sourceTree = await request(app).get(`/api/trees/${sourceTreeId}`).set('Authorization', owner.header);
+    expect(targetTree.body.data).toEqual(sourceTree.body.data);
+  });
+
+  it('blocks replacing a tree the user does not own', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const other = await asUser('other-sub', 'other@example.com');
+    const sourceRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Source' });
+    const sourceTreeId = sourceRes.body.id;
+    const snapshotRes = await request(app)
+      .post(`/api/vault/trees/${sourceTreeId}/snapshots`)
+      .set('Authorization', owner.header)
+      .send({});
+    const snapshotId = snapshotRes.body.snapshot.id;
+
+    const otherTreeRes = await request(app).post('/api/trees').set('Authorization', other.header).send({ name: 'Other' });
+    const otherTreeId = otherTreeRes.body.id;
+
+    const res = await request(app)
+      .post(`/api/vault/snapshots/${snapshotId}/restore`)
+      .set('Authorization', owner.header)
+      .send({ mode: 'replace', treeId: otherTreeId });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('blocks restoring a snapshot that belongs to another user', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const other = await asUser('other-sub', 'other@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+    const snapshotRes = await request(app)
+      .post(`/api/vault/trees/${treeId}/snapshots`)
+      .set('Authorization', owner.header)
+      .send({});
+    const snapshotId = snapshotRes.body.snapshot.id;
+
+    const res = await request(app)
+      .post(`/api/vault/snapshots/${snapshotId}/restore`)
+      .set('Authorization', other.header)
+      .send({ mode: 'new' });
+
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('DELETE /api/vault/snapshots/:id', () => {
   it('deletes only the requesting user\'s own snapshot', async () => {
     const owner = await asUser('owner-sub', 'owner@example.com');

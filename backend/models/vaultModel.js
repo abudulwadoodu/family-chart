@@ -71,3 +71,70 @@ export async function deleteSnapshot(id, userId) {
   const { rowCount } = await query('DELETE FROM user_account_archives WHERE id = $1 AND user_id = $2', [id, userId]);
   return rowCount > 0;
 }
+
+// Restores a snapshot's frozen family_data into a brand-new tree, owned by
+// the same user who owns the snapshot. Mirrors the trees/CSV-JSON-GEDOM
+// "create" flow (backend/routes/trees.js POST '/') - insert trees row, seed
+// tree_permissions as owner, then write family_data - just sourced from the
+// archive instead of getDefaultTreeDataJson().
+export async function restoreSnapshotAsNewTree(snapshotId, userId, treeName) {
+  return withTransaction(async (client) => {
+    const { rows: snapshotRows } = await client.query(
+      'SELECT id, user_id, archive_name, family_data FROM user_account_archives WHERE id = $1 FOR UPDATE',
+      [snapshotId]
+    );
+    const snapshot = snapshotRows[0];
+    if (!snapshot || snapshot.user_id !== userId) throw new VaultError('ARCHIVE_NOT_FOUND');
+
+    const name = (treeName || snapshot.archive_name || 'Restored Tree').slice(0, 120);
+
+    const { rows: treeRows } = await client.query('INSERT INTO trees (name, owner_id) VALUES ($1, $2) RETURNING id', [
+      name,
+      userId,
+    ]);
+    const treeId = treeRows[0].id;
+
+    await client.query(
+      "INSERT INTO tree_permissions (tree_id, user_id, role, updated_at) VALUES ($1, $2, 'owner', NOW())",
+      [treeId, userId]
+    );
+    await client.query('INSERT INTO family_data (tree_id, json_data, updated_at) VALUES ($1, $2, NOW())', [
+      treeId,
+      JSON.stringify(snapshot.family_data ?? []),
+    ]);
+
+    return { id: treeId, name };
+  });
+}
+
+// Overwrites an existing tree's family_data with a snapshot's frozen copy -
+// same "import replaces everything" semantics as upsertFamilyData in
+// backend/routes/trees.js. Restricted to trees this user owns (checked here,
+// not just via requireTreeRole, so a snapshot can never be replayed into a
+// tree the caller merely edits) and to snapshots this user owns.
+export async function restoreSnapshotIntoTree(snapshotId, userId, treeId) {
+  return withTransaction(async (client) => {
+    const { rows: snapshotRows } = await client.query(
+      'SELECT id, user_id, family_data FROM user_account_archives WHERE id = $1 FOR UPDATE',
+      [snapshotId]
+    );
+    const snapshot = snapshotRows[0];
+    if (!snapshot || snapshot.user_id !== userId) throw new VaultError('ARCHIVE_NOT_FOUND');
+
+    const { rows: treeRows } = await client.query('SELECT id, name, owner_id FROM trees WHERE id = $1 FOR UPDATE', [
+      treeId,
+    ]);
+    const tree = treeRows[0];
+    if (!tree) throw new VaultError('TREE_NOT_FOUND');
+    if (tree.owner_id !== userId) throw new VaultError('FORBIDDEN');
+
+    await client.query(
+      `INSERT INTO family_data (tree_id, json_data, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT(tree_id) DO UPDATE SET json_data = excluded.json_data, updated_at = excluded.updated_at`,
+      [treeId, JSON.stringify(snapshot.family_data ?? [])]
+    );
+
+    return { id: tree.id, name: tree.name };
+  });
+}

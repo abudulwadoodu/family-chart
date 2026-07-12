@@ -4634,7 +4634,8 @@ dialog.modal-overlay[open] {
 /* GEDCOM import wizard & export options */
 
 .modal-dialog.modal-gedcom-wizard,
-.modal-dialog.modal-gedcom-export {
+.modal-dialog.modal-gedcom-export,
+.modal-dialog.modal-vault-restore {
   width: min(100%, 560px);
 }
 
