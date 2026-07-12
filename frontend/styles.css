@@ -3612,7 +3612,7 @@ button.secondary:active,
   white-space: nowrap;
 }
 
-.dm-bulk-year {
+.dm-bulk-detail {
   color: var(--text-tertiary);
   font-size: 0.78rem;
 }
