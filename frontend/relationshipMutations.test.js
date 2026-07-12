@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyRelationship, removeRelationship, inverseType } from './relationshipMutations.js';
+import { applyRelationship, removeRelationship, removeAllRelations, deleteNode, inverseType } from './relationshipMutations.js';
 
 function datum(id) {
   return { id, data: { gender: 'M' }, rels: { parents: [], children: [], spouses: [] } };
@@ -71,5 +71,46 @@ describe('removeRelationship', () => {
     expect(b.rels.children).toEqual([]);
     expect(a.data.relMeta.b).toBeUndefined();
     expect(b.data.relMeta.a).toBeUndefined();
+  });
+});
+
+describe('removeAllRelations', () => {
+  it('detaches a person from every parent, spouse, and child, leaving relatives intact otherwise', () => {
+    const parent = datum('parent');
+    const spouse = datum('spouse');
+    const child = datum('child');
+    const person = datum('person');
+
+    applyRelationship([parent, person], { sourceId: 'person', targetId: 'parent', type: 'parent' });
+    applyRelationship([spouse, person], { sourceId: 'person', targetId: 'spouse', type: 'spouse' });
+    applyRelationship([child, person], { sourceId: 'person', targetId: 'child', type: 'child' });
+
+    removeAllRelations([parent, spouse, child, person], 'person');
+
+    expect(person.rels.parents).toEqual([]);
+    expect(person.rels.spouses).toEqual([]);
+    expect(person.rels.children).toEqual([]);
+    expect(parent.rels.children).toEqual([]);
+    expect(spouse.rels.spouses).toEqual([]);
+    expect(child.rels.parents).toEqual([]);
+  });
+
+  it('is a no-op for a person with no relations', () => {
+    const person = datum('person');
+    expect(() => removeAllRelations([person], 'person')).not.toThrow();
+  });
+});
+
+describe('deleteNode', () => {
+  it('removes the person from the data array and strips them from relatives', () => {
+    const parent = datum('parent');
+    const child = datum('child');
+    applyRelationship([parent, child], { sourceId: 'child', targetId: 'parent', type: 'parent' });
+
+    const data = [parent, child];
+    deleteNode(data, 'child');
+
+    expect(data).toEqual([parent]);
+    expect(parent.rels.children).toEqual([]);
   });
 });

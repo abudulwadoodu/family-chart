@@ -24,6 +24,7 @@ import * as d3 from 'd3';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
+import { removeAllRelations, deleteNode } from './relationshipMutations.js';
 import { createRelationshipManagerState } from './relationshipManager/state.js';
 import { renderRelationshipManagerMode } from './relationshipManager/components.js';
 import { attachDisconnectedListListeners } from './relationshipManager/disconnectedListPanel.js';
@@ -5080,7 +5081,99 @@ function renderAllNodesMode() {
     onConnectAttempt: canEdit
       ? (sourceId, targetId) => handleConnectAttempt(state, syncSaveButtonAvailability, sourceId, targetId)
       : undefined,
+    onNodeClick: canEdit ? (nodeId, screenPos) => openAllNodesOptionsMenu(nodeId, screenPos) : undefined,
   });
+}
+
+// Small options menu opened by clicking a node in the All Nodes view.
+// Reuses .dropdown-menu/.dropdown-item for visual consistency with the
+// card's own "more" menu (see openCardMoreMenu above), but is positioned at
+// the click's screen coordinates instead of anchored to a DOM element,
+// since All Nodes renders raw SVG circles rather than HTML cards.
+let allNodesOptionsMenuEl = null;
+
+function closeAllNodesOptionsMenu() {
+  if (allNodesOptionsMenuEl) {
+    allNodesOptionsMenuEl.remove();
+    allNodesOptionsMenuEl = null;
+    document.removeEventListener('click', closeAllNodesOptionsMenu);
+  }
+}
+
+function openAllNodesOptionsMenu(nodeId, { clientX, clientY }) {
+  closeAllNodesOptionsMenu();
+
+  const datum = state.selectedTreeData.find((d) => d.id === nodeId);
+  if (!datum) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu open all-nodes-options-menu';
+  menu.style.left = `${clientX}px`;
+  menu.style.top = `${clientY}px`;
+
+  const removeRelationBtn = document.createElement('button');
+  removeRelationBtn.type = 'button';
+  removeRelationBtn.className = 'dropdown-item';
+  removeRelationBtn.innerHTML = `${icon('unlink')}<span>Remove relation</span>`;
+  removeRelationBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllNodesOptionsMenu();
+    const name = toAllNodesLabel(datum);
+    showConfirmDialog({
+      title: 'Remove all relations',
+      message: `Detach "${name}" from every parent, spouse, and child? "${name}" stays in the tree as an isolated node — remember to save afterward.`,
+      confirmLabel: 'Remove relations',
+      onConfirm: () => {
+        removeAllRelations(state.selectedTreeData, nodeId);
+        state.relationshipBuilder.dirty = true;
+        cleanupAllNodesGraph();
+        renderAllNodesMode();
+        syncSaveButtonAvailability();
+        showToast('Relations removed — remember to save.');
+      },
+    });
+  });
+
+  const deleteNodeBtn = document.createElement('button');
+  deleteNodeBtn.type = 'button';
+  deleteNodeBtn.className = 'dropdown-item dropdown-item-danger';
+  deleteNodeBtn.innerHTML = `${icon('trash')}<span>Delete node</span>`;
+  deleteNodeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllNodesOptionsMenu();
+    const name = toAllNodesLabel(datum);
+    showConfirmDialog({
+      title: 'Delete this person',
+      message: `Permanently delete "${name}" from this tree? This also removes them from every relative's parent/spouse/child list. This action cannot be undone once saved.`,
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        deleteNode(state.selectedTreeData, nodeId);
+        state.relationshipBuilder.dirty = true;
+        cleanupAllNodesGraph();
+        renderAllNodesMode();
+        syncSaveButtonAvailability();
+        showToast('Person deleted — remember to save.');
+      },
+    });
+  });
+
+  menu.appendChild(removeRelationBtn);
+  menu.appendChild(deleteNodeBtn);
+  document.body.appendChild(menu);
+  allNodesOptionsMenuEl = menu;
+
+  // Deferred so the click that opened the menu doesn't immediately close it
+  // via this same document-level listener (event.stopPropagation() on the
+  // node's own click handler already keeps it from bubbling, but the
+  // listener is added after that click's dispatch has finished either way).
+  setTimeout(() => document.addEventListener('click', closeAllNodesOptionsMenu), 0);
+}
+
+function toAllNodesLabel(datum) {
+  const first = datum?.data?.['first name'] || '';
+  const last = datum?.data?.['last name'] || '';
+  const label = `${first} ${last}`.trim();
+  return label || String(datum?.id ?? '');
 }
 
 function renderRelationshipManagerViewMode() {
@@ -5278,6 +5371,7 @@ function syncSaveButtonAvailability() {
 }
 
 function cleanupAllNodesGraph() {
+  closeAllNodesOptionsMenu();
   if (!state.allNodesGraph) return;
   state.allNodesGraph.destroy();
   state.allNodesGraph = null;
