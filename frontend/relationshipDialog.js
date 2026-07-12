@@ -7,11 +7,30 @@ import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 
 export const TYPE_OPTIONS = [
-  { type: 'parent', label: 'Parent', help: `Make the other person this person's parent.` },
-  { type: 'child', label: 'Child', help: `Make the other person this person's child.` },
-  { type: 'spouse', label: 'Spouse', help: 'Record a marriage/partnership.' },
-  { type: 'sibling', label: 'Sibling', help: 'Record them as siblings.' },
+  { type: 'parent', label: 'Parent' },
+  { type: 'child', label: 'Child' },
+  { type: 'spouse', label: 'Spouse' },
+  { type: 'sibling', label: 'Sibling' },
 ];
+
+// Help text needs the actual source/target names ("Add Alice as Bob's
+// parent") rather than "this person"/"the other person", which reviewers
+// found ambiguous about which dragged node was which. sourceLabel may be a
+// comma-joined list in bulk mode (relationshipManager/builderPanel.js).
+export function getTypeHelp(type, sourceLabel, targetLabel) {
+  switch (type) {
+    case 'parent':
+      return `Make ${targetLabel} the parent of ${sourceLabel}.`;
+    case 'child':
+      return `Make ${targetLabel} the child of ${sourceLabel}.`;
+    case 'spouse':
+      return `Record ${sourceLabel} and ${targetLabel} as a marriage/partnership.`;
+    case 'sibling':
+      return `Record ${sourceLabel} and ${targetLabel} as siblings.`;
+    default:
+      return '';
+  }
+}
 
 export const PARENT_SUBTYPES = [
   { value: 'biological', label: 'Biological' },
@@ -35,15 +54,21 @@ export function toLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
+// draft.type describes the target's role relative to source (applyRelationship:
+// 'parent' means target becomes source's parent, 'child' means target becomes
+// source's child - see relationshipMutations.js). The preview reads top-to-
+// bottom as "source [this text] target", so the phrasing here must describe
+// SOURCE's role (the inverse of draft.type) to read correctly - e.g. draft.type
+// 'parent' renders "Child of" because source is the child in that case.
 export function describeRelationship(draft) {
   const { type, subtype, marriageDate, status } = draft;
   if (type === 'parent') {
     const label = PARENT_SUBTYPES.find((s) => s.value === subtype)?.label || 'Parent';
-    return `${label} of`;
+    return `Child of (${label.toLowerCase()})`;
   }
   if (type === 'child') {
     const label = PARENT_SUBTYPES.find((s) => s.value === subtype)?.label || 'Parent';
-    return `Child of (${label.toLowerCase()})`;
+    return `Parent of (${label.toLowerCase()})`;
   }
   if (type === 'spouse') {
     const statusLabel = status === 'former' ? 'Former Spouse of' : 'Spouse of';
@@ -110,10 +135,13 @@ function bodyForStep(wiz, ctx) {
 function renderTypeStep(wiz, { sourceDatum, targetDatum, validateForType }) {
   const sourceLabel = escapeHtml(toLabel(sourceDatum));
   const targetLabel = escapeHtml(toLabel(targetDatum));
+  const rawSourceLabel = toLabel(sourceDatum);
+  const rawTargetLabel = toLabel(targetDatum);
 
-  const optionsHtml = TYPE_OPTIONS.map(({ type, label, help }) => {
+  const optionsHtml = TYPE_OPTIONS.map(({ type, label }) => {
     const check = validateForType(type);
     const disabled = check.valid ? '' : 'disabled';
+    const help = getTypeHelp(type, rawSourceLabel, rawTargetLabel);
     const reasonHtml = check.valid ? '' : `<span class="field-error">${escapeHtml(check.reason || 'Not allowed.')}</span>`;
     return `
       <label class="relationship-type-option ${check.valid ? '' : 'is-disabled'}">
