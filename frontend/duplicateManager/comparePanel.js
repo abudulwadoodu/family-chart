@@ -86,13 +86,16 @@ export function renderComparePanel(dm, data, candidate) {
 
   return `
     <div class="dm-panel-header">
-      <h3>Compare &amp; Merge</h3>
+      <h3>
+        Compare &amp; Merge
+        <button type="button" id="dm-swap-btn" class="chip dm-swap-btn" title="Swap which record is kept">Swap</button>
+      </h3>
     </div>
     <div class="dm-compare-body">
-      <div class="dm-compare-heading">
-        <span class="dm-compare-col">Keep: ${escapeHtml(toLabel(a))}</span>
-        <button type="button" id="dm-swap-btn" class="chip" title="Swap which record is kept">Swap</button>
-        <span class="dm-compare-col">Remove: ${escapeHtml(toLabel(b))}</span>
+      <div class="dm-field-row dm-field-row-header">
+        <span class="dm-field-name"></span>
+        <span class="dm-field-col-label dm-field-col-keep">Keep: ${escapeHtml(toLabel(a))}</span>
+        <span class="dm-field-col-label dm-field-col-remove">Remove: ${escapeHtml(toLabel(b))}</span>
       </div>
       <div class="dm-field-list">${fieldsHtml}</div>
       <div class="dm-rel-preview">
@@ -100,7 +103,13 @@ export function renderComparePanel(dm, data, candidate) {
           ? `Will also inherit ${inheritedCount} relationship${inheritedCount === 1 ? '' : 's'} from ${escapeHtml(toLabel(b))}.`
           : `${escapeHtml(toLabel(b))} has no relationships to inherit.`}
       </div>
-      <button type="button" id="dm-merge-btn" class="btn btn-primary">Merge into ${escapeHtml(toLabel(a))}</button>
+      <div class="dm-field-row dm-field-row-actions">
+        <span class="dm-field-name"></span>
+        <span class="dm-field-col-keep">
+          <button type="button" id="dm-merge-btn" class="btn btn-primary" title="Keep ${escapeHtml(toLabel(a))} and merge ${escapeHtml(toLabel(b))} into it">Accept</button>
+        </span>
+        <span></span>
+      </div>
     </div>
   `;
 }

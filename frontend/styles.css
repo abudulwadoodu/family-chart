@@ -3438,18 +3438,10 @@ button.secondary:active,
   gap: var(--sp-3);
 }
 
-.dm-compare-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.dm-compare-col {
-  min-width: 0;
-  overflow-wrap: break-word;
+.dm-swap-btn {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 0.78rem;
 }
 
 .dm-field-list {
@@ -3466,6 +3458,30 @@ button.secondary:active,
   padding: var(--sp-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
+}
+
+.dm-field-row-header {
+  border: none;
+  padding: 0 var(--sp-2);
+}
+
+.dm-field-row-actions {
+  border: none;
+  padding: 0 var(--sp-2);
+}
+
+.dm-field-col-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.dm-field-col-keep {
+  color: var(--success);
+}
+
+.dm-field-col-remove {
+  color: var(--text-tertiary);
 }
 
 .dm-field-name {
