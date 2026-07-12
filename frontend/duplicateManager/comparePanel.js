@@ -15,7 +15,13 @@ const FIELD_LABELS = {
   location: 'Location',
   avatar: 'Photo',
   notes: 'Notes',
+  fatherId: 'Father',
+  motherId: 'Mother',
 };
+
+// fatherId/motherId store raw person ids (see utils.js's treeDataToCsv); the
+// compare panel should show the referenced person's name, not the bare id.
+const PERSON_REF_FIELDS = new Set(['fatherId', 'motherId']);
 
 function fieldLabel(field) {
   return FIELD_LABELS[field] || field;
@@ -26,8 +32,15 @@ function relCount(datum) {
   return (rels.parents || []).length + (rels.children || []).length + (rels.spouses || []).length;
 }
 
-function renderFieldRow(field, valueA, valueB, choice) {
-  const display = (v) => (v === '' || v === undefined || v === null ? '<em>(empty)</em>' : escapeHtml(String(v)));
+function renderFieldRow(field, valueA, valueB, choice, byId) {
+  const display = (v) => {
+    if (v === '' || v === undefined || v === null) return '<em>(empty)</em>';
+    if (PERSON_REF_FIELDS.has(field)) {
+      const referenced = byId.get(v);
+      return escapeHtml(referenced ? toLabel(referenced) : String(v));
+    }
+    return escapeHtml(String(v));
+  };
   return `
     <div class="dm-field-row">
       <span class="dm-field-name">${escapeHtml(fieldLabel(field))}</span>
@@ -62,7 +75,11 @@ export function renderComparePanel(dm, data, candidate) {
 
   const diffs = diffFields(a, b);
   const fieldsHtml = diffs.length
-    ? diffs.map(({ field, valueA, valueB }) => renderFieldRow(field, valueA, valueB, dm.fieldChoices[field] || (valueA ? 'a' : 'b'))).join('')
+    ? diffs
+        .map(({ field, valueA, valueB }) =>
+          renderFieldRow(field, valueA, valueB, dm.fieldChoices[field] || (valueA ? 'a' : 'b'), byId),
+        )
+        .join('')
     : `<div class="dm-empty-state">No conflicting fields - all values match.</div>`;
 
   const inheritedCount = relCount(b);
