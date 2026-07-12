@@ -50,9 +50,10 @@ export async function getTreesOwnedByUser(userId) {
   });
 }
 
-// Promotes an existing member (editor or viewer) of the tree to owner, then removes
-// the current owner's permission row. The target must already be a member — this
-// never invites a new user, it only re-assigns ownership among existing collaborators.
+// Promotes an existing member (editor or viewer) of the tree to owner, then demotes
+// the current owner to editor (rather than removing their access - they remain a
+// collaborator on the tree they used to own). The target must already be a member —
+// this never invites a new user, it only re-assigns ownership among existing collaborators.
 export async function transferTreeOwnership(treeId, fromUserId, toUserId) {
   await withTransaction(async (client) => {
     const { rows } = await client.query('SELECT id, role FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [
@@ -66,6 +67,9 @@ export async function transferTreeOwnership(treeId, fromUserId, toUserId) {
 
     await client.query("UPDATE tree_permissions SET role = 'owner', updated_at = NOW() WHERE id = $1", [target.id]);
     await client.query('UPDATE trees SET owner_id = $1 WHERE id = $2', [toUserId, treeId]);
-    await client.query('DELETE FROM tree_permissions WHERE tree_id = $1 AND user_id = $2', [treeId, fromUserId]);
+    await client.query("UPDATE tree_permissions SET role = 'editor', updated_at = NOW() WHERE tree_id = $1 AND user_id = $2", [
+      treeId,
+      fromUserId,
+    ]);
   });
 }

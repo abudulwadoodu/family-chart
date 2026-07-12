@@ -123,6 +123,14 @@ export async function createTicketFromContact(state, render, formData) {
   return payload.ticket;
 }
 
+// Signed-out visitors have no account/ticket to attach the message to, so
+// this hits the public endpoint (relayed straight to support by email -
+// see backend/routes/support.js's /public-tickets route) instead of the
+// ticket-creation flow above.
+export async function submitPublicContactForm(formData) {
+  return api('/api/support/public-tickets', { method: 'POST', body: formData });
+}
+
 // ---------------------------------------------------------------------------
 // My Support Tickets (user-facing)
 // ---------------------------------------------------------------------------

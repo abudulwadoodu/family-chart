@@ -3,14 +3,33 @@ import * as icons from './icons'
 
 
 export function getHtmlNew(form_creator: NewRelFormCreator) {
-  return (` 
+  // link_mode forms (opened via "Link existing member") only offer the
+  // existing-member picker below - the create-new fields/gender radio and
+  // Submit button are for the "Add relative" flow and would otherwise let
+  // a linking user accidentally create a brand new person instead.
+  if (form_creator.link_mode) {
+    return (`
+      <form id="familyForm" class="f3-form">
+        ${closeBtn()}
+        <h3 class="f3-form-title">${form_creator.title}</h3>
+
+        ${form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''}
+
+        <div class="f3-form-buttons">
+          <button type="button" class="f3-cancel-btn">Cancel</button>
+        </div>
+      </form>
+    `)
+  }
+
+  return (`
     <form id="familyForm" class="f3-form">
       ${closeBtn()}
       <h3 class="f3-form-title">${form_creator.title}</h3>
       ${genderRadio(form_creator)}
 
       ${fields(form_creator)}
-      
+
       <div class="f3-form-buttons">
         <button type="button" class="f3-cancel-btn">Cancel</button>
         <button type="submit">Submit</button>
@@ -139,6 +158,30 @@ function fields(form_creator: EditDatumFormCreator | NewRelFormCreator) {
           name="${field.id}"
           value="${field.initial_value || ''}"
           placeholder="${field.label}">
+      </div>`
+    } else if (field.type === 'date') {
+      fields_html += `
+      <div class="f3-form-field f3-form-field-date" data-field-id="${field.id}">
+        <label>${field.label}</label>
+        <div class="f3-date-input-wrap">
+          <input type="text"
+            class="f3-date-text-input"
+            name="${field.id}"
+            value="${field.initial_value || ''}"
+            placeholder="${field.placeholder || 'YYYY-MM-DD'}"
+            pattern="\\d{4}-\\d{2}-\\d{2}"
+            inputmode="numeric"
+            maxlength="10"
+            autocomplete="off">
+          <input type="date"
+            class="f3-date-picker-input"
+            tabindex="-1"
+            aria-hidden="true"
+            value="${/^\d{4}-\d{2}-\d{2}$/.test(field.initial_value || '') ? field.initial_value : ''}">
+          <button type="button" class="f3-date-picker-btn" title="Pick a date" aria-label="Pick a date for ${field.label}">
+            ${icons.calendarSvgIcon()}
+          </button>
+        </div>
       </div>`
     } else if (field.type === 'textarea') {
       fields_html += `

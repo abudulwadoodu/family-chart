@@ -1,11 +1,19 @@
 // Left panel: list of candidate duplicate pairs found by duplicateDetection.js.
 // Mirrors relationshipManager/disconnectedListPanel.js's row/avatar rendering
-// conventions, but there's no search/paginate step here since candidates are
-// a small pre-scored, pre-filtered set rather than the whole member list.
+// conventions. Search/sort were added once trees started surfacing enough
+// candidate pairs that scanning the raw list stopped being practical.
 import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { toLabel } from '../relationshipDialog.js';
-import { findDuplicateCandidates, pairKey } from './duplicateDetection.js';
+import { findDuplicateCandidates, pairKey, sortDuplicateCandidates } from './duplicateDetection.js';
+
+function debounce(fn, delay = 250) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
 
 function birthYearLabel(datum) {
   const raw = datum?.data?.birthday;
@@ -23,7 +31,9 @@ function avatarHtml(datum) {
 // Recomputed whenever the panel renders (on entering the view, after a
 // merge/undo, or after a dismiss) rather than cached in state - the scan is
 // cheap enough (bucketed by surname, see duplicateDetection.js) to redo on
-// every data change instead of tracking invalidation manually.
+// every data change instead of tracking invalidation manually. Excludes
+// search/sort so callers needing the full pre-filter set (e.g. the compare
+// panel's selected-pair lookup) aren't affected by what the user typed.
 export function getVisibleCandidates(dm, data) {
   const byId = new Map(data.map((d) => [d.id, d]));
   return findDuplicateCandidates(data)
@@ -32,9 +42,30 @@ export function getVisibleCandidates(dm, data) {
     .filter((candidate) => byId.has(candidate.aId) && byId.has(candidate.bId));
 }
 
-export function renderDuplicateListPanel(dm, data) {
+// Applies the panel's search box and sort dropdown on top of
+// getVisibleCandidates(). Search matches either person's name or any reason
+// chip, since "same birth year" / "2 shared relatives" are often what a user
+// remembers about a pair, not just the name.
+function getFilteredSortedCandidates(dm, data) {
   const byId = new Map(data.map((d) => [d.id, d]));
   const candidates = getVisibleCandidates(dm, data);
+  const query = dm.search.trim().toLowerCase();
+
+  const filtered = query
+    ? candidates.filter((candidate) => {
+        const a = byId.get(candidate.aId);
+        const b = byId.get(candidate.bId);
+        const haystack = [toLabel(a), toLabel(b), ...candidate.reasons].join(' ').toLowerCase();
+        return haystack.includes(query);
+      })
+    : candidates;
+
+  return sortDuplicateCandidates(filtered, dm.sort, byId);
+}
+
+function renderDuplicateListBody(dm, data) {
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const candidates = getFilteredSortedCandidates(dm, data);
 
   const rowsHtml = candidates.length
     ? candidates
@@ -62,19 +93,46 @@ export function renderDuplicateListPanel(dm, data) {
           `;
         })
         .join('')
-    : `<li class="dm-empty-state">No likely duplicates found.</li>`;
+    : `<li class="dm-empty-state">${dm.search ? 'No duplicates match your search.' : 'No likely duplicates found.'}</li>`;
+
+  return `<ul class="dm-pair-list" id="dm-pair-list" role="listbox">${rowsHtml}</ul>`;
+}
+
+export function renderDuplicateListPanel(dm, data) {
+  const count = getFilteredSortedCandidates(dm, data).length;
 
   return `
     <div class="dm-panel-header">
-      <h3>Possible Duplicates <span class="rm-count-badge">${candidates.length}</span></h3>
+      <h3>Possible Duplicates <span class="rm-count-badge" id="dm-pair-count">${count}</span></h3>
+      <label class="search-box dm-search-box">
+        ${icon('search')}
+        <input
+          type="text"
+          id="dm-pair-search-input"
+          placeholder="Search..."
+          autocomplete="off"
+          aria-label="Search possible duplicates"
+          value="${escapeHtml(dm.search)}"
+        />
+      </label>
+      <div class="sort-box">
+        <span class="sort-box-label">Sort by</span>
+        <select id="dm-pair-sort-select" aria-label="Sort possible duplicates">
+          <option value="score" ${dm.sort === 'score' ? 'selected' : ''}>Match strength</option>
+          <option value="name" ${dm.sort === 'name' ? 'selected' : ''}>Name</option>
+          <option value="birthYear" ${dm.sort === 'birthYear' ? 'selected' : ''}>Birth year</option>
+        </select>
+      </div>
     </div>
-    <ul class="dm-pair-list" id="dm-pair-list" role="listbox">${rowsHtml}</ul>
+    <div id="dm-pair-list-wrap">${renderDuplicateListBody(dm, data)}</div>
   `;
 }
 
-export function attachDuplicateListListeners(state, render) {
+// Binds listeners inside #dm-pair-list-wrap (dismiss buttons, row selection).
+// Called after both a full panel render and a search-driven partial update,
+// since the latter replaces this subtree too.
+function attachListWrapListeners(state, render) {
   const dm = state.duplicateManager;
-  const data = state.selectedTreeData;
   const list = document.querySelector('#dm-pair-list');
   if (!list) return;
 
@@ -107,4 +165,38 @@ export function attachDuplicateListListeners(state, render) {
       }
     });
   });
+}
+
+// Debounced so a fast typist doesn't re-filter on every single keystroke,
+// but never calls the full render() - only #dm-pair-list-wrap and the count
+// badge are replaced, so the search <input> above them keeps focus and
+// cursor position no matter how long the debounce takes to fire.
+const debouncedSearch = debounce((state, render, data) => {
+  const dm = state.duplicateManager;
+  const wrap = document.querySelector('#dm-pair-list-wrap');
+  if (!wrap) {
+    render();
+    return;
+  }
+  wrap.innerHTML = renderDuplicateListBody(dm, data);
+  const countBadge = document.querySelector('#dm-pair-count');
+  if (countBadge) countBadge.textContent = String(getFilteredSortedCandidates(dm, data).length);
+  attachListWrapListeners(state, render);
+});
+
+export function attachDuplicateListListeners(state, render) {
+  const dm = state.duplicateManager;
+  const data = state.selectedTreeData;
+
+  document.querySelector('#dm-pair-search-input')?.addEventListener('input', (event) => {
+    dm.search = event.target.value;
+    debouncedSearch(state, render, data);
+  });
+
+  document.querySelector('#dm-pair-sort-select')?.addEventListener('change', (event) => {
+    dm.sort = event.target.value;
+    render();
+  });
+
+  attachListWrapListeners(state, render);
 }

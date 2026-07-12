@@ -23,6 +23,7 @@ export function formCreatorSetup({
   onCancel,
   editFirst,
   link_existing_rel_config,
+  link_mode,
   onFormCreation,
   no_edit,
   onSubmit,
@@ -71,7 +72,11 @@ export function formCreatorSetup({
       ...base_form_creator,
       title: datum._new_rel_data.label,
       new_rel: true,
-      editable: true
+      // link_mode forms only ever show the "link to existing member" picker
+      // (see linkExistingRelative below), never the create-new fields, so
+      // there's nothing to toggle into edit mode for.
+      editable: !link_mode,
+      link_mode: !!link_mode,
     }
   }
   if (datum._new_rel_data || datum.to_add || datum.unknown) {
@@ -79,7 +84,7 @@ export function formCreatorSetup({
   }
 
   if (no_edit) form_creator.editable = false
-  else if (editFirst) form_creator.editable = true
+  else if (editFirst && !link_mode) form_creator.editable = true
 
   fields.forEach(field => {
     if (field.type === 'rel_reference') addRelReferenceField(field)

@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 
@@ -167,6 +170,24 @@ describe('media, albums, and events routes', () => {
       .get(`/api/trees/${otherTreeId}/media/${mediaId}/file`)
       .set('Authorization', owner);
     expect(fileRes.status).toBe(404);
+  });
+
+  it('404s a file request when the record exists but the underlying file is missing from disk', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = await createTree(owner);
+
+    const uploadRes = await request(app)
+      .post(`/api/trees/${treeId}/media`)
+      .set('Authorization', owner)
+      .field('kind', 'photo')
+      .attach('file', Buffer.from('x'), 'a.jpg');
+    expect(uploadRes.status).toBe(201);
+
+    fs.rmSync(path.join(process.env.MEDIA_STORAGE_PATH, uploadRes.body.media.storage_key), { force: true });
+
+    const fileRes = await request(app).get(uploadRes.body.media.url).set('Authorization', owner);
+    expect(fileRes.status).toBe(404);
+    expect(fileRes.body.error).toBe('Media not found');
   });
 
   it('creates an album, adds media to it, and sets a cover', async () => {

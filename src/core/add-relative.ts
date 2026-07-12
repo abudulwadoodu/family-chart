@@ -13,6 +13,7 @@ export class AddRelative {
   onChange: ((updated_datum: Datum, props: any) => void) | null
   onCancel: (() => void) | null
   is_active: boolean
+  link_mode: boolean
   addRelLabels: {
     father: string
     mother: string
@@ -35,16 +36,18 @@ export class AddRelative {
     this.onCancel = null
   
     this.is_active = false
-  
+    this.link_mode = false
+
     this.addRelLabels = this.addRelLabelsDefault()
-  
+
     return this
   }
 
-  activate(datum: Datum) {
+  activate(datum: Datum, options?: {link_mode?: boolean}) {
     if (this.is_active) this.onCancel!()
     this.onActivate()
     this.is_active = true
+    this.link_mode = !!options?.link_mode
     this.store.state.one_level_rels = true
   
     const store = this.store
@@ -75,6 +78,7 @@ export class AddRelative {
     function onCancel(self: AddRelative) {
       if (!self.is_active) return
       self.is_active = false
+      self.link_mode = false
       self.store.state.one_level_rels = false
   
       self.cleanUp()

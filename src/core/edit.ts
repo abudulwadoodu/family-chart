@@ -83,7 +83,7 @@ export class EditTree {
     this.fields = [
       {type: 'text', label: 'first name', id: 'first name'},
       {type: 'text', label: 'last name', id: 'last name'},
-      {type: 'text', label: 'birthday', id: 'birthday'},
+      {type: 'date', label: 'birthday', id: 'birthday'},
       {type: 'text', label: 'avatar', id: 'avatar'}
     ]
   
@@ -311,6 +311,7 @@ export class EditTree {
       editFirst: this.editFirst,
       no_edit: this.no_edit,
       link_existing_rel_config: this.link_existing_rel_config,
+      link_mode: is_new_rel ? this.addRelativeInstance.link_mode : false,
       onFormCreation: this.onFormCreation,
       onSubmit: this.onSubmit,
       onDelete: this.onDelete,
@@ -329,12 +330,22 @@ export class EditTree {
   
     function postSubmitHandler(self: EditTree, props: any) {
       if (self.addRelativeInstance.is_active) {
+        const linked_rel_id: Datum['id'] | undefined = props?.link_rel_id
         self.addRelativeInstance.onChange!(datum, props)
         if (self.postSubmit) self.postSubmit(datum, self.store.getData())
-        const active_datum = self.addRelativeInstance.datum
-        if (!active_datum) throw new Error('Active datum not found')
-        self.store.updateMainId(active_datum.id)
-        self.openWithoutRelCancel(active_datum)
+        if (linked_rel_id) {
+          // Linked to an already-existing member rather than creating a new
+          // one - show that member's own profile instead of the placeholder's
+          // "hub" person, since that's the record the user just navigated to.
+          self.addRelativeInstance.onCancel!()
+          self.store.updateMainId(linked_rel_id)
+          self.openFormWithId(linked_rel_id)
+        } else {
+          const active_datum = self.addRelativeInstance.datum
+          if (!active_datum) throw new Error('Active datum not found')
+          self.store.updateMainId(active_datum.id)
+          self.openWithoutRelCancel(active_datum)
+        }
       } else if ((datum.to_add || datum.unknown) && props?.link_rel_id) {
         handleLinkRel(datum, props.link_rel_id, self.store.getData())
         self.store.updateMainId(props.link_rel_id)

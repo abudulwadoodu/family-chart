@@ -48,7 +48,7 @@ import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
-import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
 import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
@@ -84,6 +84,7 @@ import {
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
+  renderContactFormCard,
   renderFooter,
   renderThemeToggle,
   renderTreesEmptyStateMarkup,
@@ -105,6 +106,7 @@ import {
   loadTicketDetail,
   attachTicketDetailListeners,
   createTicketFromContact,
+  submitPublicContactForm,
   attachmentUrlForUser,
 } from './support/logic.js';
 import { renderAdminShellMarkup, renderAdminEmptyState } from './admin/shared/components.js';
@@ -462,7 +464,7 @@ document.addEventListener(
 // this app - see maybeOpenDeepLinkedTicket's note on the ?ticket= param).
 // Maps a URL pathname to the publicView it should activate; anything else
 // falls through to the normal auth/dashboard flow.
-const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy' };
+const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy', '/support': 'support' };
 
 function syncRouteFromLocation() {
   state.publicView = PUBLIC_ROUTES[window.location.pathname] || null;
@@ -491,18 +493,24 @@ document.addEventListener('click', (event) => {
   navigateTo(link.getAttribute('data-internal-link'));
 });
 
-// "Contact Us" links point at `mailto:` by default (works for signed-out
-// visitors). Signed-in users get redirected to the in-app Contact Us page
-// instead, since that page can pre-fill their account email.
+// "Contact Us" links point at `mailto:` as a no-JS/fallback href, but both
+// signed-in and signed-out visitors get redirected to the in-app Contact Us
+// page instead - signed-in users get their account email pre-filled, and
+// signed-out visitors land on the public /support form instead of depending
+// on the visitor having a mail client configured.
 document.addEventListener('click', (event) => {
   const link = event.target.closest('[data-contact-link]');
-  if (!link || !state.user) return;
+  if (!link) return;
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  state.publicView = null;
-  if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
-  state.dashboardView = 'contact';
-  render();
+  if (state.user) {
+    state.publicView = null;
+    if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
+    state.dashboardView = 'contact';
+    render();
+  } else {
+    navigateTo('/support');
+  }
 });
 
 // Fires once Amplify finishes exchanging the Hosted UI's ?code= for tokens
@@ -527,9 +535,72 @@ Hub.listen('auth', ({ payload }) => {
 const DEFAULT_TITLE = 'Secure Family Chart';
 
 function render() {
+  // Checked before state.user so /support renders the same shell-choice logic
+  // regardless of sign-in state - this is what makes it a "public" route in
+  // an app with no router/middleware layer to bypass.
+  if (state.publicView === 'support') return renderSupportPage();
   if (state.publicView) return renderLegalPage();
   if (document.title !== DEFAULT_TITLE) clearLegalSeo(DEFAULT_TITLE);
   return state.user ? renderDashboard() : renderAuth();
+}
+
+// Reuses the exact same Contact Us form markup/logic as the authenticated
+// dashboard page (renderContactPageContent/attachContactPageListeners) - only
+// the surrounding shell differs, so there's no duplicated form/validation code
+// between the signed-in and signed-out variants below.
+function renderSupportPage() {
+  return state.user ? renderSupportPageAuthed() : renderSupportPageAnonymous();
+}
+
+function renderSupportPageAuthed() {
+  app.innerHTML = `
+    <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
+      ${renderSidebarNav({
+        email: state.user.email,
+        activeView: 'contact',
+        isAdmin: Boolean(state.user.is_admin),
+        activeTheme: state.theme,
+        collapsed: state.sidebarCollapsed,
+      })}
+      <div class="main-area">
+        ${renderMobileTopbar()}
+        <main class="content">
+          ${renderContactPageContent()}
+        </main>
+      </div>
+    </div>
+  `;
+  attachShellListeners();
+  attachContactPageListeners();
+}
+
+function renderSupportPageAnonymous() {
+  app.innerHTML = `
+    <main class="auth-page">
+      <section class="auth-card auth-card--settled">
+        <div class="auth-card-toggle">
+          ${renderThemeToggle({ activeTheme: state.theme, idPrefix: 'support-theme-toggle' })}
+        </div>
+        <div class="auth-shell-content support-page-anonymous">
+          <a href="/" data-internal-link="/" class="support-back-link">${icon('home')}<span>Back to Login</span></a>
+          <div class="auth-brand">
+            <span class="auth-brand-icon">${icon('logo')}</span>
+            <h1 class="auth-brand-title">Contact Us</h1>
+            <p class="auth-brand-subtitle">Send us a message and we'll get back to you by email.</p>
+          </div>
+          ${renderContactFormCard({ email: '', anonymous: true })}
+        </div>
+        <p class="auth-legal-disclaimer">
+          By continuing, you agree to our
+          <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
+          <a href="/privacy" data-internal-link="/privacy">Privacy Policy</a>.
+        </p>
+      </section>
+      ${renderFooter({ variant: 'auth', showLinks: false })}
+    </main>
+  `;
+  attachThemeToggleListeners();
+  attachContactPageListeners();
 }
 
 function renderLegalPage() {
@@ -610,6 +681,7 @@ function renderAuthShell(heading, subtitleHtml, bodyHtml) {
           <a href="/terms" data-internal-link="/terms">Terms &amp; Conditions</a> and
           <a href="/privacy" data-internal-link="/privacy">Privacy Policy</a>.
         </p>
+        <a href="/support" data-internal-link="/support" class="auth-support-link">${icon('mail')}<span>Need help? Contact support</span></a>
       </section>
       ${renderFooter({ variant: 'auth', showLinks: false })}
     </main>
@@ -1621,32 +1693,45 @@ function renderDashboard() {
   renderTreeGrid();
 }
 
+// Sidebar nav is reachable from the authed /support shell (state.publicView
+// === 'support'), which - unlike dashboardView - render() checks *before*
+// state.user (that's what makes /support public). Leaving publicView set
+// while switching dashboardView would trap an authed user on the support
+// shell after they click e.g. My Trees, so every nav action clears it and
+// resets the URL, matching the data-contact-link/legal-page "back to app"
+// pattern used elsewhere.
+function navigateToDashboardView(view) {
+  state.publicView = null;
+  if (window.location.pathname !== '/') window.history.pushState(null, '', '/');
+  state.dashboardView = view;
+}
+
 function attachShellListeners() {
   document.querySelector('#logout-btn').addEventListener('click', handleSignOut);
   document.querySelector('#nav-trees-btn').addEventListener('click', () => {
-    state.dashboardView = 'trees';
+    navigateToDashboardView('trees');
     clearSelectedTreeView();
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-security-btn').addEventListener('click', () => {
-    state.dashboardView = 'security';
+    navigateToDashboardView('security');
     setSidebarOpen(false);
     render();
     loadMfaStatus();
   });
   document.querySelector('#nav-support-btn').addEventListener('click', () => {
-    state.dashboardView = 'contact';
+    navigateToDashboardView('contact');
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-requests-btn').addEventListener('click', () => {
-    state.dashboardView = 'myRequests';
+    navigateToDashboardView('myRequests');
     setSidebarOpen(false);
     render();
   });
   document.querySelector('#nav-admin-btn')?.addEventListener('click', () => {
-    state.dashboardView = 'admin';
+    navigateToDashboardView('admin');
     state.admin.section = 'dashboard';
     setSidebarOpen(false);
     render();
@@ -2262,6 +2347,9 @@ function handleTreeCardAction(action, treeId) {
   if (action === 'tree-settings') {
     return loadTree(treeId, { viewMode: 'settings' });
   }
+  if (action === 'share') {
+    return openShareModal(treeId);
+  }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
     promptDeleteTree(treeId, tree?.name || 'this tree');
@@ -2636,7 +2724,14 @@ function attachFamilyFeedListeners() {
   });
 }
 
-function attachTreeViewerListeners() {
+// Binds everything that lives inside .viewer-header (breadcrumb, save,
+// share/rename/import, the settings dropdown, and member search - which
+// renders inside the header markup). Split out from attachTreeViewerListeners
+// so a role change (e.g. after transferring ownership) can re-render just the
+// header and rebind it, without rebuilding the focus-mode controller or
+// re-attaching the family feed listeners (those live outside the header and
+// are only meant to be wired once per tree-viewer mount).
+function attachTreeViewerHeaderListeners() {
   document.querySelector('#breadcrumb-trees-btn').addEventListener('click', () => {
     clearSelectedTreeView();
     render();
@@ -2646,8 +2741,6 @@ function attachTreeViewerListeners() {
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
-  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
-  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
 
   const header = document.querySelector('.viewer-header');
   bindDropdownTriggers(header);
@@ -2656,6 +2749,26 @@ function attachTreeViewerListeners() {
   });
 
   attachMemberSearchListeners();
+}
+
+// Re-renders .viewer-header from current state (used after an action that can
+// change the signed-in user's role on the currently open tree, e.g.
+// transferring ownership away) so owner-only controls (Share button, Delete
+// Tree, etc.) disappear immediately instead of staying visible until the next
+// full page load - clicking them afterwards would just 403 against the server,
+// which otherwise reads as "I lost access to my tree".
+function refreshTreeViewerHeader() {
+  const header = document.querySelector('.viewer-header');
+  if (!header) return;
+  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole });
+  attachTreeViewerHeaderListeners();
+}
+
+function attachTreeViewerListeners() {
+  attachTreeViewerHeaderListeners();
+  document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
+  document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
+
   attachFamilyFeedListeners();
   setupFocusMode();
 }
@@ -3079,7 +3192,7 @@ function handleExportCurrentTree(format) {
 // ---------------------------------------------------------------------------
 
 async function openShareModal(treeId) {
-  const treeName = state.selectedTreeName || state.trees.find((t) => t.id === treeId)?.name || '';
+  const treeName = state.trees.find((t) => t.id === treeId)?.name || state.selectedTreeName || '';
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
@@ -3096,7 +3209,12 @@ function bindShareModalClose(modal) {
 async function refreshShareModal(modal, treeId, treeName, formError = '') {
   try {
     const payload = await api(`/api/trees/${treeId}/permissions`);
-    modal.setBody(renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError }));
+    const isOwnerViewing = payload.permissions.some(
+      (permission) => permission.role === 'owner' && permission.user_id === state.user.id
+    );
+    modal.setBody(
+      renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError, isOwnerViewing })
+    );
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
   } catch (error) {
@@ -3134,10 +3252,12 @@ function bindShareModalActions(modal, treeId, treeName) {
     }
   });
 
-  modal.root.querySelectorAll('.member-role-select').forEach((select) => {
-    select.addEventListener('change', async () => {
-      const userId = Number(select.dataset.userId);
-      const role = select.value;
+  bindDropdownTriggers(modal.root);
+
+  modal.root.querySelectorAll('[data-role-option]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = Number(btn.dataset.userId);
+      const role = btn.dataset.roleOption;
       try {
         await api(`/api/trees/${treeId}/share/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) });
         showToast('Role updated.');
@@ -3146,6 +3266,31 @@ function bindShareModalActions(modal, treeId, treeName) {
       } catch (error) {
         showToast(error.message || 'Could not update role.', { type: 'error' });
         await refreshShareModal(modal, treeId, treeName);
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-transfer-owner-user-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const toUserId = Number(btn.dataset.transferOwnerUserId);
+      if (!window.confirm('Make this person the owner? You will become an editor and lose owner-only controls.')) return;
+
+      btn.disabled = true;
+      try {
+        await api(`/api/account/trees/${treeId}/transfer-ownership`, {
+          method: 'POST',
+          body: JSON.stringify({ toUserId }),
+        });
+        showToast('Ownership transferred.');
+        if (state.selectedTreeId === treeId) {
+          state.selectedTreeRole = 'editor';
+          refreshTreeViewerHeader();
+        }
+        await refreshShareModal(modal, treeId, treeName);
+        loadTrees();
+      } catch (error) {
+        showToast(error.message || 'Could not transfer ownership.', { type: 'error' });
+        btn.disabled = false;
       }
     });
   });
@@ -3178,6 +3323,7 @@ const CONTACT_MESSAGE_MAX_LENGTH = 5000;
 const CONTACT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const CONTACT_ALLOWED_ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
 const CONTACT_ALLOWED_ATTACHMENT_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.txt'];
+const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function renderContactPageContent() {
   return renderContactPageMarkup({ email: state.user.email });
@@ -3244,12 +3390,18 @@ function validateContactForm(form) {
   const category = String(data.get('category') || '');
   const message = String(data.get('message') || '').trim();
   const file = form.querySelector('#contact-file-input').files?.[0];
+  const isAnonymous = form.dataset.anonymous === 'true';
+  const email = String(data.get('email') || '').trim();
 
   let firstInvalidId = null;
   const markInvalid = (field, message_, inputId) => {
     setContactFieldError(field, message_);
     if (message_ && !firstInvalidId) firstInvalidId = inputId;
   };
+
+  if (isAnonymous) {
+    markInvalid('email', !CONTACT_EMAIL_PATTERN.test(email) ? 'Please enter a valid email address.' : '', 'contact-email-input');
+  }
 
   markInvalid(
     'subject',
@@ -3300,8 +3452,20 @@ async function handleContactSubmit(event) {
   setButtonBusy(submitBtn, true, 'Sending...');
 
   try {
-    const ticket = await createTicketFromContact(state, render, new FormData(form));
-    showToast(`Ticket ${ticket.ticket_number} created. We'll be in touch soon.`);
+    if (form.dataset.anonymous === 'true') {
+      await submitPublicContactForm(new FormData(form));
+      showToast("Message sent. We'll be in touch soon.");
+      // The authed path replaces this form entirely via render() (navigates
+      // to the new ticket), so it never needs a manual reset - but this
+      // anonymous form stays mounted after a successful send, so it has to
+      // clear itself and restore the button explicitly.
+      form.reset();
+      handleContactFileChange(document.querySelector('#contact-file-input'));
+      if (document.body.contains(submitBtn)) setButtonBusy(submitBtn, false, 'Send Message');
+    } else {
+      const ticket = await createTicketFromContact(state, render, new FormData(form));
+      showToast(`Ticket ${ticket.ticket_number} created. We'll be in touch soon.`);
+    }
   } catch (error) {
     formErrorEl.textContent = error.message || 'Could not send your message. Please try again.';
     showToast(error.message || 'Could not send your message.', { type: 'error' });
@@ -3359,16 +3523,21 @@ function addCardIcon(cardEl, horizontalPosition, iconHtml, onClick, tooltipLabel
   const positionStyle = isCentered
     ? 'left: 50%;'
     : `right: ${horizontalPosition}px;`;
-  d3.select(cardEl)
+  const iconSelection = d3.select(cardEl)
     .append('div')
-    .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''}`)
+    // `relative` so this icon's own box (not the card's) becomes the
+    // offset parent for a popover appended inside it (see openCardMoreMenu),
+    // letting the popover anchor to the icon instead of the whole card.
+    .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''} relative`)
     .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: ${topOffset}px; ${positionStyle}`)
     .attr('data-tooltip', tooltipLabel)
     .attr('data-tooltip-position', 'bottom')
-    .html(iconHtml)
+    .html(iconHtml);
+  iconSelection
     .select('svg')
     .style('padding', '0')
     .on('click', onClick);
+  return iconSelection.node();
 }
 
 // Closes the tree card "more" popover (see openCardMoreMenu in renderChart
@@ -3474,8 +3643,13 @@ function renderChart() {
   if (canEdit) {
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', { id: 'birthday', type: 'date', label: 'birthday' }, 'location', 'email', 'notes', 'avatar'])
       .setEditFirst(true)
+      .setLinkExistingRelConfig({
+        title: 'Link to an existing member instead?',
+        select_placeholder: 'Select existing member',
+        linkRelLabel: (d) => getMemberLabel(d),
+      })
       .setOnFormCreation(({ cont, form_creator }) => {
         hydrateAvatarPreview(cont);
         // attachAvatarUpload needs the full datum (not just datum_id) to tag
@@ -3541,9 +3715,9 @@ function renderChart() {
       // directly here (not the app's shared dropdownMenu()) since that
       // helper targets static page markup and app-icon set, not per-card
       // D3-driven re-renders using f3.icons' inline SVGs.
-      addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
+      const moreIconEl = addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
         e.stopPropagation();
-        openCardMoreMenu(cardEl, d);
+        openCardMoreMenu(moreIconEl, d);
       }, 'More');
     });
 
@@ -3552,8 +3726,16 @@ function renderChart() {
     // components.js's dropdownMenu()) since it's driven by f3's per-card
     // TreeDatum rather than static page state, and needs direct click
     // handlers rather than the data-action dispatch used elsewhere.
-    function openCardMoreMenu(cardEl, d) {
-      const alreadyOpenForThisCard = cardEl.querySelector('.f3-card-more-menu');
+    //
+    // Anchored to the "..." icon itself (anchorEl), not the whole card - the
+    // icon div is `position: absolute` inside the card, so it isn't itself an
+    // offset parent, but appending the menu as its child still positions the
+    // menu relative to the icon's own box (top-left corner) rather than the
+    // card's, which is what previously made the popover anchor to the
+    // bottom of the entire card instead of tucking under the small circular
+    // button.
+    function openCardMoreMenu(anchorEl, d) {
+      const alreadyOpenForThisCard = anchorEl.querySelector('.f3-card-more-menu');
       closeCardMoreMenu();
       if (alreadyOpenForThisCard) return;
 
@@ -3578,20 +3760,49 @@ function renderChart() {
       addRelativeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         closeCardMoreMenu();
-        const alreadyActiveForThisPerson =
-          state.editor.isAddingRelative() && state.editor.addRelativeInstance.datum?.id === d.data.id;
-        if (alreadyActiveForThisPerson) {
-          cancelAddRelative();
-          return;
-        }
-        cancelAddRelative();
-        state.chart.updateMainId(d.data.id);
-        state.editor.addRelativeInstance.activate(d.data);
+        activateAddRelative(d.data, { linkMode: false });
+      });
+
+      // Link existing member: activates the same placeholder-slot flow as
+      // "Add relative" (father/mother/spouse/son/daughter), but in link mode
+      // the placeholder cards read "Link Father"/"Link Mother"/etc (via
+      // setAddRelLabels below) and clicking one opens a form that shows
+      // *only* the "existing member" picker (wired via
+      // setLinkExistingRelConfig above) - the create-new name/birthday/etc
+      // fields are hidden entirely so linking can't be confused with
+      // creating a new person.
+      const linkExistingBtn = document.createElement('button');
+      linkExistingBtn.type = 'button';
+      linkExistingBtn.className = 'dropdown-item';
+      linkExistingBtn.innerHTML = `${f3.icons.linkSvgIcon()}<span>Link existing member</span>`;
+      linkExistingBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeCardMoreMenu();
+        activateAddRelative(d.data, { linkMode: true });
       });
 
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
-      cardEl.appendChild(menu);
+      menu.appendChild(linkExistingBtn);
+      anchorEl.appendChild(menu);
+    }
+
+    const addRelLabelsDefault = { father: 'Add Father', mother: 'Add Mother', spouse: 'Add Spouse', son: 'Add Son', daughter: 'Add Daughter' };
+    const addRelLabelsLinkMode = { father: 'Link Father', mother: 'Link Mother', spouse: 'Link Spouse', son: 'Link Son', daughter: 'Link Daughter' };
+
+    function activateAddRelative(datum, { linkMode }) {
+      const alreadyActiveForThisPersonAndMode =
+        state.editor.isAddingRelative() &&
+        state.editor.addRelativeInstance.datum?.id === datum.id &&
+        state.editor.addRelativeInstance.link_mode === linkMode;
+      if (alreadyActiveForThisPersonAndMode) {
+        cancelAddRelative();
+        return;
+      }
+      cancelAddRelative();
+      state.chart.updateMainId(datum.id);
+      state.editor.setAddRelLabels(linkMode ? addRelLabelsLinkMode : addRelLabelsDefault);
+      state.editor.addRelativeInstance.activate(datum, { link_mode: linkMode });
     }
 
     // Plain card click opens the profile panel (view-first: setEditFirst(false)
@@ -3623,7 +3834,7 @@ function renderChart() {
     // read-only field grid.
     state.editor = state.chart
       .editTree()
-      .setFields(['first name', 'last name', 'birthday', 'location', 'email', 'notes', 'avatar'])
+      .setFields(['first name', 'last name', { id: 'birthday', type: 'date', label: 'birthday' }, 'location', 'email', 'notes', 'avatar'])
       .setNoEdit()
       .setEditFirst(false)
       .setOnFormCreation(({ cont }) => hydrateAvatarPreview(cont));
@@ -3728,7 +3939,7 @@ function setupViewModeToggle() {
     syncModeButtons();
   });
 
-  // Media Library/Timeline chips are rendered inside #view-mode-toggle
+  // Media Library/Timeline/Family Feed chips are rendered inside #view-mode-toggle
   // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
   // their DOM nodes too - re-wire them every call rather than once in
   // attachTreeViewerListeners(), which would only ever bind the first copy.
@@ -3746,6 +3957,7 @@ function setupViewModeToggle() {
     state.dashboardView = 'relationshipFinder';
     render();
   });
+  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
 
   syncModeButtons();
 }

@@ -213,6 +213,20 @@
   --tree-panel-text: #1f2937;
 }
 
+/* The dashboard (sidebar + .content) has no fixed-height/overflow container
+   of its own - a long page (e.g. a Timeline event detail with a growing
+   comment thread) scrolls the whole document natively. That's normally
+   invisible until you actually scroll on platforms/browsers that use
+   auto-hiding overlay scrollbars, which reads as "there's no way to scroll"
+   even though there is. scrollbar-gutter reserves the track's width up
+   front (so a scrollbar appearing/disappearing across pages doesn't shift
+   layout), and overflow-y: scroll forces the browser to render a
+   persistent, non-overlay scrollbar rather than an auto/hover-only one. */
+html {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -315,6 +329,65 @@ h1, h2, h3 {
   gap: var(--sp-3);
   text-align: center;
   margin-bottom: var(--sp-7);
+}
+
+/* Public /support page (signed-out visitor variant) - the auth card is
+   500px max-width, too narrow for the two-column .contact-grid used on the
+   authenticated dashboard's Contact Us page, so this renders just the form
+   card on its own, widened slightly and given a top-left "back to login"
+   link in place of the sidebar nav. */
+.support-page-anonymous {
+  width: 100%;
+}
+
+.support-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.support-back-link:hover {
+  color: var(--text-primary);
+}
+
+.support-back-link .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.support-page-anonymous .contact-form-card {
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+
+/* Prominent support link shown on every auth-flow step (sign in/up, MFA,
+   forgot/reset password) via renderAuthShell - a plainer, always-visible
+   sibling to the Terms/Privacy disclaimer above it. */
+.auth-support-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-support-link:hover {
+  color: var(--accent);
+}
+
+.auth-support-link .icon {
+  width: 15px;
+  height: 15px;
 }
 
 .auth-brand-icon {
@@ -1066,27 +1139,41 @@ button.secondary:active,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 36px;
+  width: 26px;
+  height: 44px;
   padding: 0;
   background: var(--bg-surface-raised);
   color: var(--text-tertiary);
   border: 1px solid var(--border-default);
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);
   z-index: 10;
+  transition: background var(--transition-base), color var(--transition-base),
+    border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .sidebar-collapse-btn .icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   transform: rotate(180deg);
   transition: transform var(--transition-base);
 }
 
+/* Highlighted accent color only appears once the pointer is over the
+   sidebar - keeps the rail's resting state calm and reserves the accent
+   for when the user is actually near enough to use the button. */
+.sidebar:hover .sidebar-collapse-btn {
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
 .sidebar-collapse-btn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-lg);
 }
 
 /* Icon-rail collapse only applies at desktop widths (distinct from the
@@ -2815,7 +2902,8 @@ button.secondary:active,
   font-size: 0.8rem;
 }
 
-.rm-search-box {
+.rm-search-box,
+.dm-search-box {
   max-width: none;
   width: 100%;
 }
@@ -3420,10 +3508,11 @@ button.secondary:active,
   height: 100%;
   overflow-y: auto;
   padding: var(--sp-4);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
   gap: var(--sp-3);
-  max-width: 560px;
+  max-width: 1200px;
 }
 
 .tree-settings-section {
@@ -3431,6 +3520,7 @@ button.secondary:active,
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   padding: var(--sp-4);
+  height: 100%;
 }
 
 .tree-settings-danger-zone {
@@ -3463,8 +3553,11 @@ button.secondary:active,
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  white-space: nowrap;
   font-size: 0.9rem;
+}
+
+.tree-settings-checkbox-label:has(#tree-settings-unlimited-depth-checkbox) {
+  white-space: nowrap;
 }
 
 .tree-settings-number-input {
@@ -3472,8 +3565,13 @@ button.secondary:active,
 }
 
 .tree-settings-actions {
+  grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
+}
+
+.tree-settings-shell > #tree-settings-error {
+  grid-column: 1 / -1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -4195,16 +4293,11 @@ dialog.modal-overlay[open] {
   border-top: 1px solid var(--border-subtle);
 }
 
-.member-role-select {
-  min-height: 30px;
-  padding: 4px 8px;
-  font-size: 0.82rem;
-}
-
 .member-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   padding: var(--sp-3);
   border: 1px solid var(--border-subtle);
@@ -4233,8 +4326,33 @@ dialog.modal-overlay[open] {
 
 .member-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.member-role-menu-wrap {
+  position: relative;
+}
+
+.member-role-trigger {
+  gap: var(--sp-1);
+}
+
+.member-role-menu {
+  min-width: 190px;
+}
+
+.dropdown-item-icon-spacer {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+.dropdown-divider {
+  margin: var(--sp-1) 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .visibility-picker {
@@ -5757,6 +5875,53 @@ button.admin-stat-card {
   font-size: 0.76rem;
 }
 
+.admin-audit-expanded {
+  margin: calc(var(--sp-3) * -1) 0 var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-surface-hover);
+}
+
+.admin-audit-diff {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.admin-audit-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.admin-audit-diff-key {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.admin-audit-diff-before {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  word-break: break-word;
+}
+
+.admin-audit-diff-after {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.admin-audit-diff-arrow {
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.admin-audit-diff-meta {
+  margin-top: var(--sp-2);
+  font-size: 0.76rem;
+}
+
 @media (max-width: 860px) {
   .admin-table-head {
     display: none;
@@ -6245,9 +6410,51 @@ button.admin-stat-card {
 /* Media / albums / events (lightbox, library, timeline)                   */
 /* ---------------------------------------------------------------------- */
 
+/* Unlike other modals, the lightbox body can grow arbitrarily tall (a long
+   comment thread) - if the dialog itself scrolled (the .modal-dialog
+   default), the absolutely-positioned close button would scroll away with
+   the content instead of staying reachable. So this modal opts out of the
+   inherited overflow-y: auto and instead scrolls only .lightbox-scroll (the
+   wrapper around everything below the close button), which keeps the close
+   button fixed in place and the media preview from being pushed off-screen
+   by a growing comment list. */
 .modal-dialog.modal-media-lightbox {
   width: min(100%, 720px);
   max-height: min(88vh, 760px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Pinned top right, same corner as .modal-close (which reserves 16-50px in
+   from the border - see below) - sits just left of it rather than at the
+   bottom of the modal, mirroring where the list view's primary "+ Upload"/
+   "+ Create Event" action lives (top right of its own header row). */
+.lightbox-delete-top-btn {
+  position: absolute;
+  top: var(--sp-3);
+  right: 56px;
+  z-index: 1;
+}
+
+.lightbox-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* .modal-close is a 34px button pinned at top/right: var(--sp-4) (16px) -
+     its left edge reaches 50px in from the dialog's border. Since this is
+     the modal's actual scroll container now (not the dialog itself - see
+     the rule above), its native scrollbar renders at this box's own right
+     edge, which without this padding sits at the dialog's padding boundary
+     (24px in) - well inside the button's 16-50px span, so the button
+     visually blocks the scrollbar's up-arrow. Push the scroll box's right
+     edge out past 50px (26px of extra padding), then pull the box back by
+     the same amount so visible content keeps its original width/position -
+     only the scrollbar (and the padding box behind it, which is empty)
+     moves clear of the button. */
+  padding-right: 26px;
+  margin-right: -26px;
 }
 
 .media-grid {
@@ -6368,13 +6575,31 @@ button.admin-stat-card {
 }
 
 .lightbox-description-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: var(--sp-1) 0 0;
 }
 
+/* Long descriptions still need to wrap and grow past a single inline
+   line's content width - override the inline-flex sizing above for that
+   one case rather than adding a second class. */
+.lightbox-description-row:has(.lightbox-description) {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+}
+
 .lightbox-description {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* timelinePanel.js reuses .lightbox-description-row's "text + trailing
+   pencil" layout for the date/location line too (not just the description),
+   so its child text needs the same flex treatment regardless of tag/class. */
+.lightbox-description-row .page-subtitle {
   margin: 0;
   flex: 1;
   min-width: 0;
@@ -6410,52 +6635,77 @@ button.admin-stat-card {
 .lightbox-title-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   padding-right: var(--sp-6);
 }
 
-.lightbox-title-row h3 {
+.lightbox-title-row h3,
+.lightbox-title-row .page-title {
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .lightbox-title-row #lightbox-edit-btn {
   flex-shrink: 0;
 }
 
+/* Groups the title text tightly with its edit pencil (timelinePanel.js) so
+   the pencil sits right next to the word it edits instead of drifting to
+   the far right of the title row alongside the visibility badge. */
+.lightbox-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lightbox-title-group .page-title {
+  flex: 1 1 auto;
+}
+
+.lightbox-title-group .icon-btn {
+  flex-shrink: 0;
+}
+
+/* Sized/positioned like .badge-role-* (see the tree viewer header's role
+   badge, which sits inline right next to the tree name) rather than its own
+   full-width pill below the title - moved into .lightbox-title-row so
+   "who can see this" reads as part of the title line, not a separate
+   sharing control buried underneath it. */
 .lightbox-visibility-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
-  margin: var(--sp-1) 0 0;
-  padding: 4px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--bg-surface);
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-hover);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
+  font-weight: 600;
   cursor: pointer;
-  width: fit-content;
 }
 
 .lightbox-visibility-badge:hover {
-  border-color: var(--border-default);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
 .lightbox-visibility-badge .icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 
 .lightbox-visibility-badge.lightbox-visibility-static {
   cursor: default;
-  background: transparent;
-  border-color: transparent;
-  padding-left: 0;
 }
 
 .lightbox-edit-form {
@@ -6511,6 +6761,44 @@ button.admin-stat-card {
 
 .timeline-media-header .lightbox-tags-title {
   margin: 0;
+}
+
+/* Consolidated media + reactions block: the media grid (or empty state) and
+   the emoji reaction bar live inside one panel rather than as two detached
+   pieces of the page. */
+.timeline-media-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 20px;
+  margin: var(--sp-2) 0 var(--sp-4);
+}
+
+.timeline-media-panel .media-grid {
+  margin: 0;
+}
+
+.timeline-media-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  text-align: center;
+  padding: var(--sp-4) 0;
+}
+
+.timeline-media-empty .muted {
+  margin: 0;
+}
+
+.timeline-media-panel .reaction-bar {
+  justify-content: center;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .lightbox-tag-list {
@@ -6570,6 +6858,137 @@ button.admin-stat-card {
 
 .lightbox-tag-suggestions li:hover {
   background: var(--bg-surface-hover);
+}
+
+/* Comments + reactions (mediaLightbox.js, timelinePanel.js, via commentSection.js) */
+
+.comment-section {
+  margin-top: var(--sp-3);
+}
+
+.comment-section-title {
+  margin-top: var(--sp-3);
+}
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.reaction-chip:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.reaction-chip:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.reaction-chip-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-on-soft);
+}
+
+.reaction-chip-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.comment-list-empty {
+  padding: 0;
+}
+
+/* Each comment reads as a self-contained card/bubble rather than a bare
+   row - trash icon pinned to the card's own top-right corner (position:
+   relative on the card, position: absolute on the button) instead of
+   sitting inline with the avatar and text. */
+.comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  background: var(--bg-inset);
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+}
+
+.comment-item-body {
+  flex: 1;
+  min-width: 0;
+  padding-right: var(--sp-5);
+}
+
+.comment-item-meta {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.comment-item-author {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.comment-item-time {
+  font-size: 0.75rem;
+}
+
+.comment-item-text {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-delete-btn {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* Post sits underneath the textarea, aligned to its bottom-right, instead
+   of stretching full-height in a row beside it. */
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.comment-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.comment-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Media library */
@@ -6687,19 +7106,22 @@ button.admin-stat-card {
 
 /* Event detail is text/form-heavy (title, description, participants) - keep
    it readable instead of stretching to the full wide page width used by the
-   list/grid views. The back-link and page-header stay full width. */
-.timeline-page .lightbox-title-row,
-.timeline-page .page-subtitle,
-.timeline-page .modal-message,
-.timeline-page .lightbox-description-add-btn,
-.timeline-page .lightbox-visibility-badge,
-.timeline-page .lightbox-edit-form,
-.timeline-page .lightbox-tags-title,
-.timeline-page .lightbox-tag-list,
-.timeline-page .lightbox-tag-add,
-.timeline-page .timeline-media-header,
-.timeline-page .lightbox-stub {
-  max-width: 760px;
+   list/grid views. Wraps the entire detail view (header included), so it's
+   the single desktop width constraint - nothing inside it needs its own
+   max-width anymore. Left-aligned (not centered) so it lines up with the
+   rest of the dashboard's page content instead of floating mid-page. */
+.timeline-detail-wrap {
+  max-width: 1000px;
+  margin: 0;
+  padding: 24px 24px 24px 0;
+}
+
+/* .lightbox-title-row's padding-right reserves space for mediaLightbox.js's
+   absolutely-positioned modal close (X) button - the timeline page has no
+   such overlay, so that padding just throws off the visibility badge's
+   right-edge alignment with "Delete Event" above it. */
+.timeline-page .lightbox-title-row {
+  padding-right: 0;
 }
 
 .timeline-page .breadcrumb-link {
@@ -6713,6 +7135,25 @@ button.admin-stat-card {
 
 .timeline-page .breadcrumb .breadcrumb-link {
   margin-bottom: 0;
+}
+
+/* Event detail header row: breadcrumb on the left, Delete Event pinned top
+   right - same placement as the list view's "+ Create Event" button (see
+   .media-library-filters), rather than the old bottom-of-page danger button. */
+.timeline-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.timeline-detail-header .breadcrumb {
+  margin-bottom: 0;
+}
+
+.timeline-detail-header .btn-danger {
+  flex-shrink: 0;
 }
 
 .timeline-media-picker-upload-label {
@@ -7078,14 +7519,37 @@ button.admin-stat-card {
 }
 
 /* Popover opened by the card's "more" (⋯) icon - reuses .dropdown-menu/
-   .dropdown-item for visual consistency with the rest of the app. Narrower
-   than the default dropdown-menu min-width since it only ever holds
-   Edit/Add relative, and needs a higher z-index than a page dropdown-menu
-   since it must sit above sibling tree cards, not just page content. */
-.f3 div.card > .f3-card-more-menu.dropdown-menu {
+   .dropdown-item for visual consistency with the rest of the app, but
+   overrides its positioning: it's appended inside the icon's own
+   `.f3-svg-circle-hover` div (see addCardIcon/openCardMoreMenu in main.js),
+   so `top: 100%; right: 0` here resolves against that small icon box
+   instead of the default `.dropdown-menu` rule's card/page-level anchor -
+   which is what previously made the popover drop to the bottom of the
+   whole card instead of tucking directly under the circular button.
+   `transform-origin: top right` matches the corner it grows from (the icon
+   sits top-right), and min-width is narrower than the default dropdown-menu
+   since this one only ever holds Edit/Add relative. Higher z-index than a
+   page dropdown-menu since it must sit above sibling tree cards, not just
+   page content. */
+.f3-svg-circle-hover > .f3-card-more-menu.dropdown-menu {
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
   min-width: 140px;
   z-index: 40;
+  padding: var(--sp-1);
+  transform-origin: top right;
   transform: none !important;
+}
+
+/* Compact rows: tighter padding/font and a smaller icon-text gap than the
+   default `.dropdown-item` (which is sized for page-level menus), since
+   this popover only ever holds two short actions and reads better tight. */
+.f3-card-more-menu.dropdown-menu .dropdown-item {
+  gap: var(--sp-1);
+  min-height: unset;
+  padding: 4px 8px;
+  font-size: 0.78rem;
 }
 
 /* The menu's Edit/Add relative icons come from f3.icons' *SvgIcon()

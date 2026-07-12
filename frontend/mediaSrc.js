@@ -48,19 +48,44 @@ export function loadMediaObjectUrl(media) {
 // Resolves every `[data-media-src]` element under `root` (an <img>, <video>,
 // or <a>) to its authenticated object URL. Elements are matched back up by
 // media id once the fetch resolves, since `root` may have already
-// re-rendered by then.
+// re-rendered by then. Returns a promise that settles once every element has
+// been resolved (or failed) - callers that need to react to the resulting
+// layout shift (an <img>/<video> going from 0 height to its real size) can
+// await this instead of assuming the DOM is already its final size
+// synchronously after this call returns.
 export function hydrateMediaSources(root, mediaById) {
-  root.querySelectorAll('[data-media-src]').forEach((el) => {
+  const tasks = [...root.querySelectorAll('[data-media-src]')].map((el) => {
     const media = mediaById.get(Number(el.dataset.mediaSrc));
-    if (!media) return;
-    loadMediaObjectUrl(media)
+    if (!media) return Promise.resolve();
+    return loadMediaObjectUrl(media)
       .then((objectUrl) => {
         if (!root.isConnected) return;
-        if (el.tagName === 'A') el.href = objectUrl;
-        else el.src = objectUrl;
+        if (el.tagName === 'A') {
+          el.href = objectUrl;
+          return;
+        }
+        el.src = objectUrl;
+        // Setting .src starts the fetch/decode asynchronously - an <img>/
+        // <video> has ~0 rendered height until this resolves, so callers
+        // waiting on the returned promise to react to the box's final size
+        // (e.g. restoring a scroll position) need this, not just the src
+        // assignment above.
+        if (el.tagName === 'IMG') {
+          return new Promise((resolve) => {
+            el.addEventListener('load', resolve, { once: true });
+            el.addEventListener('error', resolve, { once: true });
+          });
+        }
+        if (el.tagName === 'VIDEO') {
+          return new Promise((resolve) => {
+            el.addEventListener('loadedmetadata', resolve, { once: true });
+            el.addEventListener('error', resolve, { once: true });
+          });
+        }
       })
       .catch(() => {
         el.closest('.media-thumb-error')?.remove();
       });
   });
+  return Promise.all(tasks);
 }

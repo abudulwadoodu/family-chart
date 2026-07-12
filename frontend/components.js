@@ -539,6 +539,7 @@ export function renderTreeCard(tree, { renaming } = {}) {
         { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
       ];
   if (!isDisabled && tree.role === 'owner') {
+    items.unshift({ action: 'share', label: 'Share', icon: 'share' });
     items.unshift({ action: 'tree-settings', label: 'Tree Settings', icon: 'settings' });
     items.unshift({ action: 'rename', label: 'Rename', icon: 'pencil' });
     items.push({ action: 'delete', label: 'Delete', icon: 'trash', danger: true });
@@ -625,10 +626,14 @@ export function renderSkeletonGrid(count = 6) {
 // sibling full-page panel is open. In the latter case the tree name becomes a
 // clickable breadcrumb segment (id="breadcrumb-tree-btn") that routes back to
 // the core tree view, since "My Trees" alone no longer reaches it in one click.
+// `detailLabel` is an optional 4th segment (e.g. an event's title on the
+// Timeline detail view) - when present, `activeTab` itself becomes a
+// clickable link (id="breadcrumb-tab-btn") back to its list view, and
+// `detailLabel` becomes the new current (non-clickable) segment.
 // Shared by renderTreeViewerHeader and the standalone Media Library/Timeline
 // page headers so the breadcrumb stays visually and structurally identical
 // across all tree-detail views.
-export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
+export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">
       <button type="button" id="breadcrumb-trees-btn" class="breadcrumb-link">My Trees</button>
@@ -637,7 +642,13 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null }) {
         activeTab
           ? `<button type="button" id="breadcrumb-tree-btn" class="breadcrumb-link">${escapeHtml(treeName)}</button>
              <span class="breadcrumb-sep">/</span>
-             <span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+             ${
+               detailLabel
+                 ? `<button type="button" id="breadcrumb-tab-btn" class="breadcrumb-link">${escapeHtml(activeTab)}</button>
+                    <span class="breadcrumb-sep">/</span>
+                    <span class="breadcrumb-current">${escapeHtml(detailLabel)}</span>`
+                 : `<span class="breadcrumb-current">${escapeHtml(activeTab)}</span>`
+             }`
           : `<span class="breadcrumb-current">${escapeHtml(treeName)}</span>`
       }
     </nav>
@@ -841,7 +852,7 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError }) {
+export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing }) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -856,14 +867,42 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   const rows = permissions
     .map((permission) => {
       const isOwnerRow = permission.role === 'owner';
-      const actions = isOwnerRow
+      const menuId = `member-role-menu-${permission.user_id}`;
+      const roleLabel = MEMBER_ROLE_LABELS[permission.role] || permission.role;
+
+      const actions = isOwnerRow || !isOwnerViewing
         ? ''
         : `
-          <select class="member-role-select" data-user-id="${permission.user_id}" aria-label="Role for ${escapeHtml(permission.email)}">
-            <option value="editor" ${permission.role === 'editor' ? 'selected' : ''}>Editor</option>
-            <option value="viewer" ${permission.role === 'viewer' ? 'selected' : ''}>Viewer</option>
-          </select>
-          <button type="button" class="btn btn-ghost btn-sm" data-remove-user-id="${permission.user_id}">Remove</button>
+          <div class="member-role-menu-wrap">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm menu-trigger member-role-trigger"
+              data-menu-trigger="${menuId}"
+              aria-label="Change role or access for ${escapeHtml(permission.email)}"
+            >${escapeHtml(roleLabel)}${icon('chevronDown')}</button>
+            <div class="dropdown-menu member-role-menu" data-menu-id="${menuId}">
+              <button type="button" class="dropdown-item" data-role-option="editor" data-user-id="${permission.user_id}">
+                ${permission.role === 'editor' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Editor</span>
+              </button>
+              <button type="button" class="dropdown-item" data-role-option="viewer" data-user-id="${permission.user_id}">
+                ${permission.role === 'viewer' ? icon('check') : '<span class="dropdown-item-icon-spacer"></span>'}<span>Viewer</span>
+              </button>
+              ${
+                isOwnerViewing
+                  ? `
+                <div class="dropdown-divider"></div>
+                <button type="button" class="dropdown-item" data-transfer-owner-user-id="${permission.user_id}">
+                  <span class="dropdown-item-icon-spacer"></span><span>Transfer ownership</span>
+                </button>
+              `
+                  : ''
+              }
+              <div class="dropdown-divider"></div>
+              <button type="button" class="dropdown-item dropdown-item-danger" data-remove-user-id="${permission.user_id}">
+                <span class="dropdown-item-icon-spacer"></span><span>Remove access</span>
+              </button>
+            </div>
+          </div>
         `;
 
       return `
@@ -873,7 +912,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
             <div>
               <p class="member-email">${escapeHtml(permission.email)}</p>
               <p class="member-meta">
-                <span class="badge badge-role-${permission.role}">${MEMBER_ROLE_LABELS[permission.role] || permission.role}</span>
+                <span class="badge badge-role-${permission.role}">${roleLabel}</span>
               </p>
             </div>
           </div>
@@ -947,16 +986,34 @@ export function renderContactPageMarkup({ email }) {
   `;
 }
 
-function renderContactFormCard({ email }) {
+// `anonymous: true` is for the public /support page (signed-out visitors,
+// see renderSupportPageAnonymous in main.js): there's no account email to
+// reply to, so it swaps the "replies sent to" line for an editable email
+// field the visitor fills in themselves. Everything else - fields,
+// validation hookup, honeypot - is shared with the authenticated dashboard
+// Contact Us page so the two never drift apart.
+export function renderContactFormCard({ email, anonymous = false }) {
   const categoryOptions = SUPPORT_CATEGORIES.map(
     (category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`
   ).join('');
 
+  const emailFieldHtml = anonymous
+    ? `
+        <label>Your email
+          <input type="email" name="email" id="contact-email-input" maxlength="254" placeholder="you@example.com" aria-required="true" />
+          <span class="field-error" id="contact-email-error" role="alert"></span>
+        </label>`
+    : '';
+  const replyToHtml = anonymous
+    ? ''
+    : `<p class="contact-form-replyto muted">Replies will be sent to <strong>${escapeHtml(email || 'your account email')}</strong>.</p>`;
+
   return `
     <section class="card contact-form-card">
       <h2 class="contact-card-title">Send us a message</h2>
-      <p class="contact-form-replyto muted">Replies will be sent to <strong>${escapeHtml(email || 'your account email')}</strong>.</p>
-      <form id="contact-form" class="contact-form" novalidate>
+      ${replyToHtml}
+      <form id="contact-form" class="contact-form" novalidate data-anonymous="${anonymous ? 'true' : 'false'}">
+        ${emailFieldHtml}
         <label>Subject
           <input type="text" name="subject" id="contact-subject-input" maxlength="120" placeholder="A short summary of your request" aria-required="true" />
           <span class="field-error" id="contact-subject-error" role="alert"></span>
