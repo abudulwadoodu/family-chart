@@ -9,6 +9,8 @@ export const AUDIT_ACTIONS = {
   USER_ROLE_CHANGED: 'user.role_changed',
   TREE_SUSPENDED: 'tree.suspended',
   TREE_ACTIVATED: 'tree.activated',
+  ACCESS_OVERRIDE_GRANTED: 'access_override.granted',
+  ACCESS_OVERRIDE_REVOKED: 'access_override.revoked',
   TICKET_UPDATED: 'ticket.updated',
   SETTINGS_CHANGED: 'settings.changed',
   ROLE_UPDATE: 'ROLE_UPDATE',

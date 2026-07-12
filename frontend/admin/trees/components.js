@@ -46,7 +46,67 @@ export function renderTreesPageMarkup({ trees, total, page, pageSize, search, lo
   `;
 }
 
-export function renderTreeDetailMarkup({ tree, collaborators, backLabel = 'Family Trees', busy, canSuspend }) {
+const OVERRIDE_LEVEL_LABELS = { read_only: 'Read only', read_write: 'Read/write' };
+
+function renderAccessOverridesSection({ overrides, canManageOverrides, overridesBusy, overrideFormError }) {
+  const rows = overrides.length
+    ? overrides
+        .map((o) => {
+          const expiry = o.expires_at
+            ? `expires ${escapeHtml(formatRelativeTime(o.expires_at))}${o.is_expired ? ' (expired)' : ''}`
+            : 'no expiry';
+          return `
+      <li class="admin-owned-tree-row${o.is_expired ? ' admin-override-row-expired' : ''}">
+        <div>
+          <span>${escapeHtml(o.user_email)}</span>
+          <p class="member-meta muted">${expiry} &middot; granted by ${escapeHtml(o.granted_by_email)}</p>
+        </div>
+        <div class="admin-override-row-actions">
+          <span class="badge badge-override-${o.permission_level}">${OVERRIDE_LEVEL_LABELS[o.permission_level] || o.permission_level}</span>
+          ${canManageOverrides ? `<button type="button" class="btn btn-ghost btn-sm" data-revoke-override-user-id="${o.user_id}">Revoke</button>` : ''}
+        </div>
+      </li>`;
+        })
+        .join('')
+    : '<li class="muted">No access overrides on this tree.</li>';
+
+  const formErrorHtml = overrideFormError ? `<p class="error">${escapeHtml(overrideFormError)}</p>` : '';
+
+  return `
+    <section class="card">
+      <h2 class="contact-card-title">Access overrides</h2>
+      <p class="muted">Grant a specific user read or read/write access to this tree without changing their collaborator role.</p>
+      ${
+        canManageOverrides
+          ? `
+      <form id="admin-grant-override-form" class="share-form">
+        <input type="email" id="admin-override-email-input" name="email" placeholder="name@example.com" required />
+        <select id="admin-override-level-select" name="permissionLevel">
+          <option value="read_only">Read only</option>
+          <option value="read_write">Read/write</option>
+        </select>
+        <input type="date" id="admin-override-expires-input" name="expiresAt" aria-label="Expiration date (optional)" />
+        <button type="submit" class="btn btn-primary" ${overridesBusy ? 'disabled' : ''}>Grant</button>
+      </form>
+      ${formErrorHtml}`
+          : ''
+      }
+      <ul class="admin-owned-tree-list">${rows}</ul>
+    </section>
+  `;
+}
+
+export function renderTreeDetailMarkup({
+  tree,
+  collaborators,
+  overrides,
+  backLabel = 'Family Trees',
+  busy,
+  canSuspend,
+  canManageOverrides,
+  overridesBusy,
+  overrideFormError,
+}) {
   const collaboratorRows = collaborators.length
     ? collaborators
         .map(
@@ -100,6 +160,7 @@ export function renderTreeDetailMarkup({ tree, collaborators, backLabel = 'Famil
           <h2 class="contact-card-title">Collaborators</h2>
           <ul class="admin-owned-tree-list">${collaboratorRows}</ul>
         </section>
+        ${renderAccessOverridesSection({ overrides, canManageOverrides, overridesBusy, overrideFormError })}
       </aside>
     </div>
   `;
