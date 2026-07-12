@@ -12,7 +12,7 @@ import {
   deleteUser,
   findUserById,
 } from '../models/userModel.js';
-import { recordAuditLog, AUDIT_ACTIONS } from '../services/auditLog.js';
+import { recordAuditLog, logAuditEvent, AUDIT_ACTIONS } from '../services/auditLog.js';
 
 export const adminUsersRouter = express.Router();
 
@@ -74,6 +74,7 @@ adminUsersRouter.patch('/:id/role', requireRole('super_admin'), async (req, res,
       return res.status(400).json({ error: 'Invalid admin role' });
     }
 
+    const previousRole = target.admin_role;
     const user = await setAdminRole(targetId, adminRole);
     await recordAuditLog(req, {
       action: AUDIT_ACTIONS.USER_ROLE_CHANGED,
@@ -81,6 +82,22 @@ adminUsersRouter.patch('/:id/role', requireRole('super_admin'), async (req, res,
       targetId,
       details: { email: user.email, adminRole },
     });
+
+    // Awaited (unlike logAuditEvent's usual fire-and-forget contract) because
+    // this is a low-traffic admin action where a durable forensic trail
+    // matters more than shaving the insert's latency off the response -
+    // errors are still swallowed internally by the service, so a failed
+    // write still can't fail this request.
+    await logAuditEvent(
+      req.user.id,
+      AUDIT_ACTIONS.ROLE_UPDATE,
+      'user',
+      targetId,
+      { adminRole: previousRole },
+      { adminRole },
+      req
+    );
+
     return res.json({ ok: true, user });
   } catch (error) {
     return next(error);

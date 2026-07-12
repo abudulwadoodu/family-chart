@@ -5657,6 +5657,53 @@ button.admin-stat-card {
   font-size: 0.76rem;
 }
 
+.admin-audit-expanded {
+  margin: calc(var(--sp-3) * -1) 0 var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-surface-hover);
+}
+
+.admin-audit-diff {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.admin-audit-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.admin-audit-diff-key {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.admin-audit-diff-before {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  word-break: break-word;
+}
+
+.admin-audit-diff-after {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.admin-audit-diff-arrow {
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.admin-audit-diff-meta {
+  margin-top: var(--sp-2);
+  font-size: 0.76rem;
+}
+
 @media (max-width: 860px) {
   .admin-table-head {
     display: none;
