@@ -10,7 +10,7 @@ import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { validateRelationship } from '../relationshipValidator.js';
 import { applyRelationship } from '../relationshipMutations.js';
-import { searchMembers, buildMemberSearchIndex } from '../memberSearch.js';
+import { searchMembers, buildMemberSearchIndex, getRelativesSummary } from '../memberSearch.js';
 import { TYPE_OPTIONS, PARENT_SUBTYPES, SIBLING_SUBTYPES, toLabel, describeRelationship } from '../relationshipDialog.js';
 import { suggestMatches } from './suggestions.js';
 import { recordRecentMember, recordRecentType, getRecentMembers, getRecentTypes } from './recentContext.js';
@@ -101,7 +101,15 @@ function renderTargetResultsBlock(rm, data) {
   const results = rm.builder.targetSearchResults;
   const resultsHtml = results.length
     ? `<div class="rm-target-results">${results
-        .map((entry) => `<button type="button" class="rm-target-result" data-id="${escapeHtml(entry.id)}">${escapeHtml(entry.label)}</button>`)
+        .map((entry) => {
+          const summary = getRelativesSummary(byId.get(entry.id), byId);
+          return `
+            <button type="button" class="rm-target-result" data-id="${escapeHtml(entry.id)}">
+              <span class="rm-target-result-name">${escapeHtml(entry.label)}</span>
+              ${summary ? `<span class="rm-target-result-detail">${escapeHtml(summary)}</span>` : ''}
+            </button>
+          `;
+        })
         .join('')}</div>`
     : '';
 

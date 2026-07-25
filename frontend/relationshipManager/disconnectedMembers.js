@@ -21,26 +21,10 @@ export function getDisconnectedMembers(data) {
   return (Array.isArray(data) ? data : []).filter(isDisconnected);
 }
 
-// Short "Parent of Ahmed Khan; Spouse of Fatima Khan" style summary for an
-// already-connected member's row, naming the actual relatives (same
-// toLabel() convention as the right panel's spouse badge in
-// treeHierarchyPanel.js) rather than just counting them - this is what makes
-// an unnamed-but-connected member identifiable in "show all members" mode.
-// `byId` is a Map<id, Datum> over the full tree, needed to resolve relative
-// names; falls back to a bare count if a relative id can't be resolved
-// (defensive - shouldn't happen with well-formed data).
-export function relationSummary(datum, byId) {
-  const rels = datum?.rels || {};
-  const parents = (rels.parents || []).map((id) => byId?.get(id)).filter(Boolean);
-  const children = (rels.children || []).map((id) => byId?.get(id)).filter(Boolean);
-  const spouses = (rels.spouses || []).map((id) => byId?.get(id)).filter(Boolean);
-
-  const parts = [];
-  if (parents.length) parts.push(`Child of ${parents.map(toLabel).join(', ')}`);
-  if (children.length) parts.push(`Parent of ${children.map(toLabel).join(', ')}`);
-  if (spouses.length) parts.push(`Spouse of ${spouses.map(toLabel).join(', ')}`);
-  return parts.join('; ');
-}
+// Kept as a re-export so existing imports (and disconnectedMembers.test.js)
+// keep working unchanged - the implementation now lives in memberSearch.js
+// so every other member-picker panel can share it too.
+export { getRelativesSummary as relationSummary } from '../memberSearch.js';
 
 export function sortDisconnected(list, mode, recentIds = []) {
   const items = [...list];

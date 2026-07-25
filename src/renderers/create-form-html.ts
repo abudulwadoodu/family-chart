@@ -263,16 +263,30 @@ function avatarField(form_creator: EditDatumFormCreator | NewRelFormCreator) {
 function addLinkExistingRelative(form_creator: EditDatumFormCreator | NewRelFormCreator) {
   const title = form_creator.linkExistingRelative.hasOwnProperty('title') ? form_creator.linkExistingRelative.title : 'Profile already exists?'
   const select_placeholder = form_creator.linkExistingRelative.hasOwnProperty('select_placeholder') ? form_creator.linkExistingRelative.select_placeholder : 'Select profile'
-  const options = form_creator.linkExistingRelative.options as SelectField['options']
+  const confirm_label = form_creator.linkExistingRelative.hasOwnProperty('confirm_label') ? form_creator.linkExistingRelative.confirm_label : 'Select'
+  const options = form_creator.linkExistingRelative.options as (SelectField['options'][number] & {detail?: string, searchText?: string})[]
   return (`
     <div>
       <hr>
       <div class="f3-link-existing-relative">
         <label>${title}</label>
-        <select>
-          <option value="">${select_placeholder}</option>
-          ${options.map(option => `<option value="${option.value}">${option.label}</option>`).join('')}
-        </select>
+        <div class="f3-link-search-box">
+          <input type="text" class="f3-link-search-input" placeholder="${select_placeholder}" autocomplete="off">
+        </div>
+        <ul class="f3-link-results" role="listbox">
+          ${options.map(option => (`
+            <li class="f3-link-result"
+              role="option"
+              aria-selected="false"
+              data-id="${option.value}"
+              data-search="${(`${option.label} ${option.searchText || ''}`).toLowerCase().replace(/"/g, '&quot;')}"
+            >
+              <span class="f3-link-result-name">${option.label}</span>
+              ${option.detail ? `<span class="f3-link-result-detail">${option.detail}</span>` : ''}
+            </li>
+          `)).join('')}
+        </ul>
+        <button type="button" class="f3-link-confirm-btn" disabled>${confirm_label}</button>
       </div>
     </div>
   `)

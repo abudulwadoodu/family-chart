@@ -151,8 +151,14 @@ export function formCreatorSetup({
     const obj = {
       title: link_existing_rel_config.title,
       select_placeholder: link_existing_rel_config.select_placeholder,
+      confirm_label: link_existing_rel_config.confirm_label,
       options: getLinkRelOptions(datum, data)
-        .map((d: Datum) => ({value: d.id, label: link_existing_rel_config.linkRelLabel(d)}))
+        .map((d: Datum) => ({
+          value: d.id,
+          label: link_existing_rel_config.linkRelLabel(d),
+          detail: link_existing_rel_config.linkRelDetail ? link_existing_rel_config.linkRelDetail(d) : '',
+          searchText: link_existing_rel_config.linkRelSearchText ? link_existing_rel_config.linkRelSearchText(d) : '',
+        }))
         .sort((a: {label: string}, b: {label: string}) => {
           if (typeof a.label === 'string' && typeof b.label === 'string') return a.label.localeCompare(b.label)
           else return a.label < b.label ? -1 : 1
@@ -177,8 +183,7 @@ export function formCreatorSetup({
     }
   }
 
-  function submitLinkExistingRelative(e: Event) {
-    const link_rel_id = (e.target as HTMLSelectElement).value
+  function submitLinkExistingRelative(link_rel_id: string) {
     postSubmitHandler({link_rel_id: link_rel_id})
   }
 

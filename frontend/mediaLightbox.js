@@ -5,7 +5,7 @@
 import { showModal, showToast, showConfirmDialog } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
-import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getRelativesSummary } from './memberSearch.js';
 import * as mediaApi from './mediaApi.js';
 import { hydrateMediaSources } from './mediaSrc.js';
 import {
@@ -112,7 +112,7 @@ function visibilityEditForm(visibilityPicker) {
   `;
 }
 
-function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, editing, editDraft, editingVisibility, visibilityPicker, shareCount, editingDescription, descriptionDraft, context }) {
+function mediaBody({ media, tags, memberIndex, memberById, readOnly, tagQuery, tagResults, editing, editDraft, editingVisibility, visibilityPicker, shareCount, editingDescription, descriptionDraft, context }) {
   const isImage = media.kind === 'photo';
   const isVideo = media.kind === 'video';
   const showingForm = editing || editingVisibility || editingDescription;
@@ -177,7 +177,16 @@ function mediaBody({ media, tags, memberIndex, readOnly, tagQuery, tagResults, e
           ${
             tagResults.length
               ? `<ul class="lightbox-tag-suggestions">
-                   ${tagResults.map((r) => `<li data-member-id="${escapeHtml(r.id)}">${escapeHtml(r.label)}</li>`).join('')}
+                   ${tagResults
+                     .map((r) => {
+                       const summary = getRelativesSummary(memberById?.get(r.id), memberById);
+                       return `
+                         <li data-member-id="${escapeHtml(r.id)}">
+                           <span class="lightbox-tag-suggestion-name">${escapeHtml(r.label)}</span>
+                           ${summary ? `<span class="lightbox-tag-suggestion-detail">${escapeHtml(summary)}</span>` : ''}
+                         </li>`;
+                     })
+                     .join('')}
                  </ul>`
               : ''
           }
@@ -268,7 +277,7 @@ export function openMediaStubModal({ api, treeId, media, onDeleted }) {
   return modal;
 }
 
-export function openMediaLightbox({ api, treeId, media, memberIndex, currentUserId, readOnly = false, context, onDeleted, onRemovedFromContext, onTagsChanged, onUpdated }) {
+export function openMediaLightbox({ api, treeId, media, memberIndex, memberById, currentUserId, readOnly = false, context, onDeleted, onRemovedFromContext, onTagsChanged, onUpdated }) {
   const state = {
     media,
     tags: [],
@@ -291,6 +300,7 @@ export function openMediaLightbox({ api, treeId, media, memberIndex, currentUser
         media: state.media,
         tags: state.tags,
         memberIndex,
+        memberById,
         readOnly,
         tagQuery: state.tagQuery,
         tagResults: state.tagResults,

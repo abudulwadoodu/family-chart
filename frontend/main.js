@@ -49,7 +49,7 @@ import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api, fetchAttachment } from './api.js';
-import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel, getRelativesSummary } from './memberSearch.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
@@ -1551,6 +1551,7 @@ function renderDashboard() {
                               : isTimelineView
                                 ? renderTimelinePageContent(state.timeline, {
                                     memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                    memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
                                     readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
                                     currentUserId: state.user?.id,
                                     treeName: state.selectedTreeName,
@@ -1617,6 +1618,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
@@ -1643,6 +1645,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
@@ -2922,16 +2925,24 @@ function renderMemberSearchResults(query) {
     return;
   }
 
+  const byId = new Map((state.selectedTreeData || []).map((d) => [d.id, d]));
+
   resultsEl.innerHTML = state.memberSearchResults
-    .map((entry, index) => `
+    .map((entry, index) => {
+      const summary = getRelativesSummary(byId.get(entry.id), byId);
+      return `
       <button
         type="button"
         class="member-search-result-item ${index === state.memberSearchActiveIndex ? 'active' : ''}"
         role="option"
         aria-selected="${index === state.memberSearchActiveIndex}"
         data-id="${escapeHtml(entry.id)}"
-      >${highlightMatch(entry.label, query)}</button>
-    `)
+      >
+        <span class="member-search-result-name">${highlightMatch(entry.label, query)}</span>
+        ${summary ? `<span class="member-search-result-detail">${escapeHtml(summary)}</span>` : ''}
+      </button>
+    `;
+    })
     .join('');
 
   resultsEl.querySelectorAll('.member-search-result-item').forEach((btn) => {
@@ -3720,8 +3731,11 @@ function renderChart() {
       .setEditFirst(true)
       .setLinkExistingRelConfig({
         title: 'Link to an existing member instead?',
-        select_placeholder: 'Select existing member',
+        select_placeholder: 'Search existing members...',
+        confirm_label: 'Select',
         linkRelLabel: (d) => getMemberLabel(d),
+        linkRelDetail: (d) => getRelativesSummary(d, new Map(state.selectedTreeData.map((d2) => [d2.id, d2]))),
+        linkRelSearchText: (d) => d.data.notes || '',
       })
       .setOnFormCreation(({ cont, form_creator }) => {
         hydrateAvatarPreview(cont);

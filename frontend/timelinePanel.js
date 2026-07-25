@@ -6,7 +6,7 @@ import { showModal, showToast } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 import { renderTreeBreadcrumb } from './components.js';
-import { searchMembers } from './memberSearch.js';
+import { searchMembers, getRelativesSummary } from './memberSearch.js';
 import * as mediaApi from './mediaApi.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
 import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
@@ -154,7 +154,7 @@ function eventStubDetail({ event }) {
   `;
 }
 
-function eventDetail({ event, participants, media, memberIndex, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount }) {
+function eventDetail({ event, participants, media, memberIndex, memberById, readOnly, memberQuery, memberResults, editing, editDraft, editingVisibility, editVisibilityPicker, shareCount }) {
   if (event.access === 'stub') return eventStubDetail({ event });
   const showingForm = editing || editingVisibility;
   return `
@@ -216,7 +216,16 @@ function eventDetail({ event, participants, media, memberIndex, readOnly, member
         ${
           memberResults.length
             ? `<ul class="lightbox-tag-suggestions">
-                 ${memberResults.map((r) => `<li data-member-id="${escapeHtml(r.id)}">${escapeHtml(r.label)}</li>`).join('')}
+                 ${memberResults
+                   .map((r) => {
+                     const summary = getRelativesSummary(memberById?.get(r.id), memberById);
+                     return `
+                       <li data-member-id="${escapeHtml(r.id)}">
+                         <span class="lightbox-tag-suggestion-name">${escapeHtml(r.label)}</span>
+                         ${summary ? `<span class="lightbox-tag-suggestion-detail">${escapeHtml(summary)}</span>` : ''}
+                       </li>`;
+                   })
+                   .join('')}
                </ul>`
             : ''
         }
@@ -423,7 +432,7 @@ export function createTimelinePageState() {
   };
 }
 
-export function renderTimelinePageContent(pageState, { memberIndex, readOnly, currentUserId, treeName }) {
+export function renderTimelinePageContent(pageState, { memberIndex, memberById, readOnly, currentUserId, treeName }) {
   return `
     <div class="timeline-page">
       ${
@@ -433,6 +442,7 @@ export function renderTimelinePageContent(pageState, { memberIndex, readOnly, cu
               participants: pageState.participants,
               media: pageState.media,
               memberIndex,
+              memberById,
               readOnly,
               memberQuery: pageState.memberQuery,
               memberResults: pageState.memberResults,
@@ -482,7 +492,7 @@ async function openDetail(pageState, { api, treeId }, eventId, rerender) {
 // "My Trees" link). `rerender` re-invokes the page's own render (main.js's
 // render()), which calls renderTimelinePageContent again with the same
 // pageState and then re-runs this attach function.
-export function attachTimelinePageListeners(pageState, { api, treeId, memberIndex, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
+export function attachTimelinePageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
   const root = document.querySelector('.timeline-page');
   if (!root) return;
 
@@ -515,6 +525,7 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
           treeId,
           media: item,
           memberIndex,
+          memberById,
           currentUserId,
           readOnly,
           context: { type: 'event', id: pageState.detail.id, name: pageState.detail.title },

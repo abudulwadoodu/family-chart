@@ -5,7 +5,7 @@
 // calls, it only ever selects a person as the builder panel's target.
 import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
-import { buildMemberSearchIndex, searchMembers } from '../memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getRelativesSummary } from '../memberSearch.js';
 import { toLabel } from '../relationshipDialog.js';
 
 export function buildHierarchyRoots(data) {
@@ -33,13 +33,13 @@ function renderNode(datum, byId, expandedIds, highlightId, visiting = new Set())
   nextVisiting.add(id);
 
   const children = (datum.rels?.children || []).map((cid) => byId.get(cid)).filter(Boolean);
-  const spouses = (datum.rels?.spouses || []).map((sid) => byId.get(sid)).filter(Boolean);
   const hasChildren = children.length > 0;
   const expanded = expandedIds.has(id);
   const isHighlighted = highlightId === id;
 
-  const spouseBadge = spouses.length
-    ? `<span class="rm-tree-spouse-badge" title="Spouse of ${escapeHtml(spouses.map(toLabel).join(', '))}">${icon('share')} ${escapeHtml(spouses.map(toLabel).join(', '))}</span>`
+  const summary = getRelativesSummary(datum, byId);
+  const spouseBadge = summary
+    ? `<span class="rm-tree-spouse-badge" title="${escapeHtml(summary)}">${icon('share')}<span class="rm-tree-spouse-badge-text">${escapeHtml(summary)}</span></span>`
     : '';
 
   const childrenHtml = hasChildren && expanded

@@ -125,7 +125,9 @@ export function updateMainWin(name) {
 }
 
 export function linkExistingRel(rel_name) {
-  cy.get('.f3-link-existing-relative').find('select').select(rel_name)
+  cy.get('.f3-link-existing-relative').find('.f3-link-search-input').type(rel_name)
+  cy.get('.f3-link-existing-relative').find('.f3-link-result').contains('.f3-link-result-name', rel_name).click()
+  cy.get('.f3-link-existing-relative').find('.f3-link-confirm-btn').click()
 }
 
 export function getToAddCard(name) {
