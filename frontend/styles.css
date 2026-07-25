@@ -2826,6 +2826,18 @@ button.secondary:active,
   pointer-events: none;
 }
 
+.rm-coparent-prompt {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-default);
+}
+
+.rm-coparent-label {
+  font-size: 0.88rem;
+  margin: 0 0 var(--sp-2);
+  color: var(--text-secondary);
+}
+
 /* Relationship dialog (frontend/relationshipDialog.js) */
 .relationship-type-list,
 .relationship-subtype-list {

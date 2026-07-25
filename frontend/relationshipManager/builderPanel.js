@@ -28,6 +28,55 @@ function resetBuilder(builder) {
   builder.targetSearchQuery = '';
   builder.targetSearchResults = [];
   builder.perItemResults = [];
+  builder.coParentId = null;
+  builder.coParentResults = [];
+}
+
+// Determines whose spouse(s) could plausibly also be the other parent of the
+// child(ren) being linked here, so the Options step can offer it as an
+// explicit, confirmable choice rather than leaving it to be discovered later
+// as an unlabeled "complete the couple" placeholder in the focused tree (or,
+// worse, silently assumed). Only offered for the two unambiguous shapes:
+// type 'parent' (target is the one parent, every source is a child), or type
+// 'child' with exactly one source (that source is the one parent, target is
+// the child) - bulk 'child' (multiple sources becoming parents of one
+// target) already links multiple parents directly in one action, so there's
+// nothing left to suggest.
+export function getCoParentContext(data, sourceIds, targetId, type) {
+  const byId = new Map(data.map((d) => [d.id, d]));
+  let parentId;
+  let childIds;
+  if (type === 'parent') {
+    parentId = targetId;
+    childIds = sourceIds;
+  } else if (type === 'child' && sourceIds.length === 1) {
+    parentId = sourceIds[0];
+    childIds = [targetId];
+  } else {
+    return null;
+  }
+  const parent = byId.get(parentId);
+  if (!parent) return null;
+  // Excludes to_add ghosts (the family-chart library's own render-time
+  // "complete the couple" placeholders, which can end up mixed into this
+  // same data array) - only a real, already-existing spouse is worth
+  // suggesting.
+  const spouses = (parent.rels.spouses || []).map((id) => byId.get(id)).filter((d) => d && !d.to_add);
+  if (!spouses.length) return null;
+  return { parentId, parentLabel: toLabel(parent), childIds, spouses };
+}
+
+// Mirrors computeBulkPreview but for the optional co-parent link: each
+// childId gets linked to coParentId as an additional 'parent' edge,
+// regardless of the main relationship's own type/direction (the co-parent is
+// always becoming a parent of the child, never the reverse).
+export function computeCoParentPreview(data, childIds, coParentId) {
+  if (!coParentId) return [];
+  const byId = new Map(data.map((d) => [d.id, d]));
+  return childIds.map((childId) => {
+    const check = validateRelationship(data, childId, coParentId, 'parent');
+    return { sourceId: childId, label: toLabel(byId.get(childId)), valid: check.valid, reason: check.reason };
+  });
 }
 
 // Pure: computes per-source validity for the chosen target/type. Bulk mode
@@ -213,6 +262,35 @@ function renderChooseTypeStep(rm, data) {
   `;
 }
 
+function renderCoParentPrompt(rm, data) {
+  const { type, targetId } = rm.builder;
+  const ctx = getCoParentContext(data, rm.selectedSourceIds, targetId, type);
+  if (!ctx) return '';
+
+  const childWord = ctx.childIds.length > 1 ? 'children' : 'child';
+  return `
+    <div class="rm-coparent-prompt">
+      <p class="rm-coparent-label">${escapeHtml(ctx.parentLabel)} is already married to:</p>
+      <div class="relationship-subtype-list" role="radiogroup" aria-label="Also link as">
+        <label class="relationship-subtype-option">
+          <input type="radio" name="rm-coparent" value="" ${rm.builder.coParentId ? '' : 'checked'} />
+          <span>Don't link an additional parent</span>
+        </label>
+        ${ctx.spouses
+          .map(
+            (sp) => `
+          <label class="relationship-subtype-option">
+            <input type="radio" name="rm-coparent" value="${escapeHtml(sp.id)}" ${rm.builder.coParentId === sp.id ? 'checked' : ''} />
+            <span>Also link as ${escapeHtml(toLabel(sp))}'s ${childWord}</span>
+          </label>
+        `,
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderOptionsStep(rm, data) {
   const { type } = rm.builder;
   let fieldsHtml = '';
@@ -228,6 +306,7 @@ function renderOptionsStep(rm, data) {
         `,
         ).join('')}
       </div>
+      ${renderCoParentPrompt(rm, data)}
     `;
   } else if (type === 'spouse') {
     fieldsHtml = `
@@ -266,12 +345,13 @@ function renderOptionsStep(rm, data) {
 }
 
 function renderPreviewStep(rm, data) {
-  const { targetId, type } = rm.builder;
+  const { targetId, type, coParentId } = rm.builder;
   const byId = new Map(data.map((d) => [d.id, d]));
   const targetLabel = escapeHtml(toLabel(byId.get(targetId)));
   const relationshipLabel = escapeHtml(describeRelationship(rm.builder));
   const results = rm.builder.perItemResults;
-  const validCount = results.filter((r) => r.valid).length;
+  const coParentResults = rm.builder.coParentResults || [];
+  const validCount = results.filter((r) => r.valid).length + coParentResults.filter((r) => r.valid).length;
 
   const inLawWarnings = findInLawWarnings(data, rm.selectedSourceIds, type);
   const warningHtml = inLawWarnings.length
@@ -304,9 +384,30 @@ function renderPreviewStep(rm, data) {
     )
     .join('');
 
+  const coParentLabel = coParentId ? escapeHtml(toLabel(byId.get(coParentId))) : '';
+  const coParentHtml = coParentResults.length
+    ? `
+      <p class="rm-builder-selection">Also link as <strong>${coParentLabel}</strong>'s child:</p>
+      <div class="rm-bulk-preview">
+        ${coParentResults
+          .map(
+            (r) => `
+          <div class="rm-bulk-preview-row ${r.valid ? '' : 'is-invalid'}">
+            <span class="rm-bulk-preview-icon">${icon(r.valid ? 'check' : 'close')}</span>
+            <span class="rm-bulk-preview-person">${escapeHtml(r.label)}</span>
+            ${r.valid ? `<span class="relationship-preview-arrow">Child of</span><span class="rm-bulk-preview-person">${coParentLabel}</span>` : `<span class="field-error">${escapeHtml(r.reason || 'Not allowed.')}</span>`}
+          </div>
+        `,
+          )
+          .join('')}
+      </div>
+    `
+    : '';
+
   return `
     ${warningHtml}
     <div class="rm-bulk-preview">${rowsHtml}</div>
+    ${coParentHtml}
     <div class="modal-actions row">
       <button type="button" class="btn btn-ghost" id="rm-builder-back-btn">Back</button>
       <button type="button" class="btn btn-primary" id="rm-builder-create-btn" ${validCount === 0 ? 'disabled' : ''}>
@@ -346,7 +447,7 @@ function selectTarget(state, render, targetId) {
 function commit(state, render, onDirtyChange) {
   const rm = state.relationshipManager;
   const data = state.selectedTreeData;
-  const { targetId, type, subtype, marriageDate, divorceDate, status, perItemResults } = rm.builder;
+  const { targetId, type, subtype, marriageDate, divorceDate, status, perItemResults, coParentId, coParentResults } = rm.builder;
 
   const validResults = perItemResults.filter((r) => r.valid);
   validResults.forEach(({ sourceId }) => {
@@ -357,13 +458,24 @@ function commit(state, render, onDirtyChange) {
   });
   recordRecentMember(rm.recent, targetId);
   recordRecentType(rm.recent, type);
+
+  const validCoParentResults = (coParentResults || []).filter((r) => r.valid);
+  validCoParentResults.forEach(({ sourceId }) => {
+    const draft = { sourceId, targetId: coParentId, type: 'parent' };
+    applyRelationship(data, draft);
+    pushCommand(rm.undoStack, draft);
+  });
+  if (validCoParentResults.length) recordRecentMember(rm.recent, coParentId);
+
   rm.dirty = true;
 
-  const skipped = perItemResults.length - validResults.length;
+  const totalApplied = validResults.length + validCoParentResults.length;
+  const totalAttempted = perItemResults.length + (coParentResults || []).length;
+  const skipped = totalAttempted - totalApplied;
   showToast(
     skipped > 0
-      ? `Applied ${validResults.length} of ${perItemResults.length} — ${skipped} skipped (already related).`
-      : `Created ${validResults.length} relationship${validResults.length === 1 ? '' : 's'} — remember to save.`,
+      ? `Applied ${totalApplied} of ${totalAttempted} — ${skipped} skipped (already related).`
+      : `Created ${totalApplied} relationship${totalApplied === 1 ? '' : 's'} — remember to save.`,
   );
 
   if (!rm.keepSelection) rm.selectedSourceIds = [];
@@ -443,7 +555,10 @@ export function attachBuilderPanelListeners(state, render, onDirtyChange) {
       rm.builder.marriageDate = formData.get('marriageDate') || '';
       rm.builder.divorceDate = formData.get('divorceDate') || '';
       rm.builder.status = formData.get('status') || 'current';
+      rm.builder.coParentId = formData.get('rm-coparent') || null;
       rm.builder.perItemResults = computeBulkPreview(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
+      const ctx = getCoParentContext(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
+      rm.builder.coParentResults = rm.builder.coParentId ? computeCoParentPreview(data, ctx?.childIds || [], rm.builder.coParentId) : [];
       rm.builder.step = 'preview';
       render();
     });
