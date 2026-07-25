@@ -17,7 +17,7 @@ export function renderDuplicateManagerMode(dm, data, { canEdit } = {}) {
         <button type="button" id="dm-redo-btn" class="icon-btn" title="Redo merge" ${canEdit && canRedo(dm.undoStack) ? '' : 'disabled'}>${icon('redo')}</button>
       </div>
       <section class="dm-panel dm-panel-left" aria-label="Possible Duplicates">
-        ${renderDuplicateListPanel(dm, data)}
+        ${renderDuplicateListPanel(dm, data, { canEdit })}
       </section>
       <section class="dm-panel dm-panel-right" aria-label="Compare and Merge">
         ${canEdit ? renderComparePanel(dm, data, selected) : '<p class="dm-empty-state">You have view-only access to this tree.</p>'}
