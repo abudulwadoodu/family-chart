@@ -30,6 +30,23 @@ function buildIndex(data) {
   return new Map(data.map((d) => [d.id, d]));
 }
 
+// Mirrors the family-chart library's own createNewPerson (src/store/new-
+// person.ts) closely enough to produce a compatible Datum, but stays local to
+// this module rather than importing the library's TS source - the Relation-
+// ship Builder needs to create a brand-new shared parent when linking two
+// siblings who neither one has an existing parent recorded (only way to make
+// that link visible in the tree - see getSiblingParentContext in
+// relationshipManager/builderPanel.js).
+export function createPerson(data, { firstName = '', lastName = '', gender = 'M' } = {}) {
+  const person = {
+    id: crypto.randomUUID(),
+    data: { gender, 'first name': firstName, 'last name': lastName },
+    rels: { parents: [], children: [], spouses: [] },
+  };
+  data.push(person);
+  return person;
+}
+
 // Mirrors the family-chart library's own add-relative.ts addParents()
 // bidirectional spouse-pairing: when a child ends up with exactly two
 // parents, that's the only signal the rest of the app (in particular the

@@ -9,7 +9,7 @@
 import { escapeHtml } from '../utils.js';
 import { icon } from '../icons.js';
 import { validateRelationship } from '../relationshipValidator.js';
-import { applyRelationship } from '../relationshipMutations.js';
+import { applyRelationship, createPerson } from '../relationshipMutations.js';
 import { searchMembers, buildMemberSearchIndex, getRelativesSummary } from '../memberSearch.js';
 import { TYPE_OPTIONS, PARENT_SUBTYPES, SIBLING_SUBTYPES, toLabel, describeRelationship, getTypeHelp } from '../relationshipDialog.js';
 import { suggestMatches } from './suggestions.js';
@@ -33,6 +33,11 @@ function resetBuilder(builder) {
   builder.linkSourceToTargetParents = false;
   builder.linkTargetToSourceParents = false;
   builder.siblingParentResults = [];
+  builder.createSharedParent = false;
+  builder.newParentFirstName = '';
+  builder.newParentLastName = '';
+  builder.newParentGender = 'M';
+  builder.createSharedParentResults = [];
 }
 
 // Determines whose spouse(s) could plausibly also be the other parent of the
@@ -143,6 +148,18 @@ export function computeSiblingParentPreview(data, ctx, { linkSourceToTargetParen
     });
   }
   return rows;
+}
+
+// The "create a new shared parent" option (offered when neither sibling has
+// an existing parent to reuse - see renderSiblingParentPrompt). There's no
+// validity check here: the parent doesn't exist yet, so it can't already
+// conflict with either person - both rows are always valid.
+export function computeCreateSharedParentPreview(data, sourceId, targetId, newParentLabel) {
+  const byId = new Map(data.map((d) => [d.id, d]));
+  return [
+    { sourceId, label: toLabel(byId.get(sourceId)), parentLabel: newParentLabel, valid: true, reason: undefined },
+    { sourceId: targetId, label: toLabel(byId.get(targetId)), parentLabel: newParentLabel, valid: true, reason: undefined },
+  ];
 }
 
 // Pure: computes per-source validity for the chosen target/type. Bulk mode
@@ -364,13 +381,19 @@ function renderCoParentPrompt(rm, data) {
 }
 
 function renderSiblingParentPrompt(rm, data) {
+  // Restricted to the same unambiguous one-to-one case as
+  // getSiblingParentContext - bulk sibling linking has no single "the new
+  // parent" to attach, so it falls back to the relMeta-only annotation.
+  if (rm.selectedSourceIds.length !== 1) return '';
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const sourceLabel = escapeHtml(toLabel(byId.get(rm.selectedSourceIds[0])));
+  const targetLabel = escapeHtml(toLabel(byId.get(rm.builder.targetId)));
   const ctx = getSiblingParentContext(data, rm.selectedSourceIds, rm.builder.targetId);
-  if (!ctx) return '';
 
   // Each option links to the *whole* existing parent couple at once (not one
   // parent at a time) - see the getSiblingParentContext module comment for
   // why picking only one parent is deliberately not offered.
-  const sourceOption = ctx.sourceMissingParents.length
+  const sourceOption = ctx?.sourceMissingParents.length
     ? `
       <label class="relationship-subtype-option">
         <input type="checkbox" name="rm-sibling-link-source" ${rm.builder.linkSourceToTargetParents ? 'checked' : ''} />
@@ -378,7 +401,7 @@ function renderSiblingParentPrompt(rm, data) {
       </label>
     `
     : '';
-  const targetOption = ctx.targetMissingParents.length
+  const targetOption = ctx?.targetMissingParents.length
     ? `
       <label class="relationship-subtype-option">
         <input type="checkbox" name="rm-sibling-link-target" ${rm.builder.linkTargetToSourceParents ? 'checked' : ''} />
@@ -387,12 +410,33 @@ function renderSiblingParentPrompt(rm, data) {
     `
     : '';
 
+  // Covers the case neither person has any parent recorded yet (ctx is
+  // null): the only way to make the link visible then is to add a brand-new
+  // person as the shared parent. Always offered alongside the existing-
+  // parent options above, not just as a fallback, in case the real parent
+  // genuinely isn't in the tree at all yet.
+  const createOption = `
+    <label class="relationship-subtype-option">
+      <input type="checkbox" id="rm-sibling-create-parent" name="rm-sibling-create-parent" ${rm.builder.createSharedParent ? 'checked' : ''} />
+      <span>Create a new shared parent for ${sourceLabel} and ${targetLabel}</span>
+    </label>
+    <div id="rm-new-parent-fields-wrap" class="rm-new-parent-fields stack" ${rm.builder.createSharedParent ? '' : 'style="display:none"'}>
+      <label>First name<input type="text" name="rm-new-parent-first-name" value="${escapeHtml(rm.builder.newParentFirstName)}" /></label>
+      <label>Last name<input type="text" name="rm-new-parent-last-name" value="${escapeHtml(rm.builder.newParentLastName)}" /></label>
+      <div class="relationship-subtype-list" role="radiogroup" aria-label="New parent gender">
+        <label class="relationship-subtype-option"><input type="radio" name="rm-new-parent-gender" value="M" ${rm.builder.newParentGender === 'F' ? '' : 'checked'} /><span>Male</span></label>
+        <label class="relationship-subtype-option"><input type="radio" name="rm-new-parent-gender" value="F" ${rm.builder.newParentGender === 'F' ? 'checked' : ''} /><span>Female</span></label>
+      </div>
+    </div>
+  `;
+
   return `
     <div class="rm-coparent-prompt">
-      <p class="rm-coparent-label">Link the existing parent(s) to make this visible in the tree:</p>
+      <p class="rm-coparent-label">Link a shared parent to make this visible in the tree:</p>
       <div class="stack">
         ${sourceOption}
         ${targetOption}
+        ${createOption}
       </div>
     </div>
   `;
@@ -468,8 +512,12 @@ function renderPreviewStep(rm, data) {
   const results = rm.builder.perItemResults;
   const coParentResults = rm.builder.coParentResults || [];
   const siblingParentResults = rm.builder.siblingParentResults || [];
+  const createSharedParentResults = rm.builder.createSharedParentResults || [];
   const validCount =
-    results.filter((r) => r.valid).length + coParentResults.filter((r) => r.valid).length + siblingParentResults.filter((r) => r.valid).length;
+    results.filter((r) => r.valid).length +
+    coParentResults.filter((r) => r.valid).length +
+    siblingParentResults.filter((r) => r.valid).length +
+    createSharedParentResults.filter((r) => r.valid).length;
 
   const inLawWarnings = findInLawWarnings(data, rm.selectedSourceIds, type);
   const warningHtml = inLawWarnings.length
@@ -541,11 +589,31 @@ function renderPreviewStep(rm, data) {
     `
     : '';
 
+  const createSharedParentHtml = createSharedParentResults.length
+    ? `
+      <p class="rm-builder-selection">Also create a new shared parent, <strong>${escapeHtml(createSharedParentResults[0]?.parentLabel || '')}</strong>, and link both as children:</p>
+      <div class="rm-bulk-preview">
+        ${createSharedParentResults
+          .map(
+            (r) => `
+          <div class="rm-bulk-preview-row">
+            <span class="rm-bulk-preview-icon">${icon('check')}</span>
+            <span class="rm-bulk-preview-person">${escapeHtml(r.label)}</span>
+            <span class="relationship-preview-arrow">Child of</span><span class="rm-bulk-preview-person">${escapeHtml(r.parentLabel)}</span>
+          </div>
+        `,
+          )
+          .join('')}
+      </div>
+    `
+    : '';
+
   return `
     ${warningHtml}
     <div class="rm-bulk-preview">${rowsHtml}</div>
     ${coParentHtml}
     ${siblingParentHtml}
+    ${createSharedParentHtml}
     <div class="modal-actions row">
       <button type="button" class="btn btn-ghost" id="rm-builder-back-btn">Back</button>
       <button type="button" class="btn btn-primary" id="rm-builder-create-btn" ${validCount === 0 ? 'disabled' : ''}>
@@ -585,7 +653,22 @@ function selectTarget(state, render, targetId) {
 function commit(state, render, onDirtyChange) {
   const rm = state.relationshipManager;
   const data = state.selectedTreeData;
-  const { targetId, type, subtype, marriageDate, divorceDate, status, perItemResults, coParentId, coParentResults, siblingParentResults } = rm.builder;
+  const {
+    targetId,
+    type,
+    subtype,
+    marriageDate,
+    divorceDate,
+    status,
+    perItemResults,
+    coParentId,
+    coParentResults,
+    siblingParentResults,
+    newParentFirstName,
+    newParentLastName,
+    newParentGender,
+    createSharedParentResults,
+  } = rm.builder;
 
   const validResults = perItemResults.filter((r) => r.valid);
   validResults.forEach(({ sourceId }) => {
@@ -613,10 +696,22 @@ function commit(state, render, onDirtyChange) {
     recordRecentMember(rm.recent, parentId);
   });
 
+  const validCreateSharedParentResults = (createSharedParentResults || []).filter((r) => r.valid);
+  if (validCreateSharedParentResults.length) {
+    const newParent = createPerson(data, { firstName: newParentFirstName, lastName: newParentLastName, gender: newParentGender });
+    validCreateSharedParentResults.forEach(({ sourceId }) => {
+      const draft = { sourceId, targetId: newParent.id, type: 'parent' };
+      applyRelationship(data, draft);
+      pushCommand(rm.undoStack, draft);
+    });
+    recordRecentMember(rm.recent, newParent.id);
+  }
+
   rm.dirty = true;
 
-  const totalApplied = validResults.length + validCoParentResults.length + validSiblingParentResults.length;
-  const totalAttempted = perItemResults.length + (coParentResults || []).length + (siblingParentResults || []).length;
+  const totalApplied = validResults.length + validCoParentResults.length + validSiblingParentResults.length + validCreateSharedParentResults.length;
+  const totalAttempted =
+    perItemResults.length + (coParentResults || []).length + (siblingParentResults || []).length + (createSharedParentResults || []).length;
   const skipped = totalAttempted - totalApplied;
   showToast(
     skipped > 0
@@ -694,6 +789,17 @@ export function attachBuilderPanelListeners(state, render, onDirtyChange) {
 
   if (step === 'options') {
     const form = document.querySelector('#rm-options-form');
+
+    // Toggles the new-parent name/gender fields' visibility directly (no
+    // render()) so typing in progress elsewhere in the form - or an
+    // already-typed name - survives the checkbox click.
+    const createParentCheckbox = document.querySelector('#rm-sibling-create-parent');
+    const newParentFieldsWrap = document.querySelector('#rm-new-parent-fields-wrap');
+    createParentCheckbox?.addEventListener('change', () => {
+      rm.builder.createSharedParent = createParentCheckbox.checked;
+      if (newParentFieldsWrap) newParentFieldsWrap.style.display = createParentCheckbox.checked ? '' : 'none';
+    });
+
     form?.addEventListener('submit', (event) => {
       event.preventDefault();
       const formData = new FormData(form);
@@ -704,6 +810,10 @@ export function attachBuilderPanelListeners(state, render, onDirtyChange) {
       rm.builder.coParentId = formData.get('rm-coparent') || null;
       rm.builder.linkSourceToTargetParents = formData.get('rm-sibling-link-source') === 'on';
       rm.builder.linkTargetToSourceParents = formData.get('rm-sibling-link-target') === 'on';
+      rm.builder.createSharedParent = formData.get('rm-sibling-create-parent') === 'on';
+      rm.builder.newParentFirstName = formData.get('rm-new-parent-first-name') || '';
+      rm.builder.newParentLastName = formData.get('rm-new-parent-last-name') || '';
+      rm.builder.newParentGender = formData.get('rm-new-parent-gender') || 'M';
       rm.builder.perItemResults = computeBulkPreview(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
       const ctx = getCoParentContext(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
       rm.builder.coParentResults = rm.builder.coParentId ? computeCoParentPreview(data, ctx?.childIds || [], rm.builder.coParentId) : [];
@@ -712,6 +822,15 @@ export function attachBuilderPanelListeners(state, render, onDirtyChange) {
         linkSourceToTargetParents: rm.builder.linkSourceToTargetParents,
         linkTargetToSourceParents: rm.builder.linkTargetToSourceParents,
       });
+      rm.builder.createSharedParentResults =
+        rm.builder.createSharedParent && rm.selectedSourceIds.length === 1
+          ? computeCreateSharedParentPreview(
+              data,
+              rm.selectedSourceIds[0],
+              rm.builder.targetId,
+              [rm.builder.newParentFirstName, rm.builder.newParentLastName].filter(Boolean).join(' ').trim() || 'New person',
+            )
+          : [];
       rm.builder.step = 'preview';
       render();
     });

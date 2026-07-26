@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyRelationship, removeRelationship, removeAllRelations, deleteNode, inverseType } from './relationshipMutations.js';
+import { applyRelationship, removeRelationship, removeAllRelations, deleteNode, inverseType, createPerson } from './relationshipMutations.js';
 
 function datum(id) {
   return { id, data: { gender: 'M' }, rels: { parents: [], children: [], spouses: [] } };
@@ -98,6 +98,30 @@ describe('removeAllRelations', () => {
   it('is a no-op for a person with no relations', () => {
     const person = datum('person');
     expect(() => removeAllRelations([person], 'person')).not.toThrow();
+  });
+});
+
+describe('createPerson', () => {
+  it('pushes a new person with a unique id and empty rels into the data array', () => {
+    const a = datum('a');
+    const data = [a];
+    const created = createPerson(data, { firstName: 'Imran', lastName: 'Khan', gender: 'M' });
+
+    expect(data).toContain(created);
+    expect(created.id).toBeTruthy();
+    expect(created.id).not.toBe('a');
+    expect(created.data).toEqual({ gender: 'M', 'first name': 'Imran', 'last name': 'Khan' });
+    expect(created.rels).toEqual({ parents: [], children: [], spouses: [] });
+  });
+
+  it('can then be linked as a parent via applyRelationship', () => {
+    const child = datum('child');
+    const data = [child];
+    const parent = createPerson(data, { firstName: 'New', gender: 'F' });
+    applyRelationship(data, { sourceId: 'child', targetId: parent.id, type: 'parent' });
+
+    expect(child.rels.parents).toEqual([parent.id]);
+    expect(parent.rels.children).toEqual(['child']);
   });
 });
 

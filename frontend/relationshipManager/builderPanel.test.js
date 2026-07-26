@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { computeBulkPreview, findInLawWarnings, getCoParentContext, computeCoParentPreview, getSiblingParentContext, computeSiblingParentPreview } from './builderPanel.js';
+import {
+  computeBulkPreview,
+  findInLawWarnings,
+  getCoParentContext,
+  computeCoParentPreview,
+  getSiblingParentContext,
+  computeSiblingParentPreview,
+  computeCreateSharedParentPreview,
+} from './builderPanel.js';
 
 function datum(id, { parents = [], children = [], spouses = [], firstName = id, lastName = '' } = {}) {
   return { id, data: { gender: 'M', 'first name': firstName, 'last name': lastName }, rels: { parents, children, spouses } };
@@ -218,5 +226,19 @@ describe('computeSiblingParentPreview', () => {
     const ctx = getSiblingParentContext(data, ['source'], 'target');
 
     expect(computeSiblingParentPreview(data, ctx)).toEqual([]);
+  });
+});
+
+describe('computeCreateSharedParentPreview', () => {
+  it('produces a valid row for both source and target against the new parent', () => {
+    const source = datum('source');
+    const target = datum('target');
+    const data = [source, target];
+
+    const results = computeCreateSharedParentPreview(data, 'source', 'target', 'New Parent');
+    expect(results).toEqual([
+      { sourceId: 'source', label: 'source', parentLabel: 'New Parent', valid: true, reason: undefined },
+      { sourceId: 'target', label: 'target', parentLabel: 'New Parent', valid: true, reason: undefined },
+    ]);
   });
 });
