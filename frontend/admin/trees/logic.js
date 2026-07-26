@@ -1,6 +1,7 @@
 import f3 from '../../../src/index.ts';
 import { api } from '../../api.js';
 import { showToast, showConfirmDialog } from '../../ui.js';
+import { getCardStyle, toF3CardStyle } from '../../cardStyle.js';
 
 function debounce(fn, delay = 300) {
   let timer;
@@ -248,7 +249,13 @@ export function attachTreeDetailListeners(state, render, onBack) {
         .setTransitionTime(1000)
         .setCardXSpacing(250)
         .setCardYSpacing(150);
-      state.admin.trees.viewerChart.setCard(f3.CardHtml).setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
+      state.admin.trees.viewerChart
+        .setCard(f3.CardHtml)
+        .setCardDisplay([['first name', 'last name'], ['birthday', 'location']])
+        // Matches whatever card style the admin last picked in the regular
+        // tree viewer (see cardStyle.js) - this read-only preview has no
+        // toggle of its own, so it just mirrors that browser-wide preference.
+        .setStyle(toF3CardStyle(getCardStyle()));
       state.admin.trees.viewerChart.updateTree({ initial: true });
       btn.hidden = true;
     } catch (error) {

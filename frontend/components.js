@@ -764,12 +764,27 @@ export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
   `;
 }
 
-export function renderCanvasFloatingControls() {
+// `cardStyle` ('circle' | 'rect', see cardStyle.js) picks the toggle's
+// initial icon/tooltip/pressed-state so a page refresh reflects whatever the
+// viewer last chose on this device, without waiting on a click to sync it.
+// Every role sees the same button - card style is a per-browser display
+// preference, not something owners lock down for editors/viewers.
+export function renderCanvasFloatingControls({ cardStyle = 'circle' } = {}) {
+  const isCircle = cardStyle !== 'rect';
   return `
     <div class="canvas-floating-controls" id="canvas-floating-controls">
       <button type="button" id="reset-view-btn" class="icon-btn canvas-floating-btn" title="Reset to the tree's default view" aria-label="Reset view">
         ${icon('home')}
       </button>
+      <span class="canvas-floating-sep" aria-hidden="true"></span>
+      <button
+        type="button"
+        id="card-style-toggle-btn"
+        class="icon-btn canvas-floating-btn"
+        title="${isCircle ? 'Switch to rectangle cards' : 'Switch to circle cards'}"
+        aria-label="Toggle person card style"
+        aria-pressed="${isCircle}"
+      >${icon(isCircle ? 'user' : 'list')}</button>
       <span class="canvas-floating-sep" aria-hidden="true"></span>
       <button type="button" id="focus-mode-btn" class="icon-btn canvas-floating-btn" title="Maximize (F)" aria-label="Maximize family tree" aria-pressed="false">
         ${icon('maximize')}

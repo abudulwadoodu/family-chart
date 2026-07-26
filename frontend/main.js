@@ -46,6 +46,7 @@ import { showConfirmDialog, showToast, showModal } from './ui.js';
 import { appToast } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
+import { getCardStyle, toggleCardStyle, toF3CardStyle } from './cardStyle.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api, fetchAttachment } from './api.js';
@@ -2628,7 +2629,7 @@ function renderTreeViewerMarkup() {
       </div>
       <div class="chart-canvas-wrap">
         <div id="FamilyChart" class="f3 chart-container"></div>
-        ${renderCanvasFloatingControls()}
+        ${renderCanvasFloatingControls({ cardStyle: getCardStyle() })}
       </div>
     </div>
     ${renderFamilyFeedPanel()}
@@ -2878,9 +2879,28 @@ function attachTreeViewerListeners() {
   attachTreeViewerHeaderListeners();
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
+  document.querySelector('#card-style-toggle-btn')?.addEventListener('click', () => {
+    toggleCardStyle();
+    renderChart();
+    updateCardStyleToggleButton();
+  });
 
   attachFamilyFeedListeners();
   setupFocusMode();
+}
+
+// Syncs the canvas-floating toggle button's icon/tooltip/aria-pressed with
+// whatever card style is currently stored (see cardStyle.js). Called right
+// after a toggle click - renderChart() rebuilds #FamilyChart itself but
+// never touches this button (it lives outside #FamilyChart, see
+// renderTreeViewerMarkup), so its icon would otherwise go stale.
+function updateCardStyleToggleButton() {
+  const btn = document.querySelector('#card-style-toggle-btn');
+  if (!btn) return;
+  const isCircle = getCardStyle() !== 'rect';
+  btn.setAttribute('aria-pressed', String(isCircle));
+  btn.setAttribute('title', isCircle ? 'Switch to rectangle cards' : 'Switch to circle cards');
+  btn.innerHTML = icon(isCircle ? 'user' : 'list');
 }
 
 // ---------------------------------------------------------------------------
@@ -3756,7 +3776,12 @@ function renderChart() {
   // extra wiring needed.
   const card = state.chart
     .setCard(f3.CardHtml)
-    .setCardDisplay([['first name', 'last name'], ['birthday', 'location']]);
+    .setCardDisplay([['first name', 'last name'], ['birthday', 'location']])
+    // Circle (examples/11-html-card-styling.html: photo in a gender-colored
+    // circle, name label overlapping its bottom edge) or the library's
+    // original wide rectangle - whichever this browser last picked via the
+    // canvas-floating card-style toggle (see cardStyle.js / attachTreeViewerListeners).
+    .setStyle(toF3CardStyle(getCardStyle()));
 
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
   if (canEdit) {
