@@ -36,8 +36,7 @@ export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
   `;
 }
 
-export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, collapsed }) {
-  const initial = (email || '?').trim().charAt(0).toUpperCase();
+export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
   const isRequestsActive = activeView === 'myRequests' || activeView === 'pendingRequests';
   const isSupportActive = activeView === 'contact' || activeView === 'myTickets' || activeView === 'ticketDetail';
 
@@ -79,30 +78,6 @@ export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, coll
         aria-pressed="${Boolean(collapsed)}"
         aria-label="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
       >${icon('chevronRight')}</button>
-      <div class="sidebar-foot">
-        <div class="sidebar-profile">
-          <button
-            type="button"
-            id="sidebar-profile-btn"
-            class="sidebar-profile-trigger"
-            data-menu-trigger="sidebar-profile-menu"
-            title="${escapeHtml(email)}"
-            aria-haspopup="true"
-          >
-            <span class="user-avatar">${escapeHtml(initial)}</span>
-            <span class="user-email">${escapeHtml(email)}</span>
-            ${icon('chevronDown')}
-          </button>
-          <div class="dropdown-menu sidebar-profile-menu" id="sidebar-profile-menu" data-menu-id="sidebar-profile-menu">
-            <div class="sidebar-profile-menu-theme">
-              ${renderThemeToggle({ activeTheme, idPrefix: 'sidebar-theme-toggle' })}
-            </div>
-            <button type="button" id="logout-btn" class="dropdown-item dropdown-item-danger" title="Logout">
-              ${icon('logout')}<span>Logout</span>
-            </button>
-          </div>
-        </div>
-      </div>
     </aside>
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
   `;
@@ -114,6 +89,52 @@ export function renderMobileTopbar() {
       <button type="button" id="sidebar-open-btn" class="icon-btn" aria-label="Open navigation">${icon('menu')}</button>
       <span class="mobile-topbar-title">${icon('logo')} Family Chart</span>
     </div>
+  `;
+}
+
+// Global top-right profile menu - replaces the old sidebar-foot profile
+// card. Rendered once inside .main-area (above .content), so it's present
+// above every page, not just the tree viewer. Avatar/email/theme
+// toggle/logout all live in one popover, reusing the same
+// dropdown-menu/data-menu-trigger mechanism as every other menu in the app.
+export function renderTopbar({ email, activeTheme, hasTree }) {
+  const initial = (email || '?').trim().charAt(0).toUpperCase();
+  return `
+    <header class="app-topbar">
+      <div class="app-topbar-spacer"></div>
+      ${
+        hasTree
+          ? `<button type="button" id="feed-notification-btn" class="icon-btn" aria-label="Family feed" title="Family feed">${icon('bell')}</button>`
+          : ''
+      }
+      <div class="profile-menu-wrap">
+        <button
+          type="button"
+          id="profile-menu-btn"
+          class="profile-trigger"
+          data-menu-trigger="profile-menu"
+          title="${escapeHtml(email)}"
+          aria-haspopup="true"
+        >
+          <span class="user-avatar">${escapeHtml(initial)}</span>
+          ${icon('chevronDown')}
+        </button>
+        <div class="dropdown-menu profile-menu" id="profile-menu" data-menu-id="profile-menu">
+          <div class="profile-menu-header">
+            <span class="user-avatar user-avatar-lg">${escapeHtml(initial)}</span>
+            <span class="profile-menu-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
+          </div>
+          <div class="dropdown-divider"></div>
+          <div class="profile-menu-theme">
+            ${renderThemeToggle({ activeTheme, idPrefix: 'topbar-theme-toggle' })}
+          </div>
+          <div class="dropdown-divider"></div>
+          <button type="button" id="logout-btn" class="dropdown-item dropdown-item-danger" title="Logout">
+            ${icon('logout')}<span>Logout</span>
+          </button>
+        </div>
+      </div>
+    </header>
   `;
 }
 
@@ -511,7 +532,7 @@ function dropdownMenu({ id, items }) {
       ${items
         .map(
           (item) => `
-        <button type="button" class="dropdown-item ${item.danger ? 'dropdown-item-danger' : ''}" data-action="${item.action}">
+        <button type="button" class="dropdown-item ${item.danger ? 'dropdown-item-danger' : ''} ${item.active ? 'dropdown-item-active' : ''}" data-action="${item.action}">
           ${icon(item.icon)}<span>${escapeHtml(item.label)}</span>
         </button>`
         )
@@ -656,7 +677,72 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel =
   `;
 }
 
-export function renderTreeViewerHeader({ treeName, role }) {
+// Combines the old separate Import/Export buttons, plus Relationships/
+// Duplicates (moved out of the old Tools menu), into one "Manage Data"
+// dropdown, grouped with small section labels so the three action groups
+// stay visually distinct despite sharing a trigger.
+function renderManageDataMenu({ canEdit, viewMode }) {
+  const importGroup = canEdit
+    ? [
+        { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+        { action: 'import-json', label: 'Import JSON', icon: 'upload' },
+        { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+      ]
+    : [];
+  const exportGroup = [
+    { action: 'export-image', label: 'Export as Image / PDF', icon: 'image' },
+    { action: 'export-json', label: 'Export JSON', icon: 'download' },
+    { action: 'export-csv', label: 'Export CSV', icon: 'download' },
+    { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
+  ];
+  const toolsGroup = [
+    { action: 'relationship-manager', label: 'Relationships', icon: 'share', active: viewMode === 'relationship-manager' },
+    { action: 'duplicate-manager', label: 'Duplicates', icon: 'unlink', active: viewMode === 'duplicate-manager' },
+  ];
+  const renderGroup = (label, items) => `
+    <div class="dropdown-group-label">${escapeHtml(label)}</div>
+    ${items
+      .map(
+        (item) => `
+      <button type="button" class="dropdown-item ${item.active ? 'dropdown-item-active' : ''}" data-action="${item.action}">
+        ${icon(item.icon)}<span>${escapeHtml(item.label)}</span>
+      </button>`
+      )
+      .join('')}
+  `;
+
+  return `
+    <div class="tree-card-menu-wrap">
+      <button type="button" id="manage-data-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="manage-data-options">
+        ${icon('download')}<span>Manage Data</span>
+      </button>
+      <div class="dropdown-menu" data-menu-id="manage-data-options">
+        ${importGroup.length ? renderGroup('Import', importGroup) : ''}
+        ${importGroup.length ? '<div class="dropdown-divider"></div>' : ''}
+        ${renderGroup('Export', exportGroup)}
+        <div class="dropdown-divider"></div>
+        ${renderGroup('Tools', toolsGroup)}
+      </div>
+    </div>
+  `;
+}
+
+// Subtle status readout that replaces the old always-blue Save button.
+// Editors/owners get live "Saving.../Saved/Unsaved changes" text (driven by
+// scheduleAutoSave() in main.js); viewers get nothing since there's never
+// anything for them to save. Clicking it while in the "error" state retries
+// the save immediately (see #autosave-status click handler in main.js).
+export function renderAutoSaveStatus({ canEdit }) {
+  if (!canEdit) return '';
+  return `
+    <button type="button" id="autosave-status" class="autosave-status" data-state="saved" title="All changes saved">
+      <span class="autosave-status-dot" aria-hidden="true"></span>
+      <span class="autosave-status-text">Saved</span>
+    </button>
+  `;
+}
+
+export function renderTreeViewerHeader({ treeName, role, viewMode }) {
   const canEdit = role === 'owner' || role === 'editor';
   const isOwner = role === 'owner';
 
@@ -667,6 +753,9 @@ export function renderTreeViewerHeader({ treeName, role }) {
     settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
   }
   if (isOwner) {
+    // Moved out of the old Tools menu - this is the tree's default-focus
+    // settings panel (viewMode 'settings'), not "Tree Settings" the modal.
+    settingsItems.push({ action: 'settings', label: 'Settings', icon: 'settings', active: viewMode === 'settings' });
     settingsItems.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
     settingsItems.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
   }
@@ -695,35 +784,9 @@ export function renderTreeViewerHeader({ treeName, role }) {
         </div>
         <div class="viewer-title-actions">
           ${renderMemberSearch()}
-          <button type="button" id="save-btn" class="btn btn-primary" ${canEdit ? '' : 'disabled'}>${icon('save')}<span>Save</span></button>
-          ${
-            canEdit
-              ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />
-                 <div class="tree-card-menu-wrap">
-                   <button type="button" id="import-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="import-options">${icon('upload')}<span>Import</span></button>
-                   ${dropdownMenu({
-                     id: 'import-options',
-                     items: [
-                       { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-                       { action: 'import-json', label: 'Import JSON', icon: 'upload' },
-                       { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-                     ],
-                   })}
-                 </div>`
-              : ''
-          }
-          <div class="tree-card-menu-wrap">
-            <button type="button" id="export-tree-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="export-options">${icon('download')}<span>Export</span></button>
-            ${dropdownMenu({
-              id: 'export-options',
-              items: [
-                { action: 'export-image', label: 'Export as Image / PDF', icon: 'image' },
-                { action: 'export-json', label: 'Export JSON', icon: 'download' },
-                { action: 'export-csv', label: 'Export CSV', icon: 'download' },
-                { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
-              ],
-            })}
-          </div>
+          ${renderAutoSaveStatus({ canEdit })}
+          ${canEdit ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />` : ''}
+          ${renderManageDataMenu({ canEdit, viewMode })}
           ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
           ${
             settingsItems.length
@@ -739,27 +802,40 @@ export function renderTreeViewerHeader({ treeName, role }) {
   `;
 }
 
-export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
+// Two top-level destinations - Tree View and Gallery - as a segmented
+// control; each reveals its own sub-row of children below it. `primaryTab`
+// ('tree' | 'gallery') is a pure display concern (which sub-row is showing),
+// tracked in state.treeToolbarPrimaryTab by main.js and independent of the
+// actual viewMode/dashboardView - clicking a sub-row chip is what actually
+// navigates. Relationships/Duplicates/Settings used to live here (as a
+// "Tools" menu) but moved to the Manage Data dropdown and the header's gear
+// ("more") menu respectively - see renderManageDataMenu and
+// renderTreeViewerHeader's settingsItems.
+export function renderViewModeToggle({ viewMode, primaryTab }) {
+  const isTreeView = viewMode === 'focused' || viewMode === 'all-nodes';
+  const showGallery = primaryTab === 'gallery';
   return `
     <div class="view-mode-toggle">
-      <div class="view-mode-toggle-group">
-        <button type="button" id="focused-mode-btn" class="chip ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
-        <button type="button" id="all-nodes-mode-btn" class="chip ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
-        <button type="button" id="relationship-manager-mode-btn" class="chip ${viewMode === 'relationship-manager' ? 'chip-active' : ''}" ${viewMode === 'relationship-manager' ? 'disabled' : ''}>Relationships</button>
-        <button type="button" id="duplicate-manager-mode-btn" class="chip ${viewMode === 'duplicate-manager' ? 'chip-active' : ''}" ${viewMode === 'duplicate-manager' ? 'disabled' : ''}>Duplicates</button>
-        ${
-          isOwner
-            ? `<button type="button" id="tree-settings-mode-btn" class="chip ${viewMode === 'settings' ? 'chip-active' : ''}" ${viewMode === 'settings' ? 'disabled' : ''}>Settings</button>`
-            : ''
-        }
+      <div class="segmented-control" role="tablist" aria-label="Primary views">
+        <button type="button" id="primary-tab-tree-btn" class="segmented-option ${!showGallery ? 'segmented-option-active' : ''}" role="tab" aria-selected="${!showGallery}">
+          Tree View
+        </button>
+        <button type="button" id="primary-tab-gallery-btn" class="segmented-option ${showGallery ? 'segmented-option-active' : ''}" role="tab" aria-selected="${showGallery}">
+          Gallery
+        </button>
       </div>
-      <div class="view-mode-toggle-divider" aria-hidden="true"></div>
-      <div class="view-mode-toggle-group">
-        ${renderMediaLibraryButton()}
-        ${renderTimelineButton()}
-        ${renderRelationshipFinderButton()}
-        ${renderFamilyFeedButton()}
-      </div>
+      ${
+        showGallery
+          ? `<div class="tree-view-subtoggle" role="group" aria-label="Gallery">
+               <button type="button" id="gallery-media-btn" class="chip chip-sm" title="Photos, videos, and documents for this tree">Media</button>
+               <button type="button" id="gallery-events-btn" class="chip chip-sm" title="Events for this tree">Events</button>
+             </div>`
+          : `<div class="tree-view-subtoggle" role="group" aria-label="Tree View">
+               <button type="button" id="focused-mode-btn" class="chip chip-sm ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
+               <button type="button" id="all-nodes-mode-btn" class="chip chip-sm ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
+               <button type="button" id="relationship-finder-btn" class="chip chip-sm" title="Find how two people in this tree are related">Relationship Finder</button>
+             </div>`
+      }
     </div>
   `;
 }
@@ -801,38 +877,6 @@ export function renderCanvasFloatingControls({ cardStyle = 'circle', orientation
         ${icon('maximize')}
       </button>
     </div>
-  `;
-}
-
-function renderMediaLibraryButton() {
-  return `
-    <button type="button" id="media-library-btn" class="chip" title="Photos, videos, and documents for this tree">
-      ${icon('image')}<span>Media Library</span>
-    </button>
-  `;
-}
-
-function renderTimelineButton() {
-  return `
-    <button type="button" id="timeline-btn" class="chip" title="Events for this tree">
-      ${icon('clock')}<span>Timeline</span>
-    </button>
-  `;
-}
-
-function renderRelationshipFinderButton() {
-  return `
-    <button type="button" id="relationship-finder-btn" class="chip" title="Find how two people in this tree are related">
-      ${icon('search')}<span>Relationship Finder</span>
-    </button>
-  `;
-}
-
-export function renderFamilyFeedButton() {
-  return `
-    <button type="button" id="family-feed-btn" class="chip" title="Recent activity for this tree">
-      ${icon('cake')}<span>Family Feed</span>
-    </button>
   `;
 }
 

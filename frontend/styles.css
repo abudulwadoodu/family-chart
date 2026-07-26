@@ -107,6 +107,11 @@
   --tree-female: rgb(196, 138, 146);
   --tree-male: rgb(120, 159, 172);
   --tree-genderless: lightgray;
+  /* Card surface itself - one step lighter than --tree-bg so cards read as
+     distinct neutral surfaces on the canvas, with --tree-female/male/
+     genderless now reserved for the left accent border + person-icon badge
+     instead of filling the whole card (see src/styles/family-chart.css). */
+  --tree-card-bg: #1c212c;
   --tree-card-text: #ffffff;
   --tree-card-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
   --tree-card-outline: rgba(220, 220, 220, 1);
@@ -198,7 +203,12 @@
   --tree-female: #c26f83;
   --tree-male: #3f7f97;
   --tree-genderless: #9aa3af;
-  --tree-card-text: #ffffff;
+  /* White card surface on the light canvas, matching --bg-surface - see the
+     dark-theme --tree-card-bg comment above. */
+  --tree-card-bg: #ffffff;
+  /* No longer white-on-color: cards are a light neutral surface now, so the
+     name/date text needs dark-on-light contrast instead. */
+  --tree-card-text: #1f2937;
   --tree-card-shadow: 0 4px 10px rgba(16, 24, 40, 0.18);
   --tree-card-outline: rgba(37, 99, 235, 0.55);
   --tree-card-path-outline: rgba(37, 99, 235, 0.85);
@@ -1198,18 +1208,12 @@ button.secondary:active,
   }
 
   .app-shell.sidebar-collapsed .sidebar-wordmark,
-  .app-shell.sidebar-collapsed .nav-label,
-  .app-shell.sidebar-collapsed .user-email,
-  .app-shell.sidebar-collapsed .sidebar-profile-trigger .icon {
+  .app-shell.sidebar-collapsed .nav-label {
     display: none;
   }
 
-  .app-shell.sidebar-collapsed .nav-item,
-  .app-shell.sidebar-collapsed .sidebar-profile-trigger {
-    justify-content: center;
-  }
-
   .app-shell.sidebar-collapsed .nav-item {
+    justify-content: center;
     padding-left: 0;
     padding-right: 0;
   }
@@ -1227,14 +1231,6 @@ button.secondary:active,
 
   .app-shell.sidebar-collapsed .sidebar-collapse-btn .icon {
     transform: rotate(0deg);
-  }
-
-  /* The profile popover is absolutely positioned (not part of the rail's
-     flex flow), so it keeps its full labeled width even when the rail is
-     narrowed - it just opens over the content instead of inline. */
-  .app-shell.sidebar-collapsed .sidebar-profile-menu {
-    left: 0;
-    right: auto;
   }
 }
 
@@ -1319,12 +1315,6 @@ button.secondary:active,
   color: #ffffff;
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  padding-top: var(--sp-4);
-  border-top: 1px solid var(--border-subtle);
-}
-
 .user-avatar {
   display: inline-flex;
   align-items: center;
@@ -1345,73 +1335,145 @@ button.secondary:active,
   font-size: 0.75rem;
 }
 
-.user-email {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.user-avatar-lg {
+  width: 36px;
+  height: 36px;
+  font-size: 0.95rem;
 }
 
 /* ------------------------------------------------------------------ */
-/* Sidebar profile card + popover                                     */
+/* Top bar + profile menu                                             */
 /* ------------------------------------------------------------------ */
 
-.sidebar-profile {
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  height: 56px;
+  flex-shrink: 0;
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.profile-menu-wrap {
   position: relative;
 }
 
-.sidebar-profile-trigger {
+.profile-trigger {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  width: 100%;
-  min-width: 0;
-  padding: var(--sp-2);
+  gap: var(--sp-2);
+  padding: 4px 6px 4px 4px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
 }
 
-.sidebar-profile-trigger:hover {
+.profile-trigger:hover {
   background: var(--bg-surface-hover);
 }
 
-.sidebar-profile-trigger .user-email {
-  flex: 1;
-  text-align: left;
-}
-
-.sidebar-profile-trigger .icon {
+.profile-trigger .icon {
   width: 14px;
   height: 14px;
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
-.sidebar-profile .sidebar-profile-menu {
-  top: auto;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
+.profile-menu {
+  min-width: 220px;
+}
+
+.profile-menu-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2);
+}
+
+.profile-menu-email {
   min-width: 0;
-  gap: var(--sp-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sidebar-profile-menu-theme {
-  padding: var(--sp-1) var(--sp-1) var(--sp-2);
-  margin-bottom: var(--sp-1);
-  border-bottom: 1px solid var(--border-subtle);
+.profile-menu-theme {
+  padding: var(--sp-1);
 }
 
-.sidebar-profile-menu-theme .theme-toggle {
+.profile-menu-theme .theme-toggle {
   width: 100%;
   justify-content: stretch;
 }
 
-.sidebar-profile-menu-theme .theme-toggle-option {
+.profile-menu-theme .theme-toggle-option {
   flex: 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Autosave status                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Subtle text+dot readout that replaced the old always-blue Save button -
+   states are toggled via [data-state] from scheduleAutoSave()/
+   performAutoSave() in main.js. Only ever a button (not disabled) so the
+   "error" state stays clickable to retry. */
+.autosave-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+}
+
+.autosave-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.autosave-status[data-state='saved'] .autosave-status-dot {
+  background: var(--accent);
+}
+
+.autosave-status[data-state='saving'] .autosave-status-dot {
+  background: var(--accent);
+  animation: autosave-pulse 1s ease-in-out infinite;
+}
+
+.autosave-status[data-state='unsaved'] .autosave-status-dot {
+  background: var(--warning);
+}
+
+.autosave-status[data-state='error'] {
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.autosave-status[data-state='error']:hover {
+  background: var(--danger-soft);
+}
+
+.autosave-status[data-state='error'] .autosave-status-dot {
+  background: var(--danger);
+}
+
+@keyframes autosave-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -2301,7 +2363,7 @@ button.secondary:active,
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-4);
 }
 
 .breadcrumb {
@@ -2449,10 +2511,14 @@ button.secondary:active,
   text-decoration: underline;
 }
 
+/* Deliberately short (fits in ~40px) - every pixel here is a pixel not
+   available to the chart canvas below it. */
 .tree-toolbar-row {
   display: flex;
   align-items: center;
-  margin-bottom: var(--sp-4);
+  padding: var(--sp-2) 0;
+  margin-bottom: var(--sp-3);
+  min-height: 0;
 }
 
 .view-mode-toggle {
@@ -2460,23 +2526,70 @@ button.secondary:active,
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
+  width: 100%;
 }
 
-.view-mode-toggle-group {
+/* Primary views (Tree View/Timeline/Media/Feed) as one pill-shaped segmented
+   control - the single-line replacement for the old two-row chip stack. */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+
+.segmented-option {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 14px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  font-weight: 500;
+}
+
+.segmented-option:hover {
+  color: var(--text-primary);
+}
+
+.segmented-option-active {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Focused/All Nodes only shows up while the Tree View segment is active -
+   a lighter-weight secondary choice, not a peer of the primary tabs. */
+.tree-view-subtoggle {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
+  gap: var(--sp-1);
 }
 
-/* Segments core node-view tabs (Focused/All Nodes/Relationships/Duplicates/
-   Settings) from the media/timeline tabs, so the two content "kinds" read
-   as visually distinct groups rather than one long undifferentiated row. */
-.view-mode-toggle-divider {
-  align-self: stretch;
-  width: 1px;
-  min-height: 24px;
-  background: var(--border-strong);
+.chip-sm {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+}
+
+.dropdown-item-active {
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+}
+
+.dropdown-group-label {
+  padding: var(--sp-1) 10px 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2742,8 +2855,13 @@ button.secondary:active,
   position: relative;
 }
 
+/* Static px budget for everything above the canvas (app-topbar + viewer
+   header + compact toolbar row + .content padding) - re-tuned down from
+   280px after compacting the toolbar row into a single segmented-control
+   line, but still an estimate rather than a measured value, so nudge this
+   if the canvas ends up too short/tall against real chrome height. */
 .chart-container {
-  height: calc(100vh - 280px);
+  height: calc(100vh - 260px);
   min-height: 420px;
   background: var(--bg-inset);
   border: 1px solid var(--border-default);
@@ -3796,6 +3914,7 @@ body.focus-mode-active {
 body.focus-mode-active .app-shell > .sidebar,
 body.focus-mode-active .sidebar-overlay,
 body.focus-mode-active .mobile-topbar,
+body.focus-mode-active .app-topbar,
 body.focus-mode-active .app-footer,
 body.focus-mode-active .viewer-header,
 body.focus-mode-active .content > *:not(.tree-focus-target) {

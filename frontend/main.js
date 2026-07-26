@@ -43,7 +43,7 @@ import {
   DEFAULT_GENERATION_DEPTH,
 } from './treeSettingsPanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
-import { appToast } from './appUX.js';
+import { appToast, FormGuard } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { getCardStyle, toggleCardStyle, toF3CardStyle } from './cardStyle.js';
@@ -75,6 +75,7 @@ import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
+  renderTopbar,
   renderPageHeader,
   renderCreateTreeCard,
   renderTreesToolbarRow,
@@ -257,6 +258,15 @@ const state = {
   ancestryDepth: DEFAULT_GENERATION_DEPTH,
   progenyDepth: DEFAULT_GENERATION_DEPTH,
   allNodesGraph: null,
+  // Set by state.editor's onChange (see renderChart()) whenever a card is
+  // added/edited/removed on the main canvas; drives the autosave status
+  // indicator alongside the relationshipBuilder/relationshipManager/
+  // duplicateManager dirty flags below (see hasUnsavedTreeChanges()).
+  treeDirty: false,
+  // Which sub-row the tree viewer toolbar shows ('tree' | 'gallery') - a
+  // pure display concern, independent of viewMode/dashboardView (see
+  // renderViewModeToggle in components.js and setupViewModeToggle below).
+  treeToolbarPrimaryTab: 'tree',
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
   duplicateManager: createDuplicateManagerState(),
@@ -572,21 +582,22 @@ function renderSupportPageAuthed() {
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       ${renderSidebarNav({
-        email: state.user.email,
         activeView: 'contact',
         isAdmin: Boolean(state.user.is_admin),
-        activeTheme: state.theme,
         collapsed: state.sidebarCollapsed,
       })}
       <div class="main-area">
         ${renderMobileTopbar()}
+        ${renderTopbar({ email: state.user.email, activeTheme: state.theme, hasTree: Boolean(state.selectedTreeId) })}
         <main class="content">
           ${renderContactPageContent()}
         </main>
+        ${state.selectedTreeId ? renderFamilyFeedPanel() : ''}
       </div>
     </div>
   `;
   attachShellListeners();
+  if (state.selectedTreeId) attachFamilyFeedListeners();
   attachContactPageListeners();
 }
 
@@ -1537,9 +1548,10 @@ function renderDashboard() {
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme, collapsed: state.sidebarCollapsed })}
+      ${renderSidebarNav({ activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), collapsed: state.sidebarCollapsed })}
       <div class="main-area">
         ${renderMobileTopbar()}
+        ${renderTopbar({ email: state.user.email, activeTheme: state.theme, hasTree: Boolean(state.selectedTreeId) })}
         <main class="content">
           ${sectionTabs}
           ${
@@ -1585,6 +1597,7 @@ function renderDashboard() {
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
+        ${state.selectedTreeId ? renderFamilyFeedPanel() : ''}
       </div>
     </div>
   `;
@@ -1592,6 +1605,7 @@ function renderDashboard() {
   if (isRequestsSection || isSupportSection) attachSectionTabListeners();
 
   attachShellListeners();
+  if (state.selectedTreeId) attachFamilyFeedListeners();
 
   if (isSecurityView) {
     attachSecuritySettingsListeners();
@@ -1760,7 +1774,8 @@ function attachShellListeners() {
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-collapse-btn')?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
-  bindDropdownTriggers(document.querySelector('.sidebar'));
+  document.querySelector('#feed-notification-btn')?.addEventListener('click', () => openFamilyFeed());
+  bindDropdownTriggers(document.querySelector('.app-topbar'));
   attachThemeToggleListeners();
 }
 
@@ -2623,7 +2638,7 @@ function bindGedcomExportOptionsListeners(modal, options, treeId, treeName) {
 
 function renderTreeViewerMarkup() {
   return `
-    ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
+    ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole, viewMode: state.viewMode })}
     <div id="tree-focus-target" class="tree-focus-target">
       <div class="tree-toolbar-row">
         <div id="view-mode-toggle"></div>
@@ -2633,7 +2648,6 @@ function renderTreeViewerMarkup() {
         ${renderCanvasFloatingControls({ cardStyle: getCardStyle(), orientation: getTreeOrientation() })}
       </div>
     </div>
-    ${renderFamilyFeedPanel()}
   `;
 }
 
@@ -2815,7 +2829,10 @@ function closeFamilyFeed() {
 }
 
 function attachFamilyFeedListeners() {
-  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
+  // The opening trigger (#feed-notification-btn, the bell icon in
+  // .app-topbar) is wired in attachShellListeners() since it's part of the
+  // global shell, not the tree viewer; only the panel's own controls (fixed
+  // markup, mounted once) are bound here.
   document.querySelector('#family-feed-close-btn')?.addEventListener('click', () => closeFamilyFeed());
   document.querySelector('#family-feed-backdrop')?.addEventListener('click', () => closeFamilyFeed());
 
@@ -2848,7 +2865,9 @@ function attachTreeViewerHeaderListeners() {
     clearSelectedTreeView();
     render();
   });
-  document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
+  document.querySelector('#autosave-status')?.addEventListener('click', () => {
+    if (document.querySelector('#autosave-status')?.dataset.state === 'error') performAutoSave();
+  });
   document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
   document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
@@ -2872,7 +2891,7 @@ function attachTreeViewerHeaderListeners() {
 function refreshTreeViewerHeader() {
   const header = document.querySelector('.viewer-header');
   if (!header) return;
-  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole });
+  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole, viewMode: state.viewMode });
   attachTreeViewerHeaderListeners();
 }
 
@@ -2891,7 +2910,10 @@ function attachTreeViewerListeners() {
     updateTreeOrientationToggleButton();
   });
 
-  attachFamilyFeedListeners();
+  // Family feed panel/listeners are now mounted at the shell level (see
+  // render()) since the bell trigger lives in the global .app-topbar, not
+  // just this page - attachShellListeners() already wires it whenever
+  // state.selectedTreeId is set.
   setupFocusMode();
 }
 
@@ -3247,6 +3269,15 @@ function setupFocusMode() {
 }
 
 function handleViewerSettingsAction(action) {
+  // Relationships/Duplicates (Manage Data) and Settings (the gear "more"
+  // menu) swap what's showing in place of the canvas rather than opening a
+  // modal/triggering a download - close whichever dropdown is still open
+  // first, since switchTreeViewMode()'s toolbar rebuild won't touch it (the
+  // Manage Data/gear menus live in .viewer-header, outside #view-mode-toggle).
+  if (action === 'relationship-manager' || action === 'duplicate-manager' || action === 'settings') {
+    document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+    return switchTreeViewMode(action);
+  }
   if (action === 'rename') return openRenameTreeModal();
   if (action === 'vault-snapshot') return handleCreateVaultSnapshotForTree(state.selectedTreeId);
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
@@ -3309,27 +3340,74 @@ function openRenameTreeModal() {
   });
 }
 
-async function handleSaveTree() {
-  const saveBtn = document.querySelector('#save-btn');
-  const label = saveBtn.querySelector('span');
-  saveBtn.disabled = true;
-  if (label) label.textContent = 'Saving...';
+// ---------------------------------------------------------------------------
+// Autosave
+// ---------------------------------------------------------------------------
+// Replaces the old manual Save button: any edit anywhere in the tree viewer
+// (main canvas via state.editor.setOnChange, or one of the dirty flags below)
+// calls scheduleAutoSave(), which debounces a PUT to /api/trees/:id and
+// reflects Saving.../Saved/Unsaved changes/error via #autosave-status
+// (see renderAutoSaveStatus in components.js). A failed save leaves the
+// status in an "error" state that's clickable to retry immediately.
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+let autoSaveTimer = null;
+// Backstops autosave's debounce window with a native "leave site?" prompt if
+// the browser tab is closed before the pending save has a chance to fire.
+const autoSaveGuard = FormGuard.create({
+  id: 'tree-autosave',
+  message: 'Your latest tree edits are still saving. Leave without saving?',
+});
 
+function hasUnsavedTreeChanges() {
+  return Boolean(
+    state.treeDirty || state.relationshipBuilder.dirty || state.relationshipManager.dirty || state.duplicateManager.dirty
+  );
+}
+
+function setAutoSaveStatus(nextState, { message } = {}) {
+  const el = document.querySelector('#autosave-status');
+  if (!el) return;
+  el.dataset.state = nextState;
+  const labels = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed — click to retry' };
+  const text = message || labels[nextState] || '';
+  const textEl = el.querySelector('.autosave-status-text');
+  if (textEl) textEl.textContent = text;
+  el.title = nextState === 'saved' ? 'All changes saved' : text;
+}
+
+function scheduleAutoSave() {
+  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  if (!canEdit || !state.selectedTreeId) return;
+  setAutoSaveStatus('unsaved');
+  autoSaveGuard.markDirty();
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(performAutoSave, AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function performAutoSave() {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (!hasUnsavedTreeChanges()) {
+    setAutoSaveStatus('saved');
+    return;
+  }
+  setAutoSaveStatus('saving');
   try {
     const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
     await api(`/api/trees/${state.selectedTreeId}`, {
       method: 'PUT',
       body: JSON.stringify({ json_data: dataToSave }),
     });
+    state.treeDirty = false;
     state.relationshipBuilder.dirty = false;
     state.relationshipManager.dirty = false;
     state.duplicateManager.dirty = false;
-    showToast('Tree saved successfully.');
+    autoSaveGuard.markClean();
+    setAutoSaveStatus('saved');
   } catch (error) {
-    showToast(error.message || 'Save failed.', { type: 'error' });
-  } finally {
-    syncSaveButtonAvailability();
-    if (label) label.textContent = 'Save';
+    setAutoSaveStatus('error', { message: error.message || 'Save failed — click to retry' });
   }
 }
 
@@ -3631,6 +3709,18 @@ async function handleContactSubmit(event) {
 }
 
 function clearSelectedTreeView() {
+  // A debounced autosave may still be sitting in its window when the user
+  // navigates away - flush it (fire-and-forget) before the tree/editor
+  // references below go away, so the edit isn't silently dropped.
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+    if (hasUnsavedTreeChanges() && state.selectedTreeId) {
+      const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
+      api(`/api/trees/${state.selectedTreeId}`, { method: 'PUT', body: JSON.stringify({ json_data: dataToSave }) }).catch(() => {});
+    }
+    autoSaveGuard.markClean();
+  }
   focusModeController?.destroy();
   focusModeController = null;
   cleanupAllNodesGraph();
@@ -3834,6 +3924,15 @@ function renderChart() {
         const datum = state.chart.store.getDatum(form_creator.datum_id);
         if (!datum) return;
         attachAvatarUpload({ cont, datum, api, treeId: state.selectedTreeId });
+      })
+      // Fires whenever a card is added, edited, or removed via the editor
+      // form - this is the only signal for main-canvas edits (unlike
+      // relationshipBuilder/relationshipManager/duplicateManager, which set
+      // their own .dirty flags), so it's what drives autosave for ordinary
+      // "click a card, edit a field" changes.
+      .setOnChange(() => {
+        state.treeDirty = true;
+        scheduleAutoSave();
       });
 
     // Canceling add-relative mode (EditTree's internal cancelCallback) always
@@ -4049,91 +4148,61 @@ function renderChart() {
   setupViewModeToggle();
 }
 
+// Shared by setupViewModeToggle's Focused/All Nodes chips and by
+// handleViewerSettingsAction's Manage Data (Relationships/Duplicates) and
+// gear-menu (Settings) items - anything that swaps what's showing in place
+// of the chart canvas goes through here so the toolbar stays in sync.
+function switchTreeViewMode(mode) {
+  if (state.chart?.getMainDatum && state.viewMode === 'focused') {
+    const currentMain = state.chart.getMainDatum();
+    if (currentMain?.id) state.focusedMainId = currentMain.id;
+  }
+  state.viewMode = mode;
+  renderChart();
+  setupViewModeToggle();
+}
+
+// Rebuilds #view-mode-toggle from scratch on every call (rather than just
+// toggling .disabled in place) because which DOM nodes exist at all changes
+// with state.treeToolbarPrimaryTab ('tree' shows Focused/All Nodes/
+// Relationship Finder, 'gallery' shows Media/Events - see
+// renderViewModeToggle in components.js).
 function setupViewModeToggle() {
   const cont = document.querySelector('#view-mode-toggle');
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  const isOwner = state.selectedTreeRole === 'owner';
-  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, canEdit, isOwner });
+  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, primaryTab: state.treeToolbarPrimaryTab });
 
-  const focusedBtn = document.querySelector('#focused-mode-btn');
-  const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
-  const relationshipManagerBtn = document.querySelector('#relationship-manager-mode-btn');
-  const duplicateManagerBtn = document.querySelector('#duplicate-manager-mode-btn');
-  const treeSettingsBtn = document.querySelector('#tree-settings-mode-btn');
-
-  const syncModeButtons = () => {
-    focusedBtn.disabled = state.viewMode === 'focused';
-    allNodesBtn.disabled = state.viewMode === 'all-nodes';
-    if (relationshipManagerBtn) relationshipManagerBtn.disabled = state.viewMode === 'relationship-manager';
-    if (duplicateManagerBtn) duplicateManagerBtn.disabled = state.viewMode === 'duplicate-manager';
-    if (treeSettingsBtn) treeSettingsBtn.disabled = state.viewMode === 'settings';
-    syncSaveButtonAvailability();
-    syncFocusModeToolbarState();
-  };
-
-  const saveFocusedMainId = () => {
-    if (state.chart?.getMainDatum && state.viewMode === 'focused') {
-      const currentMain = state.chart.getMainDatum();
-      if (currentMain?.id) state.focusedMainId = currentMain.id;
-    }
-  };
-
-  focusedBtn.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'focused';
-    renderChart();
-    syncModeButtons();
+  document.querySelector('#primary-tab-tree-btn')?.addEventListener('click', () => {
+    state.treeToolbarPrimaryTab = 'tree';
+    if (state.viewMode !== 'focused' && state.viewMode !== 'all-nodes') switchTreeViewMode('focused');
+    else setupViewModeToggle();
+  });
+  document.querySelector('#primary-tab-gallery-btn')?.addEventListener('click', () => {
+    state.treeToolbarPrimaryTab = 'gallery';
+    setupViewModeToggle();
   });
 
-  allNodesBtn.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'all-nodes';
-    renderChart();
-    syncModeButtons();
-  });
-
-  relationshipManagerBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'relationship-manager';
-    renderChart();
-    syncModeButtons();
-  });
-
-  duplicateManagerBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'duplicate-manager';
-    renderChart();
-    syncModeButtons();
-  });
-
-  treeSettingsBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'settings';
-    renderChart();
-    syncModeButtons();
-  });
-
-  // Media Library/Timeline/Family Feed chips are rendered inside #view-mode-toggle
-  // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
-  // their DOM nodes too - re-wire them every call rather than once in
-  // attachTreeViewerListeners(), which would only ever bind the first copy.
-  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
-    state.mediaLibrary = createMediaLibraryPageState();
-    state.dashboardView = 'mediaLibrary';
-    render();
-  });
-  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
-    state.timeline = createTimelinePageState();
-    state.dashboardView = 'timeline';
-    render();
-  });
+  document.querySelector('#focused-mode-btn')?.addEventListener('click', () => switchTreeViewMode('focused'));
+  document.querySelector('#all-nodes-mode-btn')?.addEventListener('click', () => switchTreeViewMode('all-nodes'));
   document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => {
     state.dashboardView = 'relationshipFinder';
     render();
   });
-  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
 
-  syncModeButtons();
+  // Media/Events aren't viewModes - they navigate to their own full-page
+  // views (state.dashboardView), so neither touches state.viewMode/renderChart.
+  document.querySelector('#gallery-media-btn')?.addEventListener('click', () => {
+    state.mediaLibrary = createMediaLibraryPageState();
+    state.dashboardView = 'mediaLibrary';
+    render();
+  });
+  document.querySelector('#gallery-events-btn')?.addEventListener('click', () => {
+    state.timeline = createTimelinePageState();
+    state.dashboardView = 'timeline';
+    render();
+  });
+
+  syncSaveButtonAvailability();
+  syncFocusModeToolbarState();
 }
 
 function authErrorMessage(error) {
@@ -5566,6 +5635,8 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
     state.treeDefaultMainId && payload.data.some((d) => d.id === state.treeDefaultMainId);
   state.focusedMainId = ownerDefaultStillExists ? state.treeDefaultMainId : pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
+  state.treeDirty = false;
+  state.treeToolbarPrimaryTab = 'tree';
   state.relationshipBuilder = createRelationshipBuilderState();
   state.relationshipManager = createRelationshipManagerState();
   state.duplicateManager = createDuplicateManagerState();
@@ -5864,22 +5935,24 @@ async function handleSaveTreeSettings() {
 
 let relationshipManagerKeyboardCleanup = null;
 
-// Re-evaluates the Save button's disabled state from current role/view-mode/
-// dirty flags. Module-scoped (rather than nested inside setupViewModeToggle,
-// like the rest of that closure's button wiring) so relationshipBuilder's
-// onDirtyChange callback can call it directly after a relationship is applied.
+// Re-evaluates the autosave status from current role/dirty flags, arming the
+// debounced autosave whenever something's pending. Module-scoped (rather
+// than nested inside setupViewModeToggle, like the rest of that closure's
+// button wiring) so relationshipBuilder's onDirtyChange callback can call it
+// directly after a relationship is applied. Kept under its original name
+// since several other modules already call it as a "something may have
+// changed, reconcile the save UI" hook.
 function syncSaveButtonAvailability() {
-  const saveBtn = document.querySelector('#save-btn');
-  if (!saveBtn) return;
   const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
-  const relationshipManagerBlocked = state.viewMode === 'relationship-manager' && !state.relationshipManager.dirty;
-  const duplicateManagerBlocked = state.viewMode === 'duplicate-manager' && !state.duplicateManager.dirty;
-  // Settings mode saves via its own button (handleSaveTreeDefaultFocus),
-  // straight to PATCH /:id/settings - it never has bulk json_data changes
-  // pending, so the main Save button has nothing to do there.
-  const settingsBlocked = state.viewMode === 'settings';
-  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked || duplicateManagerBlocked || settingsBlocked;
+  if (!canEdit) return;
+  if (hasUnsavedTreeChanges()) {
+    scheduleAutoSave();
+    return;
+  }
+  // Nothing pending - reflect "Saved" unless a save is actively in flight or
+  // just failed, both of which own their own status transitions.
+  const el = document.querySelector('#autosave-status');
+  if (el && el.dataset.state !== 'saving' && el.dataset.state !== 'error') setAutoSaveStatus('saved');
 }
 
 function cleanupAllNodesGraph() {

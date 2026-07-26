@@ -7,6 +7,11 @@
   --male-color: var(--tree-male, rgb(120, 159, 172));
   --genderless-color: var(--tree-genderless, lightgray);
   --background-color: var(--tree-bg, rgb(33, 33, 33));
+  /* Neutral card surface - one step off --background-color so cards read as
+     distinct surfaces on the canvas. --female-color/--male-color/
+     --genderless-color are now just the left accent border + person-icon
+     badge (see .card-inner rules below), not the whole card fill. */
+  --card-bg: var(--tree-card-bg, var(--background-color));
   --text-color: var(--tree-card-text, #fff);
 
   /* Profile panel (.f3-form-cont) theming - matches the app's own accent
@@ -590,6 +595,11 @@
   min-height: 22px;
   text-align: center;
   background-color: rgba(0, 0, 0, 0.5);
+  /* Always-dark pill regardless of theme (it overlaps the canvas, not the
+     card surface), so its text stays hardcoded white rather than following
+     --text-color/--tree-card-text - those flip dark in light theme to suit
+     the now-neutral card-inner background, which doesn't apply here. */
+  color: #fff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -754,17 +764,21 @@
 }
 
 .f3 .card-inner {
+  /* Neutral surface instead of a solid gender-color fill - gender now reads
+     via the left accent border below (rect styles) or the ring border
+     (circle style), plus the person-icon badge, rather than the whole card. */
+  background-color: var(--card-bg);
   outline: 0px solid rgba(255, 255, 255, 1);
   transition: outline 0.5s ease-in-out;
 }
 
-.f3 div.card-female .card-inner, .f3 div.card-female .person-icon svg {
+.f3 div.card-female .person-icon svg {
   background-color: var(--female-color);
 }
-.f3 div.card-male .card-inner, .f3 div.card-male .person-icon svg {
+.f3 div.card-male .person-icon svg {
   background-color: var(--male-color);
 }
-.f3 div.card-genderless .card-inner, .f3 div.card-genderless .person-icon svg {
+.f3 div.card-genderless .person-icon svg {
   background-color: var(--genderless-color);
 }
 
@@ -778,6 +792,14 @@
 
 .f3 div.card-genderless .card-inner {
   border: 1px solid var(--genderless-color);
+}
+
+/* Rect card styles get a slightly heavier left edge as the primary "which
+   gender is this" accent - a circle's ring border already does that job for
+   the photo-circle style, so this is scoped to the two rectangular variants. */
+.f3 .card-inner.card-rect,
+.f3 .card-inner.card-image-rect {
+  border-left-width: 4px;
 }
 
 .f3 div.card-new-rel .card-inner, .f3 div.card-new-rel .person-icon svg {
