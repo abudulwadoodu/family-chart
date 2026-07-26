@@ -25,6 +25,8 @@ import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
 import { removeAllRelations, deleteNode } from './relationshipMutations.js';
+import { sortChildren } from './siblingOrder.js';
+import { openSortChildrenDialog } from './sortChildrenDialog.js';
 import { createRelationshipManagerState } from './relationshipManager/state.js';
 import { renderRelationshipManagerMode } from './relationshipManager/components.js';
 import { attachDisconnectedListListeners } from './relationshipManager/disconnectedListPanel.js';
@@ -3704,31 +3706,6 @@ function closeCardMoreMenu() {
   document.querySelectorAll('.f3-card-more-menu').forEach((m) => m.remove());
 }
 
-// Birthdays are free-text (often just a bare year, or blank - see
-// docs/data-format.md) rather than a strict ISO date, so this can't just
-// subtract `new Date(...)` values: an unparseable/missing birthday must sort
-// after known ones instead of corrupting the comparison with NaN.
-function parseBirthdayForSort(birthday) {
-  if (!birthday || typeof birthday !== 'string') return null;
-  const trimmed = birthday.trim();
-  if (!trimmed || trimmed.toLowerCase() === 'unknown') return null;
-  const time = new Date(trimmed).getTime();
-  return Number.isNaN(time) ? null : time;
-}
-
-// Receives raw Datum records (see src/layout/calculate-tree.ts's
-// `children.sort(sortChildrenFunction)`), not TreeDatum tree nodes - so
-// birthday lives at a.data.birthday, one level shallower than card-rendering
-// code that walks TreeDatum.data.data.
-function sortChildrenByBirthday(a, b) {
-  const aTime = parseBirthdayForSort(a.data?.birthday);
-  const bTime = parseBirthdayForSort(b.data?.birthday);
-  if (aTime === null && bTime === null) return 0;
-  if (aTime === null) return 1; // unknown birthdays last
-  if (bTime === null) return -1;
-  return aTime - bTime;
-}
-
 function renderChart() {
   cleanupAllNodesGraph();
   if (state.viewMode === 'duplicate-manager') {
@@ -3761,7 +3738,7 @@ function renderChart() {
     .setTransitionTime(1000)
     .setCardXSpacing(250)
     .setCardYSpacing(150)
-    .setSortChildrenFunction(sortChildrenByBirthday)
+    .setSortChildrenFunction(sortChildren)
     // Without this, siblings of the focused person are invisible until you
     // re-root onto a parent (which shows that parent's children - your
     // siblings - as a side effect). This shows them directly on whoever is
@@ -3958,6 +3935,31 @@ function renderChart() {
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
       menu.appendChild(linkExistingBtn);
+
+      // Sort children: only offered once this person actually has 2+
+      // children to put in order. Opens a drag-to-reorder dialog
+      // (sortChildrenDialog.js) rather than per-child move buttons here -
+      // reordering a large family one click at a time was too slow, and this
+      // also lets the new order override birthday entirely when the parent
+      // knows the real age order but not exact birthdates (see
+      // siblingOrder.js's sortChildren).
+      if ((d.data.rels.children || []).length >= 2) {
+        const sortChildrenBtn = document.createElement('button');
+        sortChildrenBtn.type = 'button';
+        sortChildrenBtn.className = 'dropdown-item';
+        sortChildrenBtn.innerHTML = `${icon('list')}<span>Sort children</span>`;
+        sortChildrenBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeCardMoreMenu();
+          openSortChildrenDialog({
+            data: state.selectedTreeData,
+            parentId: d.data.id,
+            onSave: () => state.chart.updateTree(),
+          });
+        });
+        menu.appendChild(sortChildrenBtn);
+      }
+
       anchorEl.appendChild(menu);
     }
 

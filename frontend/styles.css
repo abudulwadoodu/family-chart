@@ -4578,6 +4578,56 @@ dialog.modal-overlay[open] {
   flex-shrink: 0;
 }
 
+.modal-dialog.modal-sort-children {
+  width: min(90vw, 420px);
+}
+
+.sort-children-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sort-children-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: grab;
+}
+
+.sort-children-row.dragging {
+  opacity: 0.4;
+}
+
+.sort-children-handle {
+  display: flex;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.sort-children-info {
+  min-width: 0;
+}
+
+.sort-children-name {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.sort-children-meta {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
 .member-role-menu-wrap {
   position: relative;
 }

@@ -134,6 +134,11 @@ export const icons = {
   treeHorizontal: svg(
     '<circle cx="5" cy="12" r="2"></circle><path d="M7 12h3"></path><path d="M10 6.5v11"></path><path d="M10 6.5h3.5"></path><path d="M10 17.5h3.5"></path><circle cx="15.5" cy="6.5" r="2"></circle><circle cx="15.5" cy="17.5" r="2"></circle>'
   ),
+  // Drag handle (two columns of three dots) for the sort-children dialog's
+  // reorderable list rows (sortChildrenDialog.js).
+  gripVertical: svg(
+    '<circle cx="9" cy="5.5" r="1.1"></circle><circle cx="9" cy="12" r="1.1"></circle><circle cx="9" cy="18.5" r="1.1"></circle><circle cx="15" cy="5.5" r="1.1"></circle><circle cx="15" cy="12" r="1.1"></circle><circle cx="15" cy="18.5" r="1.1"></circle>'
+  ),
 };
 
 export function icon(name) {
