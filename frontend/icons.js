@@ -30,6 +30,9 @@ export const icons = {
   trash: svg(
     '<path d="M5 7h14"></path><path d="M9.5 7V5.2c0-.66.54-1.2 1.2-1.2h2.6c.66 0 1.2.54 1.2 1.2V7"></path><path d="M7 7l.8 11.2A2 2 0 0 0 9.8 20h4.4a2 2 0 0 0 2-1.8L17 7"></path><path d="M10.2 11v5"></path><path d="M13.8 11v5"></path>'
   ),
+  unlink: svg(
+    '<path d="M9.5 14.5 14.5 9.5"></path><path d="M10.3 6.3 12 4.6a3 3 0 0 1 4.24 0l1.16 1.16a3 3 0 0 1 0 4.24L15.7 11.7"></path><path d="M13.7 17.7 12 19.4a3 3 0 0 1-4.24 0L6.6 18.24a3 3 0 0 1 0-4.24L8.3 12.3"></path>'
+  ),
   share: svg(
     '<circle cx="6" cy="12" r="2.25"></circle><circle cx="17.5" cy="6" r="2.25"></circle><circle cx="17.5" cy="18" r="2.25"></circle><path d="M8 11l7.7-3.6"></path><path d="M8 13l7.7 3.6"></path>'
   ),

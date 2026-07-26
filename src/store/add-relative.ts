@@ -116,22 +116,37 @@ export function addDatumRelsPlaceholders(
   function addChildren() {
     if (!datum.rels.children) datum.rels.children = []
     if (!datum.rels.spouses) datum.rels.spouses = []
+    // When there's more than one spouse pairing on offer (a real, existing
+    // spouse alongside the brand-new placeholder addSpouse() always adds),
+    // the Son/Daughter placeholder for each pairing would otherwise carry
+    // the exact same label - nothing on screen would tell them apart until
+    // it's too late. Qualify the label with which spouse each pairing is
+    // under so picking the wrong one (and linking a real child to the wrong
+    // parent) isn't just a guess.
+    const multiple_spouses = datum.rels.spouses.length > 1
     datum.rels.spouses.forEach(spouse_id => {
-      const spouse = store_data.find(d => d.id === spouse_id)!
+      const spouse = store_data.find(d => d.id === spouse_id)! as NewDatum
       if (!spouse.rels.children) spouse.rels.children = []
-      
+      const qualifier = multiple_spouses ? spouseQualifier(spouse) : ''
+
       const new_son: NewDatum = createNewPerson({data: {gender: "M"}, rels: {parents: [datum.id, spouse.id]}})
-      new_son._new_rel_data = {rel_type: "son", label: addRelLabels.son, other_parent_id: spouse.id, rel_id: datum.id}
+      new_son._new_rel_data = {rel_type: "son", label: addRelLabels.son + qualifier, other_parent_id: spouse.id, rel_id: datum.id}
       spouse.rels.children!.push(new_son.id)
       datum.rels.children!.push(new_son.id)
       store_data.push(new_son)
 
       const new_daughter: NewDatum = createNewPerson({data: {gender: "F"}, rels: {parents: [datum.id, spouse.id]}})
-      new_daughter._new_rel_data = {rel_type: "daughter", label: addRelLabels.daughter, other_parent_id: spouse.id, rel_id: datum.id}
+      new_daughter._new_rel_data = {rel_type: "daughter", label: addRelLabels.daughter + qualifier, other_parent_id: spouse.id, rel_id: datum.id}
       spouse.rels.children!.push(new_daughter.id)
       datum.rels.children!.push(new_daughter.id)
       store_data.push(new_daughter)
     })
+  }
+
+  function spouseQualifier(spouse: NewDatum) {
+    if (spouse._new_rel_data) return ' (new spouse)'
+    const name = `${spouse.data['first name'] || ''} ${spouse.data['last name'] || ''}`.trim()
+    return name ? ` (with ${name})` : ''
   }
 
   return store_data

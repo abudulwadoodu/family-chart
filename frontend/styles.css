@@ -1557,6 +1557,27 @@ button.secondary:active,
   background: transparent;
 }
 
+/* Trees Dashboard sub-nav (Active Trees / Private Vault). Reuses
+   .section-tabs/.section-tab's underline styling; the extra rules here are
+   just to keep the bar usable on narrow/mobile viewports where it sits right
+   at the top of the page instead of below a page-header. */
+.trees-tabs {
+  margin-bottom: var(--sp-5);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+
+.trees-tabs::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/WebKit */
+}
+
+.trees-tabs .section-tab {
+  padding: var(--sp-3) var(--sp-2);
+  white-space: nowrap;
+}
+
 .page-title {
   font-size: 1.7rem;
   font-weight: 700;
@@ -2543,6 +2564,18 @@ button.secondary:active,
   font-weight: 700;
 }
 
+.member-search-result-name {
+  display: block;
+}
+
+.member-search-result-detail {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: 0.76rem;
+  font-style: italic;
+}
+
 .member-search-empty {
   padding: var(--sp-3);
   color: var(--text-tertiary);
@@ -2791,6 +2824,18 @@ button.secondary:active,
   stroke-width: 2px;
   stroke-dasharray: 6 4;
   pointer-events: none;
+}
+
+.rm-coparent-prompt {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-default);
+}
+
+.rm-coparent-label {
+  font-size: 0.88rem;
+  margin: 0 0 var(--sp-2);
+  color: var(--text-secondary);
 }
 
 /* Relationship dialog (frontend/relationshipDialog.js) */
@@ -3064,6 +3109,8 @@ button.secondary:active,
 }
 
 .rm-target-result {
+  display: flex;
+  flex-direction: column;
   text-align: left;
   background: transparent;
   border: 1px solid var(--border-default);
@@ -3075,6 +3122,13 @@ button.secondary:active,
 
 .rm-target-result:hover {
   background: var(--bg-surface-hover);
+}
+
+.rm-target-result-detail {
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+  font-style: italic;
 }
 
 .rm-suggestions,
@@ -3237,18 +3291,41 @@ button.secondary:active,
   gap: 4px;
   font-size: 0.76rem;
   color: var(--text-tertiary);
+  flex: 1;
+  min-width: 0;
 }
 
 .rm-tree-spouse-badge .icon {
   width: 12px;
   height: 12px;
+  flex-shrink: 0;
+}
+
+.rm-tree-spouse-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 1100px) {
+  /* .chart-container's fixed/viewport-relative height (set above for the
+     canvas-based chart views) otherwise clips the stacked panels into a
+     small box, forcing an extra nested scroll region on top of each panel's
+     own internal scroll - the classic "scrolling gets stuck" mobile bug. */
+  .chart-container:has(.relationship-manager-shell) {
+    height: auto;
+    min-height: 0;
+  }
+
   .relationship-manager-shell {
     grid-template-columns: 1fr;
-    grid-auto-rows: minmax(260px, 1fr);
-    overflow-y: auto;
+    grid-auto-rows: auto;
+    height: auto;
+    overflow-y: visible;
+  }
+
+  .rm-panel {
+    height: min(70vh, 560px);
   }
 }
 
@@ -3909,6 +3986,53 @@ body.focus-mode-transitioning .focus-mode-target {
 
 .danger-zone-actions {
   margin-top: var(--sp-3);
+}
+
+.vault-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.vault-create-row {
+  margin: var(--sp-4) 0;
+  gap: var(--sp-3);
+  align-items: center;
+}
+
+.vault-snapshot-list {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.vault-snapshot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.vault-snapshot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vault-snapshot-name {
+  font-weight: 600;
+}
+
+.vault-snapshot-actions {
+  gap: var(--sp-2);
+  flex-shrink: 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -4855,7 +4979,8 @@ dialog.modal-overlay[open] {
 /* GEDCOM import wizard & export options */
 
 .modal-dialog.modal-gedcom-wizard,
-.modal-dialog.modal-gedcom-export {
+.modal-dialog.modal-gedcom-export,
+.modal-dialog.modal-vault-restore {
   width: min(100%, 560px);
 }
 
@@ -6983,6 +7108,18 @@ button.admin-stat-card {
   background: var(--bg-surface-hover);
 }
 
+.lightbox-tag-suggestion-name {
+  display: block;
+}
+
+.lightbox-tag-suggestion-detail {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: 0.76rem;
+  font-style: italic;
+}
+
 /* Comments + reactions (mediaLightbox.js, timelinePanel.js, via commentSection.js) */
 
 .comment-section {
@@ -7686,6 +7823,20 @@ button.admin-stat-card {
   width: 1em;
   height: 1em;
   flex-shrink: 0;
+}
+
+/* Options menu opened by clicking a node in the All Nodes graph (see
+   openAllNodesOptionsMenu in main.js). The graph is raw SVG with no DOM
+   element to anchor a normal .dropdown-menu against, so this is appended
+   straight to <body> and positioned at the click's viewport coordinates via
+   inline left/top - the position:fixed here just overrides the base rule's
+   `position: absolute; top: calc(100% + 6px); right: 0`, which would
+   otherwise anchor it to body's own box instead of the click point. */
+.all-nodes-options-menu.dropdown-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 50;
 }
 
 /* ------------------------------------------------------------------ */

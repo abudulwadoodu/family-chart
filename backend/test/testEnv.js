@@ -38,6 +38,7 @@ export async function resetDb() {
   await query(`
     TRUNCATE TABLE
       users, trees, tree_permissions, special_access_overrides, tree_join_requests, family_data,
+      user_account_archives,
       contact_submissions, support_tickets, support_messages,
       settings, audit_logs, media, media_tags, media_shares, albums, album_media,
       events, event_participants, event_media, event_shares,

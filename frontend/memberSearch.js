@@ -9,12 +9,34 @@ export function getLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
+// Short "Parent of Ahmed Khan; Spouse of Fatima Khan" style summary for a
+// member, naming their actual close relatives rather than just counting
+// them. `byId` is a Map<id, Datum> over the full tree, needed to resolve
+// relative names; falls back to omitting a relative id that can't be
+// resolved (defensive - shouldn't happen with well-formed data).
+export function getRelativesSummary(datum, byId) {
+  const rels = datum?.rels || {};
+  const parents = (rels.parents || []).map((id) => byId?.get(id)).filter(Boolean);
+  const children = (rels.children || []).map((id) => byId?.get(id)).filter(Boolean);
+  const spouses = (rels.spouses || []).map((id) => byId?.get(id)).filter(Boolean);
+
+  const parts = [];
+  if (parents.length) parts.push(`Child of ${parents.map(getLabel).join(', ')}`);
+  if (children.length) parts.push(`Parent of ${children.map(getLabel).join(', ')}`);
+  if (spouses.length) parts.push(`Spouse of ${spouses.map(getLabel).join(', ')}`);
+  return parts.join('; ');
+}
+
 // Build once per search session (e.g. on input focus) and reuse across
 // keystrokes, rather than recomputing labels/lowercasing on every keystroke.
+// `normalized` folds in notes text alongside the name so a nickname that's
+// only ever been written in someone's notes is still findable by search.
 export function buildMemberSearchIndex(data) {
   return (Array.isArray(data) ? data : []).map((d) => {
     const label = getLabel(d);
-    return { id: d.id, label, normalized: label.toLowerCase() };
+    const notes = d?.data?.notes || '';
+    const normalized = `${label} ${notes}`.toLowerCase();
+    return { id: d.id, label, normalized };
   });
 }
 

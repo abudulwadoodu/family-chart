@@ -5,6 +5,7 @@ import { initDb } from './db/index.js';
 import { authRouter } from './routes/auth.js';
 import { treesRouter } from './routes/trees.js';
 import { accountRouter } from './routes/account.js';
+import { vaultRouter } from './routes/vault.js';
 import { supportRouter } from './routes/support.js';
 import { adminSupportRouter } from './routes/adminSupport.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
@@ -34,6 +35,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/trees', treesRouter);
 app.use('/api/account', accountRouter);
+app.use('/api/vault', vaultRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/admin/support', adminSupportRouter);
 app.use('/api/admin/users', adminUsersRouter);

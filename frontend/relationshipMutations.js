@@ -30,6 +30,45 @@ function buildIndex(data) {
   return new Map(data.map((d) => [d.id, d]));
 }
 
+// Mirrors the family-chart library's own createNewPerson (src/store/new-
+// person.ts) closely enough to produce a compatible Datum, but stays local to
+// this module rather than importing the library's TS source - the Relation-
+// ship Builder needs to create a brand-new shared parent when linking two
+// siblings who neither one has an existing parent recorded (only way to make
+// that link visible in the tree - see getSiblingParentContext in
+// relationshipManager/builderPanel.js).
+export function createPerson(data, { firstName = '', lastName = '', gender = 'M' } = {}) {
+  const person = {
+    id: crypto.randomUUID(),
+    data: { gender, 'first name': firstName, 'last name': lastName },
+    rels: { parents: [], children: [], spouses: [] },
+  };
+  data.push(person);
+  return person;
+}
+
+// Mirrors the family-chart library's own add-relative.ts addParents()
+// bidirectional spouse-pairing: when a child ends up with exactly two
+// parents, that's the only signal the rest of the app (in particular the
+// focused tab's "Add relative"/"Link existing member" flow, src/store/add-
+// relative.ts) has for recognizing an already-existing co-parent via
+// rels.spouses. Without this, that flow can't tell the two are already a
+// couple and fabricates a redundant new spouse placeholder instead - and
+// linking an existing child under that fake placeholder mis-parents them.
+// Purely additive (never removes an existing marriage), guarded against
+// duplicates.
+function pairCoParentsAsSpouses(byId, child) {
+  const parentIds = child.rels.parents || [];
+  if (parentIds.length !== 2) return;
+  const p1 = byId.get(parentIds[0]);
+  const p2 = byId.get(parentIds[1]);
+  if (!p1 || !p2) return;
+  if (!p1.rels.spouses) p1.rels.spouses = [];
+  if (!p2.rels.spouses) p2.rels.spouses = [];
+  if (!p1.rels.spouses.includes(p2.id)) p1.rels.spouses.push(p2.id);
+  if (!p2.rels.spouses.includes(p1.id)) p2.rels.spouses.push(p1.id);
+}
+
 /**
  * Mutates `data` in place, keeping both sides of rels in sync, and records
  * descriptive metadata for the relationship on both people.
@@ -52,10 +91,12 @@ export function applyRelationship(data, draft) {
     // target becomes source's parent
     if (!source.rels.parents.includes(targetId)) source.rels.parents.push(targetId);
     if (!target.rels.children.includes(sourceId)) target.rels.children.push(sourceId);
+    pairCoParentsAsSpouses(byId, source);
   } else if (type === 'child') {
     // target becomes source's child
     if (!source.rels.children.includes(targetId)) source.rels.children.push(targetId);
     if (!target.rels.parents.includes(sourceId)) target.rels.parents.push(sourceId);
+    pairCoParentsAsSpouses(byId, target);
   } else if (type === 'spouse') {
     if (!source.rels.spouses.includes(targetId)) source.rels.spouses.push(targetId);
     if (!target.rels.spouses.includes(sourceId)) target.rels.spouses.push(sourceId);
@@ -102,4 +143,45 @@ export function removeRelationship(data, draft) {
 
   clearRelMeta(source, targetId);
   clearRelMeta(target, sourceId);
+}
+
+/**
+ * Detaches a person from every parent, spouse, and child they currently
+ * have, leaving them an isolated node. Used by the All Nodes view's node
+ * click menu ("Remove relation") as a bulk counterpart to removeRelationship
+ * (which only ever handles one source/target pair at a time).
+ *
+ * @param {import('../src/types/data').Data} data
+ * @param {string} personId
+ */
+export function removeAllRelations(data, personId) {
+  const byId = buildIndex(data);
+  const person = byId.get(personId);
+  if (!person) return;
+
+  const parentIds = [...(person.rels.parents || [])];
+  const spouseIds = [...(person.rels.spouses || [])];
+  const childIds = [...(person.rels.children || [])];
+
+  parentIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'parent' }));
+  spouseIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'spouse' }));
+  childIds.forEach((id) => removeRelationship(data, { sourceId: personId, targetId: id, type: 'child' }));
+}
+
+/**
+ * Removes a person from the tree entirely: strips them out of every other
+ * person's rels arrays and relMeta, then deletes their own record. Simpler
+ * than the family-chart library's own deletePerson (src/store/edit.ts),
+ * which special-cases keeping the *main* tree connected to a single root -
+ * that notion doesn't apply to the All Nodes view, which shows every
+ * disconnected family island at once, so a plain unconditional removal is
+ * the correct (and only sensible) semantics here.
+ *
+ * @param {import('../src/types/data').Data} data
+ * @param {string} personId
+ */
+export function deleteNode(data, personId) {
+  removeAllRelations(data, personId);
+  const index = data.findIndex((d) => d.id === personId);
+  if (index !== -1) data.splice(index, 1);
 }

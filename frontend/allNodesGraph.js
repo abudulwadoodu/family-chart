@@ -136,7 +136,7 @@ const NODE_RADIUS = 11;
 const DROP_HIT_RADIUS = 21; // matches forceCollide().radius(22) so hit-testing agrees with physical collision
 const DRAG_CONNECT_DEAD_ZONE = 15; // px of drag movement before hover-to-connect can engage, to avoid accidental connects from a jittery click
 
-export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) {
+export function renderAllNodesGraph(selector, graph, { onConnectAttempt, onNodeClick } = {}) {
   const container = document.querySelector(selector);
   if (!container) return () => {};
   container.innerHTML = '';
@@ -227,6 +227,7 @@ export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) 
   let dropTargetId = null;
   let dragStartX = 0;
   let dragStartY = 0;
+  let dragMoved = false;
 
   function findDropTarget(pointerX, pointerY, excludeId) {
     let closest = null;
@@ -262,6 +263,7 @@ export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) 
       d.fy = d.y;
       dragStartX = event.x;
       dragStartY = event.y;
+      dragMoved = false;
       dropTargetId = null;
 
       // Freeze every other node in place for the duration of this drag by
@@ -283,6 +285,7 @@ export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) 
       d.fy = event.y;
 
       const movedDistSq = (event.x - dragStartX) ** 2 + (event.y - dragStartY) ** 2;
+      if (movedDistSq >= DRAG_CONNECT_DEAD_ZONE * DRAG_CONNECT_DEAD_ZONE) dragMoved = true;
       if (!onConnectAttempt || movedDistSq < DRAG_CONNECT_DEAD_ZONE * DRAG_CONNECT_DEAD_ZONE) {
         if (dropTargetId != null) clearDropTargetHighlight();
         return;
@@ -335,6 +338,19 @@ export function renderAllNodesGraph(selector, graph, { onConnectAttempt } = {}) 
     });
 
   nodes.call(dragBehavior);
+
+  // Fires the node options menu (Remove relation / Delete node) on a plain
+  // click. d3.drag's own 'start'/'end' pair still fires for a click with no
+  // movement, so this only opens the menu when dragMoved stayed false -
+  // otherwise a completed drag-to-connect would also pop the menu open on
+  // release, on top of the connect-attempt flow it already triggered.
+  if (onNodeClick) {
+    nodes.on('click', (event, d) => {
+      if (dragMoved) return;
+      event.stopPropagation();
+      onNodeClick(d.id, { clientX: event.clientX, clientY: event.clientY });
+    });
+  }
 
   simulation.on('tick', () => {
     links

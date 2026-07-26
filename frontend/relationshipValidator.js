@@ -91,14 +91,18 @@ export function validateRelationship(data, sourceId, targetId, type) {
   }
 
   if (type === 'sibling') {
-    // Only checks source->target relMeta. applyRelationship always writes
-    // both sides symmetrically, so this doesn't miss anything created
-    // through this app's own tooling - only a future external import that
-    // sets relMeta asymmetrically could slip past this. Fast-follow, not
-    // blocking: fall back to checking target's relMeta too if that happens.
-    const sourceMeta = source.data?.relMeta?.[targetId];
-    if (sourceMeta?.type === 'sibling') {
-      return { valid: false, reason: 'These two people are already recorded as siblings.' };
+    // Blocks on the structural state (do they already share a parent and
+    // therefore already show up as siblings in the tree?), mirroring how
+    // parent/child/spouse duplicate-checks all key off rels.*, not relMeta.
+    // relMeta alone is *not* enough to block re-selecting sibling: it's only
+    // descriptive annotation, carries no visible link (see builderPanel.js's
+    // getSiblingParentContext module comment), so a pair that was annotated
+    // but never got a shared-parent edge must remain re-selectable - that's
+    // exactly how a user completes the missing structural link afterwards.
+    const sourceParents = source.rels?.parents || [];
+    const targetParents = target.rels?.parents || [];
+    if (sourceParents.some((id) => targetParents.includes(id))) {
+      return { valid: false, reason: 'These two people already share a parent and are shown as siblings in the tree.' };
     }
   }
 

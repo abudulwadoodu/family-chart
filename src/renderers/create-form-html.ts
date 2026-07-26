@@ -26,6 +26,16 @@ export function getHtmlNew(form_creator: NewRelFormCreator) {
     <form id="familyForm" class="f3-form">
       ${closeBtn()}
       <h3 class="f3-form-title">${form_creator.title}</h3>
+
+      ${
+        // Lead with "does this person already exist?" - previously this
+        // picker rendered after the Submit button entirely, so filling in
+        // the create-new fields and clicking Submit (the natural next step)
+        // meant never seeing that linking was an option, silently creating
+        // a duplicate of someone already in the tree.
+        form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''
+      }
+
       ${genderRadio(form_creator)}
 
       ${fields(form_creator)}
@@ -34,8 +44,6 @@ export function getHtmlNew(form_creator: NewRelFormCreator) {
         <button type="button" class="f3-cancel-btn">Cancel</button>
         <button type="submit">Submit</button>
       </div>
-
-      ${form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''}
     </form>
   `)
 }
@@ -57,11 +65,20 @@ export function getHtmlEdit(form_creator: EditDatumFormCreator) {
       </div>
 
       <div class="f3-form-body">
+        ${
+          // Placeholder cards (to_add / unknown / newly-added relatives) can
+          // either be filled in as a brand-new person or linked to someone
+          // who's already in the tree. Lead with "does this person already
+          // exist?" - putting the create-new name/birthday/etc fields first
+          // (as this block used to) let people fill those in and hit Submit
+          // without ever scrolling down to notice linking was an option,
+          // silently creating a duplicate of someone already in the tree.
+          form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''
+        }
+
         ${genderRadio(form_creator)}
 
         ${fields(form_creator)}
-
-        ${form_creator.linkExistingRelative ? addLinkExistingRelative(form_creator) : ''}
       </div>
 
       <div class="f3-form-buttons">
@@ -263,16 +280,30 @@ function avatarField(form_creator: EditDatumFormCreator | NewRelFormCreator) {
 function addLinkExistingRelative(form_creator: EditDatumFormCreator | NewRelFormCreator) {
   const title = form_creator.linkExistingRelative.hasOwnProperty('title') ? form_creator.linkExistingRelative.title : 'Profile already exists?'
   const select_placeholder = form_creator.linkExistingRelative.hasOwnProperty('select_placeholder') ? form_creator.linkExistingRelative.select_placeholder : 'Select profile'
-  const options = form_creator.linkExistingRelative.options as SelectField['options']
+  const confirm_label = form_creator.linkExistingRelative.hasOwnProperty('confirm_label') ? form_creator.linkExistingRelative.confirm_label : 'Select'
+  const options = form_creator.linkExistingRelative.options as (SelectField['options'][number] & {detail?: string, searchText?: string})[]
   return (`
     <div>
       <hr>
       <div class="f3-link-existing-relative">
         <label>${title}</label>
-        <select>
-          <option value="">${select_placeholder}</option>
-          ${options.map(option => `<option value="${option.value}">${option.label}</option>`).join('')}
-        </select>
+        <div class="f3-link-search-box">
+          <input type="text" class="f3-link-search-input" placeholder="${select_placeholder}" autocomplete="off">
+        </div>
+        <ul class="f3-link-results" role="listbox">
+          ${options.map(option => (`
+            <li class="f3-link-result"
+              role="option"
+              aria-selected="false"
+              data-id="${option.value}"
+              data-search="${(`${option.label} ${option.searchText || ''}`).toLowerCase().replace(/"/g, '&quot;')}"
+            >
+              <span class="f3-link-result-name">${option.label}</span>
+              ${option.detail ? `<span class="f3-link-result-detail">${option.detail}</span>` : ''}
+            </li>
+          `)).join('')}
+        </ul>
+        <button type="button" class="f3-link-confirm-btn" disabled>${confirm_label}</button>
       </div>
     </div>
   `)

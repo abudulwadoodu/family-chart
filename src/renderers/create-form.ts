@@ -140,10 +140,56 @@ function setupEventListenersBase(formContainer: HTMLElement, form_creator: EditD
 
 function setupEventListenersNew(formContainer: HTMLElement, form_creator: NewRelFormCreator) {
   const form = formContainer.querySelector('form')!;
-  const link_existing_relative_select = form.querySelector('.f3-link-existing-relative select')!;
-  if (link_existing_relative_select) {
-    link_existing_relative_select.addEventListener('change', form_creator.linkExistingRelative.onSelect);
-  }
+  setupLinkExistingRelativeListeners(form, form_creator)
+}
+
+// The "link existing member" picker is a search-then-confirm widget rather
+// than a plain <select> that commits on change: a misclick here silently
+// merges two people's family relationships, so selecting a row only
+// highlights it - the confirm button is what actually submits.
+function setupLinkExistingRelativeListeners(form: HTMLFormElement, form_creator: EditDatumFormCreator | NewRelFormCreator) {
+  const cont = form.querySelector('.f3-link-existing-relative');
+  if (!cont) return;
+
+  const search_input = cont.querySelector('.f3-link-search-input') as HTMLInputElement | null;
+  const results = Array.from(cont.querySelectorAll('.f3-link-result')) as HTMLLIElement[];
+  const confirm_btn = cont.querySelector('.f3-link-confirm-btn') as HTMLButtonElement | null;
+  if (!confirm_btn) return;
+
+  let selected_id: string | null = null;
+
+  search_input?.addEventListener('input', () => {
+    const q = search_input.value.trim().toLowerCase();
+    results.forEach(li => {
+      const matches = !q || (li.dataset.search || '').includes(q)
+      li.style.display = matches ? '' : 'none'
+    });
+  });
+
+  results.forEach(li => {
+    li.addEventListener('click', () => {
+      const id = li.dataset.id!;
+      if (selected_id === id) {
+        selected_id = null;
+        li.classList.remove('is-selected');
+        li.setAttribute('aria-selected', 'false');
+      } else {
+        results.forEach(other => {
+          other.classList.remove('is-selected');
+          other.setAttribute('aria-selected', 'false');
+        });
+        selected_id = id;
+        li.classList.add('is-selected');
+        li.setAttribute('aria-selected', 'true');
+      }
+      confirm_btn.disabled = !selected_id;
+    });
+  });
+
+  confirm_btn.addEventListener('click', () => {
+    if (!selected_id) return;
+    form_creator.linkExistingRelative.onSelect(selected_id);
+  });
 }
 
 function setupEventListenersEdit(formContainer: HTMLElement, form_creator: EditDatumFormCreator, reload: () => void) {
@@ -177,10 +223,7 @@ function setupEventListenersEdit(formContainer: HTMLElement, form_creator: EditD
     });
   }
 
-  const link_existing_relative_select = form.querySelector('.f3-link-existing-relative select');
-  if (link_existing_relative_select) {
-    link_existing_relative_select.addEventListener('change', form_creator.linkExistingRelative.onSelect);
-  }
+  setupLinkExistingRelativeListeners(form, form_creator)
 
   function onEdit() {
     form_creator.editable = !form_creator.editable

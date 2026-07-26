@@ -34,6 +34,12 @@ export function createRelationshipManagerState() {
       targetSearchQuery: '',
       targetSearchResults: [],
       perItemResults: [], // [{ sourceId, label, valid, reason? }]
+      // When linking a child to a parent who already has a real spouse, the
+      // user can opt into also linking the child to that spouse as a second
+      // parent - see getCoParentContext() in builderPanel.js. null means "no,
+      // don't link an additional parent" (the safe default - never assumed).
+      coParentId: null,
+      coParentResults: [], // [{ sourceId, label, valid, reason? }]
     },
 
     tree: {

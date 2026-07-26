@@ -174,7 +174,7 @@ async function reloadMedia(pageState, { api, treeId }, rerender) {
 // "My Trees" link). `rerender` re-invokes the page's own render (main.js's
 // render()), which calls renderMediaLibraryPageContent again with the same
 // pageState and then re-runs this attach function.
-export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
+export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
   const root = document.querySelector('.media-library-page');
   if (!root) return;
 
@@ -277,6 +277,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
         treeId,
         media: item,
         memberIndex,
+        memberById,
         currentUserId,
         readOnly,
         context: activeAlbum ? { type: 'album', id: activeAlbum.id, name: activeAlbum.name } : null,

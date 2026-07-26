@@ -24,6 +24,7 @@ import * as d3 from 'd3';
 import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
+import { removeAllRelations, deleteNode } from './relationshipMutations.js';
 import { createRelationshipManagerState } from './relationshipManager/state.js';
 import { renderRelationshipManagerMode } from './relationshipManager/components.js';
 import { attachDisconnectedListListeners } from './relationshipManager/disconnectedListPanel.js';
@@ -47,8 +48,8 @@ import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
-import { api } from './api.js';
-import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel } from './memberSearch.js';
+import { api, fetchAttachment } from './api.js';
+import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel, getRelativesSummary } from './memberSearch.js';
 import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
@@ -272,6 +273,11 @@ const state = {
   otpSent: false,
   otpResendAvailableAt: 0,
   dashboardView: 'trees',
+  // Which sub-panel of the Trees Dashboard is visible: 'active' (live,
+  // collaborative trees) or 'vault' (private Vault snapshots). Local to the
+  // trees landing view - toggling it only flips a CSS class via
+  // attachTreesTabListeners(), it never triggers a full renderDashboard().
+  treesTab: 'active',
   // "Search before you create" step on the Create Tree page.
   joinSearch: {
     query: '',
@@ -321,6 +327,14 @@ const state = {
     error: '',
     success: '',
     enrollment: null, // { secret, uri, qrDataUrl }
+  },
+  // Private Vault: instant JSONB snapshots of trees the user owns. Scoped to
+  // ownership only (never editor/viewer access) - see backend/models/vaultModel.js.
+  vault: {
+    snapshots: [],
+    loading: false,
+    loaded: false,
+    creatingTreeId: null,
   },
   // "My Support Tickets" (user-facing) list + the shared ticket detail view.
   support: {
@@ -1552,6 +1566,7 @@ function renderDashboard() {
                               : isTimelineView
                                 ? renderTimelinePageContent(state.timeline, {
                                     memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                    memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
                                     readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
                                     currentUserId: state.user?.id,
                                     treeName: state.selectedTreeName,
@@ -1624,6 +1639,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
@@ -1650,6 +1666,7 @@ function renderDashboard() {
         api,
         treeId: state.selectedTreeId,
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+        memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
         readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
       },
@@ -1847,51 +1864,141 @@ function bindDropdownTriggers(scopeEl) {
 // Trees landing (dashboard home)
 // ---------------------------------------------------------------------------
 
-// Only the header is static markup here - everything below it (toolbar,
-// discover-search, empty states, and the tree grid itself) is owned by
-// renderTreeGrid() into #trees-landing-body, since that's the function every
-// data-change call site (loadTrees, sort/filter, create, delete, import...)
-// already calls. That lets the empty-state vs active-state layout swap
-// happen automatically whenever the tree count changes, without having to
-// thread a full top-level render() through every one of those call sites.
+// Sub-navigation for the Trees Dashboard landing view: "Active Trees" (the
+// live, collaborative tree directory) and "Private Vault" (owner-only
+// snapshot archive, formerly a section of Security Settings). Deliberately
+// NOT built on the isXView/renderDashboard() cascade + full render() that
+// .section-tab elsewhere uses (see attachSectionTabListeners) - both panels
+// are mounted once and switching tabs just toggles a hidden/active class, so
+// the live tree grid's DOM (search/sort state, in-flight renames, etc.)
+// isn't torn down and rebuilt on every tab click.
+const TREES_TABS = [
+  { id: 'active', label: 'Active Trees', icon: 'list' },
+  { id: 'vault', label: 'Private Vault', icon: 'lock' },
+];
+
+function renderTreesTabBar(activeId) {
+  return `
+    <div class="section-tabs trees-tabs" role="tablist">
+      ${TREES_TABS.map(
+        (tab) => `
+        <button
+          type="button"
+          class="section-tab"
+          role="tab"
+          id="trees-tab-${tab.id}"
+          data-tab-id="${tab.id}"
+          aria-selected="${tab.id === activeId}"
+          aria-controls="trees-panel-${tab.id}"
+          tabindex="${tab.id === activeId ? '0' : '-1'}"
+        >${icon(tab.icon)}<span>${tab.label}</span></button>
+      `
+      ).join('')}
+    </div>
+  `;
+}
+
+// Only the header/tab-bar chrome is static markup here - everything below it
+// (toolbar, discover-search, empty states, and the tree grid itself) is
+// owned by renderTreeGrid() into #trees-landing-body, since that's the
+// function every data-change call site (loadTrees, sort/filter, create,
+// delete, import...) already calls. That lets the empty-state vs
+// active-state layout swap happen automatically whenever the tree count
+// changes, without having to thread a full top-level render() through every
+// one of those call sites.
 function renderTreesLandingMarkup() {
   return `
-    ${renderPageHeader({
-      title: 'Family Trees',
-      subtitle: 'Create, manage, and collaborate on your family trees.',
-      primaryActionId: 'new-tree-cta',
-      primaryActionLabel: 'New Tree',
-      templateMenu: {
-        id: 'landing-template-options',
-        triggerId: 'download-template-btn',
-        label: 'Download Template',
-        items: [
-          { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
-          { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
-        ],
-      },
-      importMenu: {
-        id: 'landing-import-options',
-        triggerId: 'import-tree-cta',
-        label: 'Import',
-        items: [
-          { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-          { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-        ],
-      },
-    })}
-    <div id="trees-landing-body"></div>
+    ${renderTreesTabBar(state.treesTab)}
+    <div id="trees-panel-active" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-active" ${state.treesTab === 'active' ? '' : 'hidden'}>
+      ${renderPageHeader({
+        title: 'Family Trees',
+        subtitle: 'Create, manage, and collaborate on your family trees.',
+        primaryActionId: 'new-tree-cta',
+        primaryActionLabel: 'New Tree',
+        templateMenu: {
+          id: 'landing-template-options',
+          triggerId: 'download-template-btn',
+          label: 'Download Template',
+          items: [
+            { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
+            { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
+          ],
+        },
+        importMenu: {
+          id: 'landing-import-options',
+          triggerId: 'import-tree-cta',
+          label: 'Import',
+          items: [
+            { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+            { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+          ],
+        },
+      })}
+      <div id="trees-landing-body"></div>
+    </div>
+    <div id="trees-panel-vault" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-vault" ${state.treesTab === 'vault' ? '' : 'hidden'}>
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Private Vault</h1>
+          <p class="page-subtitle">Instant, owner-only snapshot backups of your trees.</p>
+        </div>
+      </header>
+      <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
+    </div>
   `;
 }
 
 function attachTreesLandingListeners() {
+  attachTreesTabListeners();
+
   document.querySelector('#new-tree-cta').addEventListener('click', () => {
     state.dashboardView = 'createTree';
     render();
   });
-  bindDropdownTriggers(document.querySelector('.page-header'));
-  document.querySelectorAll('.page-header .dropdown-item').forEach((btn) => {
+  bindDropdownTriggers(document.querySelector('#trees-panel-active .page-header'));
+  document.querySelectorAll('#trees-panel-active .page-header .dropdown-item').forEach((btn) => {
     btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
+  });
+
+  attachVaultDrawerListeners();
+  if (!state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
+}
+
+// Toggles the Active Trees / Private Vault panels via a plain class swap -
+// no render() call, so the live tree grid (and its in-flight search/sort/
+// rename DOM state) is never torn down just from switching tabs. Mirrors
+// attachSectionTabListeners' roving-tabindex keyboard behavior.
+function attachTreesTabListeners() {
+  const tabs = document.querySelectorAll('.trees-tabs .section-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const tabId = tab.dataset.tabId;
+      if (tabId === state.treesTab) return;
+      state.treesTab = tabId;
+
+      tabs.forEach((t) => {
+        const selected = t === tab;
+        t.setAttribute('aria-selected', String(selected));
+        t.tabIndex = selected ? 0 : -1;
+      });
+      document.querySelectorAll('.trees-tab-panel').forEach((panel) => {
+        panel.hidden = panel.id !== `trees-panel-${tabId}`;
+      });
+
+      if (tabId === 'vault' && !state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
+    });
+  });
+
+  const tabList = document.querySelector('.trees-tabs');
+  tabList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const list = Array.from(tabs);
+    const currentIndex = list.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const next = list[(currentIndex + delta + list.length) % list.length];
+    next.click();
+    next.focus();
   });
 }
 
@@ -2349,6 +2456,9 @@ function handleTreeCardAction(action, treeId) {
   }
   if (action === 'share') {
     return openShareModal(treeId);
+  }
+  if (action === 'vault-snapshot') {
+    return handleCreateVaultSnapshotForTree(treeId);
   }
   if (action === 'delete') {
     const tree = state.trees.find((t) => t.id === treeId);
@@ -2850,16 +2960,24 @@ function renderMemberSearchResults(query) {
     return;
   }
 
+  const byId = new Map((state.selectedTreeData || []).map((d) => [d.id, d]));
+
   resultsEl.innerHTML = state.memberSearchResults
-    .map((entry, index) => `
+    .map((entry, index) => {
+      const summary = getRelativesSummary(byId.get(entry.id), byId);
+      return `
       <button
         type="button"
         class="member-search-result-item ${index === state.memberSearchActiveIndex ? 'active' : ''}"
         role="option"
         aria-selected="${index === state.memberSearchActiveIndex}"
         data-id="${escapeHtml(entry.id)}"
-      >${highlightMatch(entry.label, query)}</button>
-    `)
+      >
+        <span class="member-search-result-name">${highlightMatch(entry.label, query)}</span>
+        ${summary ? `<span class="member-search-result-detail">${escapeHtml(summary)}</span>` : ''}
+      </button>
+    `;
+    })
     .join('');
 
   resultsEl.querySelectorAll('.member-search-result-item').forEach((btn) => {
@@ -3092,6 +3210,7 @@ function setupFocusMode() {
 
 function handleViewerSettingsAction(action) {
   if (action === 'rename') return openRenameTreeModal();
+  if (action === 'vault-snapshot') return handleCreateVaultSnapshotForTree(state.selectedTreeId);
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
   if (action === 'download-csv-template-blank') return handleDownloadBlankCsvTemplate();
   if (action === 'download-csv-template-sample') return handleDownloadSampleCsvTemplate();
@@ -3647,8 +3766,11 @@ function renderChart() {
       .setEditFirst(true)
       .setLinkExistingRelConfig({
         title: 'Link to an existing member instead?',
-        select_placeholder: 'Select existing member',
+        select_placeholder: 'Search existing members...',
+        confirm_label: 'Select',
         linkRelLabel: (d) => getMemberLabel(d),
+        linkRelDetail: (d) => getRelativesSummary(d, new Map(state.selectedTreeData.map((d2) => [d2.id, d2]))),
+        linkRelSearchText: (d) => d.data.notes || '',
       })
       .setOnFormCreation(({ cont, form_creator }) => {
         hydrateAvatarPreview(cont);
@@ -4241,6 +4363,292 @@ function attachSecuritySettingsListeners() {
       confirmLabel: 'Disable',
       onConfirm: handleDisableMfa,
     });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Private Vault: instant JSONB snapshots of trees the user owns.
+//
+// Deliberately scoped to ownership only (backend/models/vaultModel.js -
+// createSnapshotForTree checks trees.owner_id, not tree_permissions
+// membership) - an editor/viewer on someone else's tree can never clone that
+// owner's data into their own permanent archive.
+// ---------------------------------------------------------------------------
+
+function renderVaultDrawerMarkup() {
+  const vault = state.vault;
+  const ownedTrees = state.trees.filter((tree) => tree.role === 'owner');
+
+  const snapshotRows = vault.snapshots.length
+    ? vault.snapshots
+        .map(
+          (snapshot) => `
+      <li class="vault-snapshot-row" data-snapshot-id="${snapshot.id}">
+        <div class="vault-snapshot-info">
+          <span class="vault-snapshot-name">${escapeHtml(snapshot.archiveName)}</span>
+          <span class="muted vault-snapshot-date">Saved on ${new Date(snapshot.createdAt).toLocaleString()}</span>
+        </div>
+        <div class="vault-snapshot-actions row">
+          <button type="button" class="btn-secondary vault-restore-snapshot-btn" data-snapshot-id="${snapshot.id}">${icon('upload')}<span>Restore</span></button>
+          <button type="button" class="btn-secondary vault-download-gedcom-btn" data-snapshot-id="${snapshot.id}">${icon('download')}<span>Download GEDCOM</span></button>
+          <button type="button" class="icon-btn vault-delete-snapshot-btn" data-snapshot-id="${snapshot.id}" aria-label="Delete archive">${icon('trash')}</button>
+        </div>
+      </li>`
+        )
+        .join('')
+    : `<p class="muted">No vault snapshots yet. Create one below to keep an instant private backup of a tree you own.</p>`;
+
+  const createControls = ownedTrees.length
+    ? `
+      <div class="vault-create-row row">
+        <select id="vault-create-tree-select">
+          ${ownedTrees.map((tree) => `<option value="${tree.id}">${escapeHtml(tree.name)}</option>`).join('')}
+        </select>
+        <button type="button" id="vault-create-snapshot-btn" class="btn btn-primary" ${vault.creatingTreeId ? 'disabled' : ''}>
+          ${icon('save')}<span>${vault.creatingTreeId ? 'Saving...' : 'Create Snapshot'}</span>
+        </button>
+      </div>`
+    : `<p class="muted">You don't own any trees yet, so there's nothing to snapshot.</p>`;
+
+  return `
+    <h2>${icon('lock')}<span>Private Vault</span></h2>
+    <p class="muted">Instant private backups of trees you own, stored separately from the live tree. Each snapshot can also be downloaded as a GEDCOM file.</p>
+    ${createControls}
+    <ul class="vault-snapshot-list">${vault.loading ? '<p class="muted">Loading archives...</p>' : snapshotRows}</ul>
+  `;
+}
+
+function attachVaultDrawerListeners() {
+  document.querySelector('#vault-create-snapshot-btn')?.addEventListener('click', handleCreateVaultSnapshot);
+
+  document.querySelectorAll('.vault-restore-snapshot-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openVaultRestoreModal(Number(btn.dataset.snapshotId)));
+  });
+
+  document.querySelectorAll('.vault-download-gedcom-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDownloadVaultSnapshotGedcom(Number(btn.dataset.snapshotId)));
+  });
+
+  document.querySelectorAll('.vault-delete-snapshot-btn').forEach((btn) => {
+    const snapshotId = Number(btn.dataset.snapshotId);
+    btn.addEventListener('click', () => {
+      showConfirmDialog({
+        title: 'Delete Archive',
+        message: 'Are you sure you want to delete this vault snapshot? This cannot be undone.',
+        confirmLabel: 'Delete',
+        onConfirm: () => handleDeleteVaultSnapshot(snapshotId),
+      });
+    });
+  });
+}
+
+async function loadVaultSnapshots() {
+  state.vault.loading = true;
+  render();
+  try {
+    const { snapshots } = await api('/api/vault/snapshots');
+    state.vault.snapshots = snapshots;
+  } catch (error) {
+    showToast(error.message || 'Could not load vault snapshots.', { type: 'error' });
+  } finally {
+    state.vault.loading = false;
+    state.vault.loaded = true;
+    render();
+  }
+}
+
+async function handleCreateVaultSnapshot() {
+  const select = document.querySelector('#vault-create-tree-select');
+  const treeId = Number(select?.value);
+  if (!treeId) return;
+
+  const tree = state.trees.find((t) => t.id === treeId);
+  state.vault.creatingTreeId = treeId;
+  render();
+  try {
+    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ archiveName: tree?.name || '' }),
+    });
+    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
+    showToast('Snapshot saved to your vault.');
+  } catch (error) {
+    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
+  } finally {
+    state.vault.creatingTreeId = null;
+    render();
+  }
+}
+
+// Entry point for the "Save to Vault" action in the tree-card menu and the
+// viewer's settings menu - unlike handleCreateVaultSnapshot (vault drawer's
+// own tree picker), the tree is already known from context here.
+async function handleCreateVaultSnapshotForTree(treeId) {
+  const tree = state.trees.find((t) => t.id === treeId);
+  const archiveName = tree?.name || state.selectedTreeName || '';
+  try {
+    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ archiveName }),
+    });
+    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
+    state.vault.loaded = true;
+    showToast('Snapshot saved to your vault.');
+  } catch (error) {
+    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
+  }
+}
+
+async function handleDownloadVaultSnapshotGedcom(snapshotId) {
+  try {
+    const { blob, filename } = await fetchAttachment(`/api/vault/snapshots/${snapshotId}/export/gedcom`);
+    downloadBlob(blob, filename);
+  } catch (error) {
+    showToast(error.message || 'Could not download GEDCOM file.', { type: 'error' });
+  }
+}
+
+async function handleDeleteVaultSnapshot(snapshotId) {
+  try {
+    await api(`/api/vault/snapshots/${snapshotId}`, { method: 'DELETE' });
+    state.vault.snapshots = state.vault.snapshots.filter((snapshot) => snapshot.id !== snapshotId);
+    render();
+    showToast('Archive deleted.');
+  } catch (error) {
+    showToast(error.message || 'Could not delete archive.', { type: 'error' });
+  }
+}
+
+// Lets a snapshot be replayed either into a brand-new tree or over an
+// existing tree the user owns (only owned trees, mirroring the same
+// ownership-only guarantee createSnapshotForTree already enforces - see
+// backend/models/vaultModel.js's restoreSnapshotIntoTree). Deliberately a
+// small standalone modal rather than reusing openGedcomImportWizard: there's
+// no file to upload or validate here, the data's already a frozen, trusted
+// past snapshot.
+function openVaultRestoreModal(snapshotId) {
+  const snapshot = state.vault.snapshots.find((s) => s.id === snapshotId);
+  const ownedTrees = state.trees.filter((tree) => tree.role === 'owner');
+  const restoreState = {
+    mode: 'new',
+    newTreeName: snapshot?.archiveName || '',
+    targetTreeId: ownedTrees[0]?.id ?? null,
+    submitting: false,
+  };
+
+  const modal = showModal({ bodyHtml: '<p>Loading...</p>', className: 'modal-vault-restore' });
+  const renderBody = () => {
+    modal.setBody(vaultRestoreModalMarkup(restoreState, ownedTrees));
+    bindVaultRestoreModalListeners(modal, restoreState, ownedTrees, snapshotId, renderBody);
+  };
+  renderBody();
+}
+
+function vaultRestoreModalMarkup(restoreState, ownedTrees) {
+  return `
+    <button type="button" class="icon-btn modal-close" id="vault-restore-close-btn" aria-label="Close">${icon('close')}</button>
+    <h3>Restore Snapshot</h3>
+    <p class="modal-message">Restore this vault snapshot as a new tree, or replace an existing tree you own with it.</p>
+    <div class="wizard-option-group">
+      <label class="wizard-radio-row">
+        <input type="radio" name="vault-restore-mode" value="new" ${restoreState.mode === 'new' ? 'checked' : ''} />
+        <span>Restore as a new tree</span>
+      </label>
+      ${
+        restoreState.mode === 'new'
+          ? `<input type="text" id="vault-restore-new-name" placeholder="e.g. Smith Family Tree" value="${escapeHtml(restoreState.newTreeName)}" maxlength="120" />`
+          : ''
+      }
+      <label class="wizard-radio-row">
+        <input type="radio" name="vault-restore-mode" value="replace" ${restoreState.mode === 'replace' ? 'checked' : ''} ${ownedTrees.length ? '' : 'disabled'} />
+        <span>Replace an existing tree</span>
+      </label>
+      ${
+        restoreState.mode === 'replace'
+          ? `<select id="vault-restore-target-select">
+              ${ownedTrees.map((t) => `<option value="${t.id}" ${String(t.id) === String(restoreState.targetTreeId) ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+            <p class="modal-message wizard-tone-warning">This permanently replaces everything currently in that tree with this snapshot.</p>`
+          : ''
+      }
+      ${!ownedTrees.length ? '<p class="muted">You don\'t own any trees yet to replace.</p>' : ''}
+    </div>
+    <div class="modal-actions row">
+      <button type="button" class="btn-secondary" id="vault-restore-cancel-btn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="vault-restore-confirm-btn" ${restoreState.submitting ? 'disabled' : ''}>
+        ${restoreState.submitting ? 'Restoring...' : 'Restore'}
+      </button>
+    </div>
+  `;
+}
+
+function bindVaultRestoreModalListeners(modal, restoreState, ownedTrees, snapshotId, renderBody) {
+  const root = modal.root;
+
+  root.querySelector('#vault-restore-close-btn')?.addEventListener('click', modal.close);
+  root.querySelector('#vault-restore-cancel-btn')?.addEventListener('click', modal.close);
+
+  root.querySelectorAll('input[name="vault-restore-mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      restoreState.mode = radio.value;
+      renderBody();
+    });
+  });
+
+  root.querySelector('#vault-restore-new-name')?.addEventListener('input', (event) => {
+    restoreState.newTreeName = event.target.value;
+  });
+  root.querySelector('#vault-restore-target-select')?.addEventListener('change', (event) => {
+    restoreState.targetTreeId = event.target.value;
+  });
+
+  root.querySelector('#vault-restore-confirm-btn')?.addEventListener('click', async () => {
+    if (restoreState.mode === 'replace' && !restoreState.targetTreeId) {
+      showToast('Choose a tree to replace.', { type: 'error' });
+      return;
+    }
+
+    const runRestore = async () => {
+      restoreState.submitting = true;
+      renderBody();
+      try {
+        const body =
+          restoreState.mode === 'replace'
+            ? { mode: 'replace', treeId: Number(restoreState.targetTreeId) }
+            : { mode: 'new', treeName: restoreState.newTreeName.trim() };
+
+        const { tree } = await api(`/api/vault/snapshots/${snapshotId}/restore`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+
+        modal.close();
+        await loadTrees();
+        if (restoreState.mode === 'replace' && state.selectedTreeId === tree.id) {
+          await loadTree(tree.id);
+        }
+        showToast(
+          restoreState.mode === 'replace' ? `Replaced "${tree.name}" with this snapshot.` : `Restored as "${tree.name}".`
+        );
+      } catch (error) {
+        restoreState.submitting = false;
+        renderBody();
+        showToast(error.message || 'Could not restore snapshot.', { type: 'error' });
+      }
+    };
+
+    if (restoreState.mode === 'replace') {
+      const targetName = ownedTrees.find((t) => String(t.id) === String(restoreState.targetTreeId))?.name || 'this tree';
+      showConfirmDialog({
+        title: 'Replace Tree',
+        message: `Are you sure you want to replace "${targetName}" with this snapshot? Everything currently in that tree will be permanently overwritten.`,
+        confirmLabel: 'Replace',
+        onConfirm: runRestore,
+      });
+      return;
+    }
+
+    await runRestore();
   });
 }
 
@@ -4906,6 +5314,8 @@ async function handleSignOut() {
   state.totpSetup = null;
   state.dashboardView = 'trees';
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
+  state.vault = { snapshots: [], loading: false, loaded: false, creatingTreeId: null };
+  state.treesTab = 'active';
   state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
   state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
   resetAuthCardEntrance();
@@ -5121,7 +5531,99 @@ function renderAllNodesMode() {
     onConnectAttempt: canEdit
       ? (sourceId, targetId) => handleConnectAttempt(state, syncSaveButtonAvailability, sourceId, targetId)
       : undefined,
+    onNodeClick: canEdit ? (nodeId, screenPos) => openAllNodesOptionsMenu(nodeId, screenPos) : undefined,
   });
+}
+
+// Small options menu opened by clicking a node in the All Nodes view.
+// Reuses .dropdown-menu/.dropdown-item for visual consistency with the
+// card's own "more" menu (see openCardMoreMenu above), but is positioned at
+// the click's screen coordinates instead of anchored to a DOM element,
+// since All Nodes renders raw SVG circles rather than HTML cards.
+let allNodesOptionsMenuEl = null;
+
+function closeAllNodesOptionsMenu() {
+  if (allNodesOptionsMenuEl) {
+    allNodesOptionsMenuEl.remove();
+    allNodesOptionsMenuEl = null;
+    document.removeEventListener('click', closeAllNodesOptionsMenu);
+  }
+}
+
+function openAllNodesOptionsMenu(nodeId, { clientX, clientY }) {
+  closeAllNodesOptionsMenu();
+
+  const datum = state.selectedTreeData.find((d) => d.id === nodeId);
+  if (!datum) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu open all-nodes-options-menu';
+  menu.style.left = `${clientX}px`;
+  menu.style.top = `${clientY}px`;
+
+  const removeRelationBtn = document.createElement('button');
+  removeRelationBtn.type = 'button';
+  removeRelationBtn.className = 'dropdown-item';
+  removeRelationBtn.innerHTML = `${icon('unlink')}<span>Remove relation</span>`;
+  removeRelationBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllNodesOptionsMenu();
+    const name = toAllNodesLabel(datum);
+    showConfirmDialog({
+      title: 'Remove all relations',
+      message: `Detach "${name}" from every parent, spouse, and child? "${name}" stays in the tree as an isolated node — remember to save afterward.`,
+      confirmLabel: 'Remove relations',
+      onConfirm: () => {
+        removeAllRelations(state.selectedTreeData, nodeId);
+        state.relationshipBuilder.dirty = true;
+        cleanupAllNodesGraph();
+        renderAllNodesMode();
+        syncSaveButtonAvailability();
+        showToast('Relations removed — remember to save.');
+      },
+    });
+  });
+
+  const deleteNodeBtn = document.createElement('button');
+  deleteNodeBtn.type = 'button';
+  deleteNodeBtn.className = 'dropdown-item dropdown-item-danger';
+  deleteNodeBtn.innerHTML = `${icon('trash')}<span>Delete node</span>`;
+  deleteNodeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllNodesOptionsMenu();
+    const name = toAllNodesLabel(datum);
+    showConfirmDialog({
+      title: 'Delete this person',
+      message: `Permanently delete "${name}" from this tree? This also removes them from every relative's parent/spouse/child list. This action cannot be undone once saved.`,
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        deleteNode(state.selectedTreeData, nodeId);
+        state.relationshipBuilder.dirty = true;
+        cleanupAllNodesGraph();
+        renderAllNodesMode();
+        syncSaveButtonAvailability();
+        showToast('Person deleted — remember to save.');
+      },
+    });
+  });
+
+  menu.appendChild(removeRelationBtn);
+  menu.appendChild(deleteNodeBtn);
+  document.body.appendChild(menu);
+  allNodesOptionsMenuEl = menu;
+
+  // Deferred so the click that opened the menu doesn't immediately close it
+  // via this same document-level listener (event.stopPropagation() on the
+  // node's own click handler already keeps it from bubbling, but the
+  // listener is added after that click's dispatch has finished either way).
+  setTimeout(() => document.addEventListener('click', closeAllNodesOptionsMenu), 0);
+}
+
+function toAllNodesLabel(datum) {
+  const first = datum?.data?.['first name'] || '';
+  const last = datum?.data?.['last name'] || '';
+  const label = `${first} ${last}`.trim();
+  return label || String(datum?.id ?? '');
 }
 
 function renderRelationshipManagerViewMode() {
@@ -5329,6 +5831,7 @@ function syncSaveButtonAvailability() {
 }
 
 function cleanupAllNodesGraph() {
+  closeAllNodesOptionsMenu();
   if (!state.allNodesGraph) return;
   state.allNodesGraph.destroy();
   state.allNodesGraph = null;
