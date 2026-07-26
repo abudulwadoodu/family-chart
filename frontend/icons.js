@@ -124,6 +124,16 @@ export const icons = {
   cake: svg(
     '<path d="M4 20.5h16"></path><path d="M5 20.5v-6a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v6"></path><path d="M5 16.5c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0"></path><path d="M12 13V9"></path><path d="M12 9c-1 0-1.5-.6-1.5-1.3S11 6 12 4.5c1 1.5 1.5 2.4 1.5 3.2S13 9 12 9Z"></path>'
   ),
+  // Root-on-top, branches-downward glyph for the tree-orientation toggle
+  // (treeOrientation.js) - paired with treeHorizontal below.
+  treeVertical: svg(
+    '<circle cx="12" cy="5" r="2"></circle><path d="M12 7v3"></path><path d="M6.5 10h11"></path><path d="M6.5 10v3.5"></path><path d="M17.5 10v3.5"></path><circle cx="6.5" cy="15.5" r="2"></circle><circle cx="17.5" cy="15.5" r="2"></circle>'
+  ),
+  // Root-on-left, branches-rightward glyph - the horizontal counterpart of
+  // treeVertical, matching examples/13-horizontal-tree.html's layout.
+  treeHorizontal: svg(
+    '<circle cx="5" cy="12" r="2"></circle><path d="M7 12h3"></path><path d="M10 6.5v11"></path><path d="M10 6.5h3.5"></path><path d="M10 17.5h3.5"></path><circle cx="15.5" cy="6.5" r="2"></circle><circle cx="15.5" cy="17.5" r="2"></circle>'
+  ),
 };
 
 export function icon(name) {

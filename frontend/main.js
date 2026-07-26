@@ -47,6 +47,7 @@ import { appToast } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { getCardStyle, toggleCardStyle, toF3CardStyle } from './cardStyle.js';
+import { getTreeOrientation, toggleTreeOrientation } from './treeOrientation.js';
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api, fetchAttachment } from './api.js';
@@ -2629,7 +2630,7 @@ function renderTreeViewerMarkup() {
       </div>
       <div class="chart-canvas-wrap">
         <div id="FamilyChart" class="f3 chart-container"></div>
-        ${renderCanvasFloatingControls({ cardStyle: getCardStyle() })}
+        ${renderCanvasFloatingControls({ cardStyle: getCardStyle(), orientation: getTreeOrientation() })}
       </div>
     </div>
     ${renderFamilyFeedPanel()}
@@ -2884,6 +2885,11 @@ function attachTreeViewerListeners() {
     renderChart();
     updateCardStyleToggleButton();
   });
+  document.querySelector('#tree-orientation-toggle-btn')?.addEventListener('click', () => {
+    toggleTreeOrientation();
+    renderChart();
+    updateTreeOrientationToggleButton();
+  });
 
   attachFamilyFeedListeners();
   setupFocusMode();
@@ -2901,6 +2907,18 @@ function updateCardStyleToggleButton() {
   btn.setAttribute('aria-pressed', String(isCircle));
   btn.setAttribute('title', isCircle ? 'Switch to rectangle cards' : 'Switch to circle cards');
   btn.innerHTML = icon(isCircle ? 'user' : 'list');
+}
+
+// Syncs the canvas-floating orientation toggle button's icon/tooltip/
+// aria-pressed with whatever orientation is currently stored (see
+// treeOrientation.js) - same reasoning as updateCardStyleToggleButton above.
+function updateTreeOrientationToggleButton() {
+  const btn = document.querySelector('#tree-orientation-toggle-btn');
+  if (!btn) return;
+  const isHorizontal = getTreeOrientation() === 'horizontal';
+  btn.setAttribute('aria-pressed', String(isHorizontal));
+  btn.setAttribute('title', isHorizontal ? 'Switch to vertical tree' : 'Switch to horizontal tree');
+  btn.innerHTML = icon(isHorizontal ? 'treeHorizontal' : 'treeVertical');
 }
 
 // ---------------------------------------------------------------------------
@@ -3750,6 +3768,15 @@ function renderChart() {
     // currently focused, matching the "why can't I see my own siblings"
     // report.
     .setShowSiblingsOfMain(true);
+
+  // Top-down (default) or left-to-right (examples/13-horizontal-tree.html) -
+  // whichever this browser last picked via the canvas-floating orientation
+  // toggle (see treeOrientation.js / attachTreeViewerListeners).
+  if (getTreeOrientation() === 'horizontal') {
+    state.chart.setOrientationHorizontal();
+  } else {
+    state.chart.setOrientationVertical();
+  }
 
   // The tree owner can configure "unlimited" as the default
   // (state.ancestryDepth/progenyDepth === null) from the Settings tab. In

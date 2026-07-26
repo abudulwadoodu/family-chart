@@ -764,13 +764,15 @@ export function renderViewModeToggle({ viewMode, canEdit, isOwner }) {
   `;
 }
 
-// `cardStyle` ('circle' | 'rect', see cardStyle.js) picks the toggle's
+// `cardStyle` ('circle' | 'rect', see cardStyle.js) and `orientation`
+// ('vertical' | 'horizontal', see treeOrientation.js) pick these toggles'
 // initial icon/tooltip/pressed-state so a page refresh reflects whatever the
 // viewer last chose on this device, without waiting on a click to sync it.
-// Every role sees the same button - card style is a per-browser display
-// preference, not something owners lock down for editors/viewers.
-export function renderCanvasFloatingControls({ cardStyle = 'circle' } = {}) {
+// Every role sees the same buttons - both are per-browser display
+// preferences, not something owners lock down for editors/viewers.
+export function renderCanvasFloatingControls({ cardStyle = 'circle', orientation = 'vertical' } = {}) {
   const isCircle = cardStyle !== 'rect';
+  const isHorizontal = orientation === 'horizontal';
   return `
     <div class="canvas-floating-controls" id="canvas-floating-controls">
       <button type="button" id="reset-view-btn" class="icon-btn canvas-floating-btn" title="Reset to the tree's default view" aria-label="Reset view">
@@ -785,6 +787,15 @@ export function renderCanvasFloatingControls({ cardStyle = 'circle' } = {}) {
         aria-label="Toggle person card style"
         aria-pressed="${isCircle}"
       >${icon(isCircle ? 'user' : 'list')}</button>
+      <span class="canvas-floating-sep" aria-hidden="true"></span>
+      <button
+        type="button"
+        id="tree-orientation-toggle-btn"
+        class="icon-btn canvas-floating-btn"
+        title="${isHorizontal ? 'Switch to vertical tree' : 'Switch to horizontal tree'}"
+        aria-label="Toggle tree orientation"
+        aria-pressed="${isHorizontal}"
+      >${icon(isHorizontal ? 'treeHorizontal' : 'treeVertical')}</button>
       <span class="canvas-floating-sep" aria-hidden="true"></span>
       <button type="button" id="focus-mode-btn" class="icon-btn canvas-floating-btn" title="Maximize (F)" aria-label="Maximize family tree" aria-pressed="false">
         ${icon('maximize')}
