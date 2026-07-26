@@ -55,4 +55,31 @@ describe('validateRelationship', () => {
     const result = validateRelationship([e, f], 'e', 'f', 'spouse');
     expect(result.valid).toBe(true);
   });
+
+  it('allows a sibling link to be recorded even when relMeta annotation exists but no shared parent does', () => {
+    // Mirrors what an earlier attempt through the old (pre-fix) sibling flow
+    // would leave behind: descriptive metadata with no structural link. A
+    // user must be able to revisit this pair and complete the shared-parent
+    // edge - see builderPanel.js's getSiblingParentContext.
+    const e = { ...datum('e'), data: { gender: 'M', relMeta: { f: { type: 'sibling', subtype: 'full' } } } };
+    const f = { ...datum('f'), data: { gender: 'M', relMeta: { e: { type: 'sibling', subtype: 'full' } } } };
+    const result = validateRelationship([e, f], 'e', 'f', 'sibling');
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects a sibling link once the two already share a parent (already visible siblings)', () => {
+    const dad = datum('dad', { children: ['e', 'f'] });
+    const e = datum('e', { parents: ['dad'] });
+    const f = datum('f', { parents: ['dad'] });
+    const result = validateRelationship([dad, e, f], 'e', 'f', 'sibling');
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/already share a parent/);
+  });
+
+  it('allows a sibling link between two people with no parents recorded at all', () => {
+    const e = datum('e');
+    const f = datum('f');
+    const result = validateRelationship([e, f], 'e', 'f', 'sibling');
+    expect(result.valid).toBe(true);
+  });
 });

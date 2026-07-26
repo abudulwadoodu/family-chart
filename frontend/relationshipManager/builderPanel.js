@@ -30,6 +30,9 @@ function resetBuilder(builder) {
   builder.perItemResults = [];
   builder.coParentId = null;
   builder.coParentResults = [];
+  builder.linkSourceToTargetParents = false;
+  builder.linkTargetToSourceParents = false;
+  builder.siblingParentResults = [];
 }
 
 // Determines whose spouse(s) could plausibly also be the other parent of the
@@ -77,6 +80,69 @@ export function computeCoParentPreview(data, childIds, coParentId) {
     const check = validateRelationship(data, childId, coParentId, 'parent');
     return { sourceId: childId, label: toLabel(byId.get(childId)), valid: check.valid, reason: check.reason };
   });
+}
+
+// The data model has no direct sibling edge (see relationshipMutations.js
+// module comment) - the only way a sibling link becomes visible in the tree
+// is by both people sharing a parent. This finds the existing parent(s) to
+// offer linking the other person to. Deliberately surfaces *all* of a side's
+// existing parents together (not one at a time): linking to only one parent
+// of an existing couple leaves that person with a single recorded parent,
+// which triggers the family-chart library's own "single_parent_empty_card"
+// placeholder (an auto-generated to_add ghost labeled "ADD" - see
+// src/renderers/card-html.ts) - linking to the whole existing couple at once
+// avoids creating that half-finished state. Only offered for the unambiguous
+// one-to-one case (a single selected source) - bulk sibling linking falls
+// back to the relMeta-only annotation. Returns null if there's nothing to
+// offer (no parents on either side, or they already share one and are
+// therefore already visible siblings).
+export function getSiblingParentContext(data, sourceIds, targetId) {
+  if (sourceIds.length !== 1) return null;
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const source = byId.get(sourceIds[0]);
+  const target = byId.get(targetId);
+  if (!source || !target) return null;
+
+  const sourceParents = source.rels.parents || [];
+  const targetParents = target.rels.parents || [];
+  if (sourceParents.some((id) => targetParents.includes(id))) return null;
+
+  const sourceMissingParents = targetParents.filter((id) => !sourceParents.includes(id)).map((id) => ({ id, label: toLabel(byId.get(id)) }));
+  const targetMissingParents = sourceParents.filter((id) => !targetParents.includes(id)).map((id) => ({ id, label: toLabel(byId.get(id)) }));
+  if (!sourceMissingParents.length && !targetMissingParents.length) return null;
+
+  return {
+    sourceId: source.id,
+    targetId: target.id,
+    sourceLabel: toLabel(source),
+    targetLabel: toLabel(target),
+    sourceMissingParents,
+    targetMissingParents,
+  };
+}
+
+// Mirrors computeCoParentPreview but for the sibling flow: links source to
+// every one of target's existing parents (and/or target to every one of
+// source's), per the two independent toggles - one row per resulting
+// parent/child edge, so a couple's two parents both get linked in one action
+// rather than forcing a pick-one choice.
+export function computeSiblingParentPreview(data, ctx, { linkSourceToTargetParents = false, linkTargetToSourceParents = false } = {}) {
+  if (!ctx) return [];
+  const byId = new Map(data.map((d) => [d.id, d]));
+  const rows = [];
+  if (linkSourceToTargetParents) {
+    ctx.sourceMissingParents.forEach(({ id: parentId, label: parentLabel }) => {
+      const check = validateRelationship(data, ctx.sourceId, parentId, 'parent');
+      rows.push({ sourceId: ctx.sourceId, parentId, label: toLabel(byId.get(ctx.sourceId)), parentLabel, valid: check.valid, reason: check.reason });
+    });
+  }
+  if (linkTargetToSourceParents) {
+    ctx.targetMissingParents.forEach(({ id: parentId, label: parentLabel }) => {
+      const check = validateRelationship(data, ctx.targetId, parentId, 'parent');
+      rows.push({ sourceId: ctx.targetId, parentId, label: toLabel(byId.get(ctx.targetId)), parentLabel, valid: check.valid, reason: check.reason });
+    });
+  }
+  return rows;
 }
 
 // Pure: computes per-source validity for the chosen target/type. Bulk mode
@@ -130,10 +196,14 @@ function renderBuilderHeader(rm, data) {
 
 function typeAvailability(data, sourceIds, targetId) {
   // A type is selectable if valid for at least one selected source - full
-  // per-source pass/fail is decided later in the preview step.
+  // per-source pass/fail is decided later in the preview step. When none are
+  // valid, carries the first source's reason too, so the disabled option can
+  // explain itself instead of just graying out with no explanation.
   const availability = {};
   TYPE_OPTIONS.forEach(({ type }) => {
-    availability[type] = sourceIds.some((sourceId) => validateRelationship(data, sourceId, targetId, type).valid);
+    const checks = sourceIds.map((sourceId) => validateRelationship(data, sourceId, targetId, type));
+    const validCheck = checks.find((c) => c.valid);
+    availability[type] = { enabled: Boolean(validCheck), reason: validCheck ? undefined : checks[0]?.reason };
   });
   return availability;
 }
@@ -224,13 +294,15 @@ function renderChooseTypeStep(rm, data) {
   const sourceLabel = rm.selectedSourceIds.map((id) => toLabel(byId.get(id))).join(', ');
   const targetLabel = toLabel(byId.get(rm.builder.targetId));
   const optionsHtml = TYPE_OPTIONS.map(({ type, label }, index) => {
-    const enabled = availability[type];
+    const { enabled, reason } = availability[type];
     const help = getTypeHelp(type, sourceLabel, targetLabel);
+    const reasonHtml = enabled ? '' : `<span class="field-error">${escapeHtml(reason || 'Not allowed.')}</span>`;
     return `
       <label class="relationship-type-option ${enabled ? '' : 'is-disabled'}">
         <input type="radio" name="rm-rel-type" value="${type}" ${enabled ? '' : 'disabled'} />
         <span class="relationship-type-label">${index + 1}. ${label}</span>
         <span class="relationship-type-help">${escapeHtml(help)}</span>
+        ${reasonHtml}
       </label>
     `;
   }).join('');
@@ -242,7 +314,7 @@ function renderChooseTypeStep(rm, data) {
         <span class="rm-suggestions-label">Recently used</span>
         <div class="rm-suggestion-list">
           ${recentTypes
-            .map((t) => `<button type="button" class="rm-recent-chip" data-type="${escapeHtml(t)}" ${availability[t] ? '' : 'disabled'}>${escapeHtml(TYPE_OPTIONS.find((o) => o.type === t)?.label || t)}</button>`)
+            .map((t) => `<button type="button" class="rm-recent-chip" data-type="${escapeHtml(t)}" ${availability[t].enabled ? '' : 'disabled'}>${escapeHtml(TYPE_OPTIONS.find((o) => o.type === t)?.label || t)}</button>`)
             .join('')}
         </div>
       </div>
@@ -291,8 +363,44 @@ function renderCoParentPrompt(rm, data) {
   `;
 }
 
+function renderSiblingParentPrompt(rm, data) {
+  const ctx = getSiblingParentContext(data, rm.selectedSourceIds, rm.builder.targetId);
+  if (!ctx) return '';
+
+  // Each option links to the *whole* existing parent couple at once (not one
+  // parent at a time) - see the getSiblingParentContext module comment for
+  // why picking only one parent is deliberately not offered.
+  const sourceOption = ctx.sourceMissingParents.length
+    ? `
+      <label class="relationship-subtype-option">
+        <input type="checkbox" name="rm-sibling-link-source" ${rm.builder.linkSourceToTargetParents ? 'checked' : ''} />
+        <span>Also link ${escapeHtml(ctx.sourceLabel)} as child of ${escapeHtml(ctx.sourceMissingParents.map((p) => p.label).join(' and '))}</span>
+      </label>
+    `
+    : '';
+  const targetOption = ctx.targetMissingParents.length
+    ? `
+      <label class="relationship-subtype-option">
+        <input type="checkbox" name="rm-sibling-link-target" ${rm.builder.linkTargetToSourceParents ? 'checked' : ''} />
+        <span>Also link ${escapeHtml(ctx.targetLabel)} as child of ${escapeHtml(ctx.targetMissingParents.map((p) => p.label).join(' and '))}</span>
+      </label>
+    `
+    : '';
+
+  return `
+    <div class="rm-coparent-prompt">
+      <p class="rm-coparent-label">Link the existing parent(s) to make this visible in the tree:</p>
+      <div class="stack">
+        ${sourceOption}
+        ${targetOption}
+      </div>
+    </div>
+  `;
+}
+
 function renderOptionsStep(rm, data) {
-  const { type } = rm.builder;
+  const { type, targetId } = rm.builder;
+  const byId = new Map(data.map((d) => [d.id, d]));
   let fieldsHtml = '';
   if (type === 'parent' || type === 'child') {
     fieldsHtml = `
@@ -318,6 +426,12 @@ function renderOptionsStep(rm, data) {
       </div>
     `;
   } else if (type === 'sibling') {
+    const targetLabel = escapeHtml(toLabel(byId.get(targetId)));
+    const sourceLabel = escapeHtml(rm.selectedSourceIds.map((id) => toLabel(byId.get(id))).join(', '));
+    const siblingParentPrompt = renderSiblingParentPrompt(rm, data);
+    const noteHtml = siblingParentPrompt
+      ? `<p class="modal-message">Siblings aren't linked as a direct edge by themselves - check the option(s) below to make the connection visible in the tree, or leave them unchecked to record this as metadata only.</p>`
+      : `<p class="modal-message">Siblings aren't linked as a direct edge in this tree, so the tree view won't change. If ${sourceLabel} and ${targetLabel} share a parent, link that parent to both of them instead for a complete tree.</p>`;
     fieldsHtml = `
       <div class="relationship-subtype-list" role="radiogroup" aria-label="Sibling type">
         ${SIBLING_SUBTYPES.map(
@@ -329,6 +443,8 @@ function renderOptionsStep(rm, data) {
         `,
         ).join('')}
       </div>
+      ${noteHtml}
+      ${siblingParentPrompt}
     `;
   }
 
@@ -351,7 +467,9 @@ function renderPreviewStep(rm, data) {
   const relationshipLabel = escapeHtml(describeRelationship(rm.builder));
   const results = rm.builder.perItemResults;
   const coParentResults = rm.builder.coParentResults || [];
-  const validCount = results.filter((r) => r.valid).length + coParentResults.filter((r) => r.valid).length;
+  const siblingParentResults = rm.builder.siblingParentResults || [];
+  const validCount =
+    results.filter((r) => r.valid).length + coParentResults.filter((r) => r.valid).length + siblingParentResults.filter((r) => r.valid).length;
 
   const inLawWarnings = findInLawWarnings(data, rm.selectedSourceIds, type);
   const warningHtml = inLawWarnings.length
@@ -404,10 +522,30 @@ function renderPreviewStep(rm, data) {
     `
     : '';
 
+  const siblingParentHtml = siblingParentResults.length
+    ? `
+      <p class="rm-builder-selection">Also link as child of the existing parent(s):</p>
+      <div class="rm-bulk-preview">
+        ${siblingParentResults
+          .map(
+            (r) => `
+          <div class="rm-bulk-preview-row ${r.valid ? '' : 'is-invalid'}">
+            <span class="rm-bulk-preview-icon">${icon(r.valid ? 'check' : 'close')}</span>
+            <span class="rm-bulk-preview-person">${escapeHtml(r.label)}</span>
+            ${r.valid ? `<span class="relationship-preview-arrow">Child of</span><span class="rm-bulk-preview-person">${escapeHtml(r.parentLabel)}</span>` : `<span class="field-error">${escapeHtml(r.reason || 'Not allowed.')}</span>`}
+          </div>
+        `,
+          )
+          .join('')}
+      </div>
+    `
+    : '';
+
   return `
     ${warningHtml}
     <div class="rm-bulk-preview">${rowsHtml}</div>
     ${coParentHtml}
+    ${siblingParentHtml}
     <div class="modal-actions row">
       <button type="button" class="btn btn-ghost" id="rm-builder-back-btn">Back</button>
       <button type="button" class="btn btn-primary" id="rm-builder-create-btn" ${validCount === 0 ? 'disabled' : ''}>
@@ -447,7 +585,7 @@ function selectTarget(state, render, targetId) {
 function commit(state, render, onDirtyChange) {
   const rm = state.relationshipManager;
   const data = state.selectedTreeData;
-  const { targetId, type, subtype, marriageDate, divorceDate, status, perItemResults, coParentId, coParentResults } = rm.builder;
+  const { targetId, type, subtype, marriageDate, divorceDate, status, perItemResults, coParentId, coParentResults, siblingParentResults } = rm.builder;
 
   const validResults = perItemResults.filter((r) => r.valid);
   validResults.forEach(({ sourceId }) => {
@@ -467,10 +605,18 @@ function commit(state, render, onDirtyChange) {
   });
   if (validCoParentResults.length) recordRecentMember(rm.recent, coParentId);
 
+  const validSiblingParentResults = (siblingParentResults || []).filter((r) => r.valid);
+  validSiblingParentResults.forEach(({ sourceId, parentId }) => {
+    const draft = { sourceId, targetId: parentId, type: 'parent' };
+    applyRelationship(data, draft);
+    pushCommand(rm.undoStack, draft);
+    recordRecentMember(rm.recent, parentId);
+  });
+
   rm.dirty = true;
 
-  const totalApplied = validResults.length + validCoParentResults.length;
-  const totalAttempted = perItemResults.length + (coParentResults || []).length;
+  const totalApplied = validResults.length + validCoParentResults.length + validSiblingParentResults.length;
+  const totalAttempted = perItemResults.length + (coParentResults || []).length + (siblingParentResults || []).length;
   const skipped = totalAttempted - totalApplied;
   showToast(
     skipped > 0
@@ -556,9 +702,16 @@ export function attachBuilderPanelListeners(state, render, onDirtyChange) {
       rm.builder.divorceDate = formData.get('divorceDate') || '';
       rm.builder.status = formData.get('status') || 'current';
       rm.builder.coParentId = formData.get('rm-coparent') || null;
+      rm.builder.linkSourceToTargetParents = formData.get('rm-sibling-link-source') === 'on';
+      rm.builder.linkTargetToSourceParents = formData.get('rm-sibling-link-target') === 'on';
       rm.builder.perItemResults = computeBulkPreview(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
       const ctx = getCoParentContext(data, rm.selectedSourceIds, rm.builder.targetId, rm.builder.type);
       rm.builder.coParentResults = rm.builder.coParentId ? computeCoParentPreview(data, ctx?.childIds || [], rm.builder.coParentId) : [];
+      const siblingCtx = getSiblingParentContext(data, rm.selectedSourceIds, rm.builder.targetId);
+      rm.builder.siblingParentResults = computeSiblingParentPreview(data, siblingCtx, {
+        linkSourceToTargetParents: rm.builder.linkSourceToTargetParents,
+        linkTargetToSourceParents: rm.builder.linkTargetToSourceParents,
+      });
       rm.builder.step = 'preview';
       render();
     });
