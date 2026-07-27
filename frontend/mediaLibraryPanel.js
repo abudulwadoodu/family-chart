@@ -61,12 +61,38 @@ export function createMediaLibraryPageState() {
   };
 }
 
-// The breadcrumb/title-row/segmented-tabs chrome around this content is
-// rendered once by main.js's renderDashboard (see renderAppHeader in
-// components.js) and shared with the Tree View/Timeline pages - this only
-// ever renders what's specific to Media Library itself.
+// The kind-filter chips + New Album/Upload buttons render inside main.js's
+// contextual sub-bar (.app-sub-bar), not inside .media-library-page itself -
+// see renderMediaLibraryPageContent's own comment below. Listeners for this
+// block are attached from `document` (not the .media-library-page root) in
+// attachMediaLibraryPageListeners, since it lives outside that container.
+export function renderMediaLibraryToolbarExtra(pageState, { readOnly }) {
+  const { kindFilter, mineOnly } = pageState;
+  return `
+    <div class="toolbar-extra">
+      ${KIND_FILTERS.map(
+        (f) =>
+          `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
+      ).join('')}
+      <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
+      ${
+        readOnly
+          ? ''
+          : `<button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>
+             <label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
+             <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
+      }
+    </div>
+  `;
+}
+
+// The breadcrumb/title-row/segmented-tabs/toolbar-extra chrome around this
+// content is rendered once by main.js's renderDashboard (see renderAppHeader
+// in components.js and renderMediaLibraryToolbarExtra above) and shared with
+// the Tree View/Timeline pages - this only ever renders what's specific to
+// Media Library's own body (albums sidebar + media grid).
 export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
-  const { kindFilter, mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
+  const { mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
   const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
 
   return `
@@ -77,29 +103,10 @@ export function renderMediaLibraryPageContent(pageState, { readOnly, currentUser
           : `
       <div class="media-library-layout">
         <div class="media-library-sidebar">
-          ${
-            readOnly
-              ? ''
-              : `<button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>`
-          }
           ${albumsSidebar(albums, activeAlbumId, readOnly)}
         </div>
 
         <div class="media-library-main">
-          <div class="media-library-filters">
-            ${KIND_FILTERS.map(
-              (f) =>
-                `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
-            ).join('')}
-            <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
-            ${
-              readOnly
-                ? ''
-                : `<label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
-                   <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
-            }
-          </div>
-
           ${
             pendingFile
               ? `<div class="media-library-pending-upload">
@@ -178,7 +185,11 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
 
   hydrateMediaSources(root, new Map(pageState.media.map((m) => [m.id, m])));
 
-  root.querySelectorAll('[data-kind]').forEach((btn) => {
+  // The kind-filter chips/My uploads toggle/New Album/Upload controls render
+  // in .toolbar-extra, inside main.js's contextual sub-bar (.app-sub-bar) -
+  // outside .media-library-page - so they're queried from `document` rather
+  // than `root`.
+  document.querySelectorAll('[data-kind]').forEach((btn) => {
     btn.addEventListener('click', () => {
       pageState.kindFilter = btn.dataset.kind;
       reloadMedia(pageState, { api, treeId }, rerender).catch((error) =>
@@ -187,7 +198,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
     });
   });
 
-  root.querySelector('#media-library-mine-toggle')?.addEventListener('click', () => {
+  document.querySelector('#media-library-mine-toggle')?.addEventListener('click', () => {
     pageState.mineOnly = !pageState.mineOnly;
     rerender();
   });
@@ -294,7 +305,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
 
   if (readOnly) return;
 
-  root.querySelector('.media-library-new-album-btn')?.addEventListener('click', async () => {
+  document.querySelector('.media-library-new-album-btn')?.addEventListener('click', async () => {
     const name = window.prompt('Album name');
     if (!name?.trim()) return;
     try {
@@ -306,7 +317,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
     }
   });
 
-  const uploadInput = root.querySelector('#media-library-upload-input');
+  const uploadInput = document.querySelector('#media-library-upload-input');
   uploadInput?.addEventListener('change', () => {
     const file = uploadInput.files?.[0];
     if (!file) return;

@@ -83,24 +83,19 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
   `;
 }
 
-export function renderMobileTopbar() {
-  return `
-    <div class="mobile-topbar">
-      <button type="button" id="sidebar-open-btn" class="icon-btn" aria-label="Open navigation">${icon('menu')}</button>
-      <span class="mobile-topbar-title">${icon('logo')} Family Chart</span>
-    </div>
-  `;
-}
-
-// Global top-right profile menu - replaces the old sidebar-foot profile
-// card. Rendered once inside .main-area (above .content), so it's present
-// above every page, not just the tree viewer. Avatar/email/theme
-// toggle/logout all live in one popover, reusing the same
+// Global top-right bar - selected tree name, notification bell, and the
+// avatar/email/theme toggle/logout popover, reusing the same
 // dropdown-menu/data-menu-trigger mechanism as every other menu in the app.
-export function renderTopbar({ email, activeTheme, hasTree }) {
+// Rendered once inside .main-area (above .content), so it's present above
+// every page, not just the tree viewer. `leftLabel` is whatever context
+// title belongs on the left - the "Family Trees" page title when on the
+// trees landing page, or the selected tree's name once inside one (see
+// main.js's renderDashboard) - null everywhere else (Security/Support/etc).
+export function renderTopbar({ email, activeTheme, hasTree, leftLabel }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
   return `
     <header class="app-topbar">
+      ${leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : ''}
       <div class="app-topbar-spacer"></div>
       ${
         hasTree
@@ -138,6 +133,15 @@ export function renderTopbar({ email, activeTheme, hasTree }) {
   `;
 }
 
+export function renderMobileTopbar() {
+  return `
+    <div class="mobile-topbar">
+      <button type="button" id="sidebar-open-btn" class="icon-btn" aria-label="Open navigation">${icon('menu')}</button>
+      <span class="mobile-topbar-title">${icon('logo')} Family Chart</span>
+    </div>
+  `;
+}
+
 export function renderPageHeader({
   title,
   subtitle,
@@ -151,7 +155,7 @@ export function renderPageHeader({
   return `
     <header class="page-header">
       <div>
-        <h1 class="page-title">${escapeHtml(title)}</h1>
+        ${title ? `<h1 class="page-title">${escapeHtml(title)}</h1>` : ''}
         <p class="page-subtitle">${escapeHtml(subtitle)}</p>
       </div>
       <div class="page-header-actions">
@@ -652,10 +656,11 @@ export function renderSkeletonGrid(count = 6) {
 // Timeline detail view) - when present, `activeTab` itself becomes a
 // clickable link (id="breadcrumb-tab-btn") back to its list view, and
 // `detailLabel` becomes the new current (non-clickable) segment.
-// Shared by renderAppHeader and the Timeline event-detail sub-view (the one
-// tree-detail view that still renders its own compact header rather than
-// going through renderAppHeader - see main.js's renderDashboard) so the
-// breadcrumb stays visually and structurally identical everywhere it appears.
+// Shared by the Relationship Finder view and the Timeline event-detail
+// sub-view (relationshipFinder.js/timelinePanel.js) - the tree-detail views
+// that render their own compact header rather than the shared
+// renderAppHeader primary bar (see main.js's renderDashboard) - so the
+// breadcrumb stays visually and structurally identical between them.
 export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -678,11 +683,14 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel =
   `;
 }
 
-// Combines the old separate Import/Export buttons, plus Relationships/
-// Duplicates (moved out of the old Tools menu), into one "Manage Data"
-// dropdown, grouped with small section labels so the three action groups
-// stay visually distinct despite sharing a trigger.
-function renderManageDataMenu({ canEdit, viewMode }) {
+// Combines the old separate Import/Export buttons, Relationships/Duplicates
+// (moved out of the old Tools menu), and the standalone header gear menu's
+// Rename/Settings/Save to Vault/Delete Tree/CSV templates (folded in once the
+// compact primary bar dropped the separate gear icon-button - see
+// renderAppHeader) into one "Manage Data" dropdown, grouped with small
+// section labels so the four action groups stay visually distinct despite
+// sharing a trigger.
+function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
   const importGroup = canEdit
     ? [
         { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
@@ -700,12 +708,25 @@ function renderManageDataMenu({ canEdit, viewMode }) {
     { action: 'relationship-manager', label: 'Relationships', icon: 'share', active: viewMode === 'relationship-manager' },
     { action: 'duplicate-manager', label: 'Duplicates', icon: 'unlink', active: viewMode === 'duplicate-manager' },
   ];
+  const treeGroup = [];
+  if (canEdit) {
+    treeGroup.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
+    treeGroup.push({ action: 'download-csv-template-blank', label: 'Download Blank CSV Template', icon: 'download' });
+    treeGroup.push({ action: 'download-csv-template-sample', label: 'Download Sample CSV Template', icon: 'download' });
+  }
+  if (isOwner) {
+    // The tree's default-focus settings panel (viewMode 'settings'), not
+    // "Tree Settings" the modal.
+    treeGroup.push({ action: 'settings', label: 'Settings', icon: 'settings', active: viewMode === 'settings' });
+    treeGroup.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
+    treeGroup.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
+  }
   const renderGroup = (label, items) => `
     <div class="dropdown-group-label">${escapeHtml(label)}</div>
     ${items
       .map(
         (item) => `
-      <button type="button" class="dropdown-item ${item.active ? 'dropdown-item-active' : ''}" data-action="${item.action}">
+      <button type="button" class="dropdown-item ${item.active ? 'dropdown-item-active' : ''} ${item.danger ? 'dropdown-item-danger' : ''}" data-action="${item.action}">
         ${icon(item.icon)}<span>${escapeHtml(item.label)}</span>
       </button>`
       )
@@ -723,6 +744,8 @@ function renderManageDataMenu({ canEdit, viewMode }) {
         ${renderGroup('Export', exportGroup)}
         <div class="dropdown-divider"></div>
         ${renderGroup('Tools', toolsGroup)}
+        ${treeGroup.length ? '<div class="dropdown-divider"></div>' : ''}
+        ${treeGroup.length ? renderGroup('Tree', treeGroup) : ''}
       </div>
     </div>
   `;
@@ -743,109 +766,112 @@ export function renderAutoSaveStatus({ canEdit }) {
   `;
 }
 
-// The single Zone-1 header shared by every tree-detail page (Tree View,
-// Media Library, Timeline) - see renderViewModeToggle for the Zone-2
-// segmented control rendered directly below it. Both zones stay structurally
-// identical no matter which page is showing (only `activeTab`/`detailLabel`
-// change, both just feeding renderTreeBreadcrumb), which is what keeps the
-// header's height and control layout from jumping when switching views -
-// callers should never build their own competing header/breadcrumb.
-// `activeTab`/`detailLabel` are passed straight through to
-// renderTreeBreadcrumb (null/null for the plain Tree View breadcrumb).
-export function renderAppHeader({ treeName, role, viewMode, activeTab = null, detailLabel = null }) {
-  const canEdit = role === 'owner' || role === 'editor';
-  const isOwner = role === 'owner';
+// Google-Docs-style Editing/Viewing dropdown for owners/editors, replacing
+// the plain role badge those two roles used to show - lets someone who
+// *can* edit deliberately browse read-only (state.treeViewOnly in main.js,
+// gated through canEditSelectedTree()) without switching accounts or losing
+// their actual role. Viewers have no edit permission to toggle away from in
+// the first place, so they keep the plain badge + "Request a change"
+// tooltip instead of a dropdown.
+function renderRoleModeControl({ role, viewOnly }) {
+  if (role !== 'owner' && role !== 'editor') {
+    return `
+      <span class="badge badge-role-${role} badge-with-tooltip" tabindex="0">
+        ${ROLE_LABELS[role] || role}
+        <span class="badge-tooltip" role="tooltip">
+          Want different access? <button type="button" id="request-role-change-btn" class="badge-tooltip-link">Request a change</button>
+        </span>
+      </span>
+    `;
+  }
+  return `
+    <div class="role-mode-wrap">
+      <button type="button" id="role-mode-btn" class="role-mode-trigger" data-menu-trigger="role-mode-menu" aria-haspopup="true">
+        ${icon(viewOnly ? 'eye' : 'pencil')}<span>${viewOnly ? 'Viewing' : 'Editing'}</span>${icon('chevronDown')}
+      </button>
+      <div class="dropdown-menu role-mode-menu" id="role-mode-menu" data-menu-id="role-mode-menu">
+        <button type="button" class="dropdown-item ${!viewOnly ? 'dropdown-item-active' : ''}" data-role-mode="edit">
+          ${icon('pencil')}<span>Editing</span>
+        </button>
+        <button type="button" class="dropdown-item ${viewOnly ? 'dropdown-item-active' : ''}" data-role-mode="view">
+          ${icon('eye')}<span>Viewing</span>
+        </button>
+      </div>
+    </div>
+  `;
+}
 
-  const settingsItems = [];
-  if (canEdit) {
-    settingsItems.push({ action: 'download-csv-template-blank', label: 'Download Blank CSV Template', icon: 'download' });
-    settingsItems.push({ action: 'download-csv-template-sample', label: 'Download Sample CSV Template', icon: 'download' });
-    settingsItems.push({ action: 'rename', label: 'Rename Tree', icon: 'pencil' });
-  }
-  if (isOwner) {
-    // Moved out of the old Tools menu - this is the tree's default-focus
-    // settings panel (viewMode 'settings'), not "Tree Settings" the modal.
-    settingsItems.push({ action: 'settings', label: 'Settings', icon: 'settings', active: viewMode === 'settings' });
-    settingsItems.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
-    settingsItems.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
-  }
+// The single compact primary bar shared by every tree-detail page (Tree
+// View, Media Library, Timeline) - see renderPrimaryTabSwitcher for the
+// centered segmented control, renderRoleModeControl for the left-side
+// role/mode indicator, and renderTreeViewSubtoggle/
+// renderMediaLibraryToolbarExtra/renderTimelineToolbarExtra for the
+// contextual sub-bar rendered directly below it (main.js). All three stay
+// structurally identical no matter which page is showing, which is what
+// keeps the bar's height from jumping when switching views - callers should
+// never build their own competing header. There's no breadcrumb or sidebar
+// toggle here - the tree name lives in the global renderTopbar instead, and
+// the sidebar's own #sidebar-collapse-btn is the only sidebar toggle. There's
+// no tree title/rename button either - Rename Tree lives in the Manage Data
+// dropdown (see renderManageDataMenu) instead of a standalone inline pencil
+// button.
+export function renderAppHeader({ role, viewMode, primaryTab = 'tree', viewOnly = false }) {
+  const isOwner = role === 'owner';
+  const canEdit = (isOwner || role === 'editor') && !viewOnly;
 
   return `
-    <header class="viewer-header">
-      ${renderTreeBreadcrumb({ treeName, activeTab, detailLabel })}
-      <div class="viewer-title-row">
-        <div class="viewer-title-group">
-          <h1 class="viewer-title">${escapeHtml(treeName)}</h1>
-          ${
-            canEdit
-              ? `<button type="button" id="rename-tree-inline-btn" class="icon-btn viewer-title-edit-btn" aria-label="Edit tree name" title="Edit tree name">${icon('pencil')}</button>`
-              : ''
-          }
-          ${
-            !isOwner
-              ? `<span class="badge badge-role-${role} badge-with-tooltip" tabindex="0">
-                   ${ROLE_LABELS[role] || role}
-                   <span class="badge-tooltip" role="tooltip">
-                     Want different access? <button type="button" id="request-role-change-btn" class="badge-tooltip-link">Request a change</button>
-                   </span>
-                 </span>`
-              : `<span class="badge badge-role-${role}">${ROLE_LABELS[role] || role}</span>`
-          }
-        </div>
-        <div class="viewer-title-actions">
-          ${renderMemberSearch()}
-          ${renderAutoSaveStatus({ canEdit })}
-          ${canEdit ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />` : ''}
-          ${renderManageDataMenu({ canEdit, viewMode })}
-          ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
-          ${
-            settingsItems.length
-              ? `<div class="tree-card-menu-wrap">
-                  <button type="button" class="icon-btn menu-trigger" data-menu-trigger="viewer-settings" aria-label="Tree settings">${icon('settings')}</button>
-                  ${dropdownMenu({ id: 'viewer-settings', items: settingsItems })}
-                </div>`
-              : ''
-          }
-        </div>
+    <header class="app-primary-bar">
+      <div class="primary-bar-left">
+        ${renderRoleModeControl({ role, viewOnly })}
+      </div>
+      <div class="primary-bar-center">
+        <div id="primary-tab-switcher">${renderPrimaryTabSwitcher({ primaryTab })}</div>
+      </div>
+      <div class="primary-bar-right">
+        ${renderMemberSearch()}
+        ${renderAutoSaveStatus({ canEdit })}
+        ${canEdit ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />` : ''}
+        ${renderManageDataMenu({ canEdit, isOwner, viewMode })}
+        ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
       </div>
     </header>
   `;
 }
 
-// Two top-level destinations - Tree View and Gallery - as a segmented
-// control; each reveals its own sub-row of children below it. `primaryTab`
-// ('tree' | 'gallery') is a pure display concern (which sub-row is showing),
-// tracked in state.treeToolbarPrimaryTab by main.js and independent of the
-// actual viewMode/dashboardView - clicking a sub-row chip is what actually
-// navigates. Relationships/Duplicates/Settings used to live here (as a
-// "Tools" menu) but moved to the Manage Data dropdown and the header's gear
-// ("more") menu respectively - see renderManageDataMenu and
-// renderAppHeader's settingsItems.
-export function renderViewModeToggle({ viewMode, primaryTab, galleryTab = 'media' }) {
-  const isTreeView = viewMode === 'focused' || viewMode === 'all-nodes';
-  const showGallery = primaryTab === 'gallery';
+// Three top-level destinations - Tree View, Media, and Events - as one
+// segmented control (Media/Events used to be a nested Gallery sub-tab, now
+// folded into direct peers of Tree View), centered in the compact primary
+// bar (see renderAppHeader). `primaryTab` ('tree' | 'media' | 'events') is a
+// pure display concern - which one reads as active - tracked in
+// state.treeToolbarPrimaryTab by main.js and independent of the actual
+// viewMode/dashboardView; clicking an option is what actually navigates.
+export function renderPrimaryTabSwitcher({ primaryTab }) {
   return `
-    <div class="view-mode-toggle">
-      <div class="segmented-control" role="tablist" aria-label="Primary views">
-        <button type="button" id="primary-tab-tree-btn" class="segmented-option ${!showGallery ? 'segmented-option-active' : ''}" role="tab" aria-selected="${!showGallery}">
-          Tree View
-        </button>
-        <button type="button" id="primary-tab-gallery-btn" class="segmented-option ${showGallery ? 'segmented-option-active' : ''}" role="tab" aria-selected="${showGallery}">
-          Gallery
-        </button>
-      </div>
-      ${
-        showGallery
-          ? `<div class="tree-view-subtoggle" role="group" aria-label="Gallery">
-               <button type="button" id="gallery-media-btn" class="chip chip-sm ${galleryTab === 'media' ? 'chip-active' : ''}" title="Photos, videos, and documents for this tree">Media</button>
-               <button type="button" id="gallery-events-btn" class="chip chip-sm ${galleryTab === 'events' ? 'chip-active' : ''}" title="Events for this tree">Events</button>
-             </div>`
-          : `<div class="tree-view-subtoggle" role="group" aria-label="Tree View">
-               <button type="button" id="focused-mode-btn" class="chip chip-sm ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
-               <button type="button" id="all-nodes-mode-btn" class="chip chip-sm ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
-               <button type="button" id="relationship-finder-btn" class="chip chip-sm" title="Find how two people in this tree are related">Relationship Finder</button>
-             </div>`
-      }
+    <div class="segmented-control" role="tablist" aria-label="Primary views">
+      <button type="button" id="primary-tab-tree-btn" class="segmented-option ${primaryTab === 'tree' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'tree'}">
+        Tree View
+      </button>
+      <button type="button" id="primary-tab-media-btn" class="segmented-option ${primaryTab === 'media' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'media'}">
+        Media
+      </button>
+      <button type="button" id="primary-tab-events-btn" class="segmented-option ${primaryTab === 'events' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'events'}">
+        Events
+      </button>
+    </div>
+  `;
+}
+
+// Tree View's own Focused/All Nodes/Relationship Finder choice, one rung
+// below the primary tab switcher - rendered as the contextual sub-bar's
+// content when primaryTab === 'tree' (a peer of renderMediaLibraryToolbarExtra/
+// renderTimelineToolbarExtra, which fill the same sub-bar slot for the other
+// two tabs - see .app-sub-bar in main.js).
+export function renderTreeViewSubtoggle({ viewMode }) {
+  return `
+    <div class="tree-view-subtoggle" role="group" aria-label="Tree View">
+      <button type="button" id="focused-mode-btn" class="chip chip-sm ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
+      <button type="button" id="all-nodes-mode-btn" class="chip chip-sm ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
+      <button type="button" id="relationship-finder-btn" class="chip chip-sm" title="Find how two people in this tree are related">Relationship Finder</button>
     </div>
   `;
 }

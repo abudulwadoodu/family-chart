@@ -461,12 +461,32 @@ function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttac
   return modal;
 }
 
-// The breadcrumb/title-row/segmented-tabs chrome above this is rendered once
-// by main.js's renderDashboard (see renderAppHeader in components.js) and
-// shared with the Tree View/Media Library pages - this only ever renders
-// what's specific to the Timeline list itself. The event-detail sub-view
-// (eventDetail/eventStubDetail below) is the one exception that still draws
-// its own header - see isTimelineDetailView in main.js.
+// The All/My events chips + Create Event button render inside main.js's
+// contextual sub-bar (.app-sub-bar), not inside .timeline-page itself - see
+// listBody's own comment below. Listeners for this block are attached from
+// `document` (not the .timeline-page root) in attachTimelinePageListeners,
+// since it lives outside that container.
+export function renderTimelineToolbarExtra(pageState, { readOnly }) {
+  return `
+    <div class="toolbar-extra">
+      <button type="button" class="chip ${!pageState.mineOnly ? 'chip-active' : ''}" id="timeline-all-toggle">All events</button>
+      <button type="button" class="chip ${pageState.mineOnly ? 'chip-active' : ''}" id="timeline-mine-toggle">My events</button>
+      ${
+        readOnly
+          ? ''
+          : `<button type="button" class="btn btn-primary" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>`
+      }
+    </div>
+  `;
+}
+
+// The breadcrumb/title-row/segmented-tabs/toolbar-extra chrome above this is
+// rendered once by main.js's renderDashboard (see renderAppHeader in
+// components.js and renderTimelineToolbarExtra above) and shared with the
+// Tree View/Media Library pages - this only ever renders what's specific to
+// the Timeline list's own body (the event list itself). The event-detail
+// sub-view (eventDetail/eventStubDetail below) is the one exception that
+// still draws its own header - see isTimelineDetailView in main.js.
 function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
   const events = pageState.mineOnly ? pageState.events.filter((ev) => ev.created_by === currentUserId) : pageState.events;
   const groups = groupByYear(events);
@@ -475,15 +495,6 @@ function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
       !pageState.loaded
         ? '<p class="muted">Loading&hellip;</p>'
         : `
-    <div class="media-library-filters">
-      <button type="button" class="chip ${!pageState.mineOnly ? 'chip-active' : ''}" id="timeline-all-toggle">All events</button>
-      <button type="button" class="chip ${pageState.mineOnly ? 'chip-active' : ''}" id="timeline-mine-toggle">My events</button>
-      ${
-        readOnly
-          ? ''
-          : `<button type="button" class="btn btn-primary media-library-upload-label" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>`
-      }
-    </div>
     ${readOnly || !pageState.creating ? '' : eventForm(pageState)}
     ${
       groups.length
@@ -954,12 +965,15 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
     row.addEventListener('click', () => openDetail(pageState, { api, treeId, currentUserId }, Number(row.dataset.eventId), rerender));
   });
 
-  root.querySelector('#timeline-all-toggle')?.addEventListener('click', () => {
+  // All/My events + Create Event render in .toolbar-extra, inside main.js's
+  // contextual sub-bar (.app-sub-bar) - outside .timeline-page - so they're
+  // queried from `document` rather than `root`.
+  document.querySelector('#timeline-all-toggle')?.addEventListener('click', () => {
     pageState.mineOnly = false;
     rerender();
   });
 
-  root.querySelector('#timeline-mine-toggle')?.addEventListener('click', () => {
+  document.querySelector('#timeline-mine-toggle')?.addEventListener('click', () => {
     pageState.mineOnly = true;
     rerender();
   });
@@ -968,7 +982,7 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
 
   attachVisibilityPickerListeners(root, pageState.newEventVisibility, rerender);
 
-  root.querySelector('#timeline-new-event-btn')?.addEventListener('click', () => {
+  document.querySelector('#timeline-new-event-btn')?.addEventListener('click', () => {
     pageState.creating = true;
     pageState.newEventVisibility = createVisibilityPickerState();
     rerender();

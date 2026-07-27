@@ -124,8 +124,9 @@ export const icons = {
   cake: svg(
     '<path d="M4 20.5h16"></path><path d="M5 20.5v-6a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v6"></path><path d="M5 16.5c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0"></path><path d="M12 13V9"></path><path d="M12 9c-1 0-1.5-.6-1.5-1.3S11 6 12 4.5c1 1.5 1.5 2.4 1.5 3.2S13 9 12 9Z"></path>'
   ),
-  // Family Feed's notification-bell trigger in the top bar (see renderTopbar
-  // in components.js) - replaces the old "Family Feed" toolbar chip.
+  // Family Feed's notification-bell trigger in the sidebar foot (see
+  // renderSidebarNav in components.js) - replaces the old "Family Feed"
+  // toolbar chip.
   bell: svg(
     '<path d="M6 10.5a6 6 0 0 1 12 0v3.5l1.5 3H4.5l1.5-3v-3.5Z"></path><path d="M10 19.5a2 2 0 0 0 4 0"></path>'
   ),

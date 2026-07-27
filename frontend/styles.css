@@ -1348,13 +1348,28 @@ button.secondary:active,
 .app-topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   height: 56px;
   flex-shrink: 0;
   padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-surface);
+}
+
+.app-topbar-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+/* Pushes the bell/profile cluster to the right while .app-topbar-title (if
+   present) stays pinned left - see renderTopbar in components.js. */
+.app-topbar-spacer {
+  flex: 1;
 }
 
 .profile-menu-wrap {
@@ -2359,13 +2374,6 @@ button.secondary:active,
 /* Tree viewer                                                        */
 /* ------------------------------------------------------------------ */
 
-.viewer-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-}
-
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -2394,66 +2402,47 @@ button.secondary:active,
   color: var(--text-secondary);
 }
 
-.viewer-title-row {
-  display: flex;
+/* Compact primary bar: role badge on the left, the segmented view switcher
+   truly centered (grid, not flex space-between, so the center group stays
+   centered regardless of how wide the left/right groups are), and
+   search/save/actions on the right - one fixed-height row that can't jump
+   when switching between Tree View/Media/Events (same left-group shape on
+   all three). */
+.app-primary-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-4);
-  flex-wrap: wrap;
+  min-height: 52px;
+  margin-bottom: var(--sp-3);
 }
 
-.viewer-title-group {
+.primary-bar-left {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   min-width: 0;
 }
 
-.viewer-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.viewer-title-edit-btn {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-}
-
-.viewer-title-edit-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* Row 2, right side: search + the global action buttons (Save/Import/
-   Export/Share/Settings), in that visual order so search sits closest to
-   the title/actions boundary. */
-.viewer-title-actions {
+.primary-bar-center {
   display: flex;
   align-items: center;
+  justify-content: center;
+}
+
+/* Search + the global action buttons (Save status/Manage Data/Share), in
+   that visual order so search sits closest to the center group. */
+.primary-bar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
-/* The "more" (settings) icon button sits next to the Save/Import/Export/Share
-   buttons in this row - give it the same resting background/border as those
-   .btn-secondary buttons instead of the plain transparent .icon-btn look. */
-.viewer-title-actions .icon-btn {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.viewer-title-actions .icon-btn:hover {
-  background: var(--bg-surface-hover-strong);
-}
-
 /* Non-owner role badge: the "Request Different Access" action moves behind
    a hover/focus tooltip anchored to the badge instead of sitting inline as
-   its own button, so Row 2's left side stays to just title + edit + badge. */
+   its own button, so the left group stays to just the badge. */
 .badge-with-tooltip {
   position: relative;
   cursor: default;
@@ -2505,6 +2494,41 @@ button.secondary:active,
   white-space: nowrap;
 }
 
+/* Google-Docs-style Editing/Viewing dropdown that replaces the plain role
+   badge for owners/editors (see renderRoleModeControl in components.js) -
+   viewers keep the plain .badge-with-tooltip above instead, since they have
+   no edit permission to toggle away from. */
+.role-mode-wrap {
+  position: relative;
+}
+
+.role-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.role-mode-trigger:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.role-mode-trigger .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.role-mode-menu {
+  min-width: 160px;
+}
+
 .badge-tooltip-link:hover {
   color: var(--accent-hover);
   background: none;
@@ -2512,21 +2536,37 @@ button.secondary:active,
 }
 
 /* Deliberately short (fits in ~40px) - every pixel here is a pixel not
-   available to the chart canvas below it. */
-.tree-toolbar-row {
+   available to the chart canvas below it. Contextual sub-bar shown below the
+   primary bar: Tree View's Focused/All Nodes/Relationship Finder sub-toggle,
+   or - on Media/Events - .toolbar-extra (filter pills + primary action
+   buttons, owned by mediaLibraryPanel.js/timelinePanel.js). Only one of
+   these renders at a time, matching whichever primary tab is active - see
+   renderTreeViewSubtoggle/renderMediaLibraryToolbarExtra/
+   renderTimelineToolbarExtra. */
+.app-sub-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
   padding: var(--sp-2) 0;
   margin-bottom: var(--sp-3);
   min-height: 0;
 }
 
-.view-mode-toggle {
+/* Media's kind-filter chips/My uploads/New Album/Upload, and Events'
+   All/My events/Create Event - pills cluster left, primary action
+   button(s) pinned far right via margin-left:auto on the last button. */
+.toolbar-extra {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
   flex-wrap: wrap;
   width: 100%;
+}
+
+.toolbar-extra .media-library-new-album-btn,
+.toolbar-extra #timeline-new-event-btn {
+  margin-left: auto;
 }
 
 /* Primary views (Tree View/Timeline/Media/Feed) as one pill-shaped segmented
@@ -2855,11 +2895,10 @@ button.secondary:active,
   position: relative;
 }
 
-/* Static px budget for everything above the canvas (app-topbar + viewer
-   header + compact toolbar row + .content padding) - re-tuned down from
-   280px after compacting the toolbar row into a single segmented-control
-   line, but still an estimate rather than a measured value, so nudge this
-   if the canvas ends up too short/tall against real chrome height. */
+/* Static px budget for everything above the canvas (.app-topbar + primary
+   bar + sub-bar + .content padding), but still an estimate rather than a
+   measured value, so nudge this if the canvas ends up too short/tall
+   against real chrome height. */
 .chart-container {
   height: calc(100vh - 260px);
   min-height: 420px;
@@ -2871,7 +2910,7 @@ button.secondary:active,
 }
 
 /* Reset View / Maximize, floating over the canvas like a map's zoom widget -
-   out of the Row 3 tab strip (which is data/view tabs only now) but still
+   out of the Row 2 tab strip (which is data/view tabs only now) but still
    reachable right next to the content they act on. */
 .canvas-floating-controls {
   position: absolute;
@@ -3916,7 +3955,7 @@ body.focus-mode-active .sidebar-overlay,
 body.focus-mode-active .mobile-topbar,
 body.focus-mode-active .app-topbar,
 body.focus-mode-active .app-footer,
-body.focus-mode-active .viewer-header,
+body.focus-mode-active .app-primary-bar,
 body.focus-mode-active .content > *:not(.tree-focus-target) {
   display: none !important;
 }
@@ -3944,20 +3983,20 @@ body.focus-mode-active .focus-mode-target {
   gap: 0;
 }
 
-/* Row 3 (view/data tabs) makes no sense once the tree is maximized, and
+/* The contextual sub-bar makes no sense once the tree is maximized, and
    Maximize itself is redundant once already maximized - both hidden while
    active. Reset View has its own entry in the dedicated Focus Mode toolbar
    instead (see setupFocusMode() in main.js), so it isn't lost. */
-body.focus-mode-active .focus-mode-target .tree-toolbar-row,
+body.focus-mode-active .focus-mode-target .app-sub-bar,
 body.focus-mode-active .focus-mode-target .canvas-floating-controls {
   display: none;
 }
 
-/* Search Person lives in Row 2 (.viewer-header) normally, which Focus Mode
-   hides entirely - so relocateMemberSearchForFocusMode() (main.js) moves the
-   #member-search node into #tree-focus-target for the duration, and this
-   floats it top-left the same way it used to when it lived in the toolbar
-   row. Moved back out on exit. */
+/* Search Person lives in the primary bar (.app-primary-bar) normally, which
+   Focus Mode hides entirely - so relocateMemberSearchForFocusMode() (main.js)
+   moves the #member-search node into #tree-focus-target for the duration,
+   and this floats it top-left the same way it used to when it lived in the
+   toolbar row. Moved back out on exit. */
 body.focus-mode-active .focus-mode-target .member-search {
   position: fixed;
   top: var(--sp-5);
@@ -5062,22 +5101,26 @@ dialog.modal-overlay[open] {
     grid-template-columns: 1fr;
   }
 
-  .viewer-title-row {
-    flex-direction: column;
-    align-items: stretch;
+  .app-primary-bar {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
   }
 
-  .viewer-title-actions {
+  .primary-bar-center {
+    justify-content: flex-start;
+  }
+
+  .primary-bar-right {
     width: 100%;
   }
 
-  .viewer-title-actions .member-search {
+  .primary-bar-right .member-search {
     order: -1;
     max-width: none;
     flex-basis: 100%;
   }
 
-  .viewer-title-actions .btn span {
+  .primary-bar-right .btn span {
     display: none;
   }
 
@@ -7388,11 +7431,6 @@ button.admin-stat-card {
   gap: var(--sp-2);
 }
 
-.media-library-new-album-btn {
-  width: 100%;
-  justify-content: center;
-}
-
 .media-library-albums {
   list-style: none;
   margin: 0;
@@ -7441,14 +7479,6 @@ button.admin-stat-card {
 .media-library-album-row.active {
   background: var(--accent-soft);
   color: var(--accent-on-soft);
-}
-
-.media-library-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-3);
 }
 
 .media-library-upload-label {
@@ -7514,7 +7544,7 @@ button.admin-stat-card {
 
 /* Event detail header row: breadcrumb on the left, Delete Event pinned top
    right - same placement as the list view's "+ Create Event" button (see
-   .media-library-filters), rather than the old bottom-of-page danger button. */
+   .toolbar-extra), rather than the old bottom-of-page danger button. */
 .timeline-detail-header {
   display: flex;
   align-items: flex-start;
