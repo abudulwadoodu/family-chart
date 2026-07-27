@@ -6,7 +6,6 @@
 import { showToast, showConfirmDialog } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
-import { renderTreeBreadcrumb } from './components.js';
 import * as mediaApi from './mediaApi.js';
 import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
@@ -62,18 +61,16 @@ export function createMediaLibraryPageState() {
   };
 }
 
-export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId, treeName }) {
+// The breadcrumb/title-row/segmented-tabs chrome around this content is
+// rendered once by main.js's renderDashboard (see renderAppHeader in
+// components.js) and shared with the Tree View/Timeline pages - this only
+// ever renders what's specific to Media Library itself.
+export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
   const { kindFilter, mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
   const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
 
   return `
     <div class="media-library-page">
-      ${renderTreeBreadcrumb({ treeName, activeTab: 'Media Library' })}
-      <header class="page-header">
-        <h1 class="page-title">Media Library</h1>
-        <p class="page-subtitle">Photos, videos, and documents for this tree</p>
-      </header>
-
       ${
         !loaded
           ? '<p class="muted">Loading&hellip;</p>'
@@ -169,19 +166,17 @@ async function reloadMedia(pageState, { api, treeId }, rerender) {
   rerender();
 }
 
-// `onBack` navigates back to the tree viewer (breadcrumb tree-name link);
-// `onExitTree` navigates all the way out to the My Trees list (breadcrumb
-// "My Trees" link). `rerender` re-invokes the page's own render (main.js's
-// render()), which calls renderMediaLibraryPageContent again with the same
-// pageState and then re-runs this attach function.
-export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
+// The shared header's breadcrumb/nav (main.js's attachTreeViewerHeaderListeners)
+// is wired separately and covers "My Trees"/tree-name navigation - this only
+// wires what's specific to Media Library itself. `rerender` re-invokes the
+// page's own render (main.js's render()), which calls
+// renderMediaLibraryPageContent again with the same pageState and then
+// re-runs this attach function.
+export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender) {
   const root = document.querySelector('.media-library-page');
   if (!root) return;
 
   hydrateMediaSources(root, new Map(pageState.media.map((m) => [m.id, m])));
-
-  root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
-  root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
 
   root.querySelectorAll('[data-kind]').forEach((btn) => {
     btn.addEventListener('click', () => {

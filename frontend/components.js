@@ -652,9 +652,10 @@ export function renderSkeletonGrid(count = 6) {
 // Timeline detail view) - when present, `activeTab` itself becomes a
 // clickable link (id="breadcrumb-tab-btn") back to its list view, and
 // `detailLabel` becomes the new current (non-clickable) segment.
-// Shared by renderTreeViewerHeader and the standalone Media Library/Timeline
-// page headers so the breadcrumb stays visually and structurally identical
-// across all tree-detail views.
+// Shared by renderAppHeader and the Timeline event-detail sub-view (the one
+// tree-detail view that still renders its own compact header rather than
+// going through renderAppHeader - see main.js's renderDashboard) so the
+// breadcrumb stays visually and structurally identical everywhere it appears.
 export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -742,7 +743,16 @@ export function renderAutoSaveStatus({ canEdit }) {
   `;
 }
 
-export function renderTreeViewerHeader({ treeName, role, viewMode }) {
+// The single Zone-1 header shared by every tree-detail page (Tree View,
+// Media Library, Timeline) - see renderViewModeToggle for the Zone-2
+// segmented control rendered directly below it. Both zones stay structurally
+// identical no matter which page is showing (only `activeTab`/`detailLabel`
+// change, both just feeding renderTreeBreadcrumb), which is what keeps the
+// header's height and control layout from jumping when switching views -
+// callers should never build their own competing header/breadcrumb.
+// `activeTab`/`detailLabel` are passed straight through to
+// renderTreeBreadcrumb (null/null for the plain Tree View breadcrumb).
+export function renderAppHeader({ treeName, role, viewMode, activeTab = null, detailLabel = null }) {
   const canEdit = role === 'owner' || role === 'editor';
   const isOwner = role === 'owner';
 
@@ -762,7 +772,7 @@ export function renderTreeViewerHeader({ treeName, role, viewMode }) {
 
   return `
     <header class="viewer-header">
-      ${renderTreeBreadcrumb({ treeName })}
+      ${renderTreeBreadcrumb({ treeName, activeTab, detailLabel })}
       <div class="viewer-title-row">
         <div class="viewer-title-group">
           <h1 class="viewer-title">${escapeHtml(treeName)}</h1>
@@ -810,8 +820,8 @@ export function renderTreeViewerHeader({ treeName, role, viewMode }) {
 // navigates. Relationships/Duplicates/Settings used to live here (as a
 // "Tools" menu) but moved to the Manage Data dropdown and the header's gear
 // ("more") menu respectively - see renderManageDataMenu and
-// renderTreeViewerHeader's settingsItems.
-export function renderViewModeToggle({ viewMode, primaryTab }) {
+// renderAppHeader's settingsItems.
+export function renderViewModeToggle({ viewMode, primaryTab, galleryTab = 'media' }) {
   const isTreeView = viewMode === 'focused' || viewMode === 'all-nodes';
   const showGallery = primaryTab === 'gallery';
   return `
@@ -827,8 +837,8 @@ export function renderViewModeToggle({ viewMode, primaryTab }) {
       ${
         showGallery
           ? `<div class="tree-view-subtoggle" role="group" aria-label="Gallery">
-               <button type="button" id="gallery-media-btn" class="chip chip-sm" title="Photos, videos, and documents for this tree">Media</button>
-               <button type="button" id="gallery-events-btn" class="chip chip-sm" title="Events for this tree">Events</button>
+               <button type="button" id="gallery-media-btn" class="chip chip-sm ${galleryTab === 'media' ? 'chip-active' : ''}" title="Photos, videos, and documents for this tree">Media</button>
+               <button type="button" id="gallery-events-btn" class="chip chip-sm ${galleryTab === 'events' ? 'chip-active' : ''}" title="Events for this tree">Events</button>
              </div>`
           : `<div class="tree-view-subtoggle" role="group" aria-label="Tree View">
                <button type="button" id="focused-mode-btn" class="chip chip-sm ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>

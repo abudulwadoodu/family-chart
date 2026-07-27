@@ -7376,10 +7376,6 @@ button.admin-stat-card {
   width: 100%;
 }
 
-.media-library-page .breadcrumb {
-  margin-bottom: var(--sp-4);
-}
-
 .media-library-layout {
   display: grid;
   grid-template-columns: 200px 1fr;

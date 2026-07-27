@@ -461,15 +461,16 @@ function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttac
   return modal;
 }
 
-function listBody(pageState, { memberIndex, readOnly, currentUserId, treeName }) {
+// The breadcrumb/title-row/segmented-tabs chrome above this is rendered once
+// by main.js's renderDashboard (see renderAppHeader in components.js) and
+// shared with the Tree View/Media Library pages - this only ever renders
+// what's specific to the Timeline list itself. The event-detail sub-view
+// (eventDetail/eventStubDetail below) is the one exception that still draws
+// its own header - see isTimelineDetailView in main.js.
+function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
   const events = pageState.mineOnly ? pageState.events.filter((ev) => ev.created_by === currentUserId) : pageState.events;
   const groups = groupByYear(events);
   return `
-    ${renderTreeBreadcrumb({ treeName, activeTab: 'Timeline' })}
-    <header class="page-header">
-      <h1 class="page-title">Timeline</h1>
-      <p class="page-subtitle">Events for this tree</p>
-    </header>
     ${
       !pageState.loaded
         ? '<p class="muted">Loading&hellip;</p>'
@@ -558,7 +559,7 @@ export function renderTimelinePageContent(pageState, { memberIndex, memberById, 
         currentUserId,
         treeName,
       })
-    : listBody(pageState, { memberIndex, readOnly, currentUserId, treeName });
+    : listBody(pageState, { memberIndex, readOnly, currentUserId });
   return `
     <div class="timeline-page">
       ${isDetail ? `<div class="timeline-detail-wrap">${body}</div>` : body}
@@ -946,9 +947,9 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
     return;
   }
 
-  root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
-  root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
-
+  // The list view's breadcrumb/nav now lives in the shared header (main.js's
+  // attachTreeViewerHeaderListeners) instead of inside .timeline-page - only
+  // the event-detail sub-view above still renders its own.
   root.querySelectorAll('.timeline-event-row').forEach((row) => {
     row.addEventListener('click', () => openDetail(pageState, { api, treeId, currentUserId }, Number(row.dataset.eventId), rerender));
   });
