@@ -1509,10 +1509,11 @@ button.secondary:active,
 /* Section tabs                                                       */
 /*                                                                      */
 /* Underline tab row switching between the sibling views merged under   */
-/* one sidebar nav item (Requests: My Requests/Pending Requests;        */
-/* Support: Contact Us/My Support Tickets). Deliberately lighter than   */
-/* .auth-method-tabs' filled segmented pill - it sits above a page's    */
-/* own header/content rather than replacing a single form's mode.       */
+/* one sidebar nav item (Requests: My Requests/Pending Requests/My      */
+/* Claims/Manage Claims; Support: Contact Us/My Support Tickets).       */
+/* Deliberately lighter than .auth-method-tabs' filled segmented pill - */
+/* it sits above a page's own header/content rather than replacing a    */
+/* single form's mode.                                                  */
 /* ------------------------------------------------------------------ */
 
 .section-tabs {
@@ -1520,6 +1521,17 @@ button.secondary:active,
   gap: var(--sp-5);
   margin-bottom: var(--sp-6);
   border-bottom: 1px solid var(--border-subtle);
+  /* Requests now folds in 4 tabs (My/Pending Requests, My/Manage Claims) -
+     scroll horizontally rather than wrap/overflow on narrow viewports,
+     matching .trees-tabs' treatment below. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.section-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .section-tab {
@@ -1535,6 +1547,8 @@ button.secondary:active,
   color: var(--text-tertiary);
   font-weight: 600;
   font-size: 0.9rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .section-tab .icon {
@@ -7850,6 +7864,52 @@ button.admin-stat-card {
   padding: var(--sp-1);
   transform-origin: top right;
   transform: none !important;
+}
+
+/* Marks the card matching the logged-in user's own approved claim (see
+   markMyNodeCard in main.js) - selectedTreeMemberId is only ever populated
+   once a claim is approved, so this never lights up for a pending one.
+   Ring on .card-inner (not .card) so it hugs the actual visible shape,
+   whether that's the rectangle or circle avatar card style. The "You" badge
+   sits top-left, opposite the drilldown/more icons' top-right corner, so
+   the two don't normally overlap - but on narrow cards the "more" menu's
+   min-width can still overhang into that corner, so this deliberately has
+   no z-index of its own: markMyNodeCard appends it to `.card` before the
+   drilldown/more icons, so plain DOM-order stacking already paints it below
+   them. An explicit z-index here previously outranked the popover menu
+   whenever hovering the card gave the icon wrapper its own stacking context
+   (via the hover transform on .f3-svg-circle-hover, below) - that trapped
+   the menu's z-index:40 inside the wrapper's local context, letting this
+   badge's z-index float above the whole icon+menu unit and cover part of
+   the open menu. */
+.f3 div.card.f3-card-mine .card-inner {
+  box-shadow: 0 0 0 3px var(--accent-soft-strong), 0 0 0 1.5px var(--accent);
+}
+
+.f3-card-you-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.f3-card-you-badge svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* Compact rows: tighter padding/font and a smaller icon-text gap than the

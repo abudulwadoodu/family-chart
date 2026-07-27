@@ -100,6 +100,8 @@ import {
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
   renderMyRequestsPageMarkup,
+  renderManageClaimsPageMarkup,
+  renderMyClaimsPageMarkup,
   renderSectionTabs,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
@@ -305,6 +307,20 @@ const state = {
     loading: false,
     loaded: false,
     requests: [],
+  },
+  // "Manage Claims" dashboard view (incoming "this is me" member claims for
+  // trees this user owns) - same shape as pendingRequests, but for identity
+  // claims rather than access requests.
+  manageClaims: {
+    loading: false,
+    loaded: false,
+    claims: [],
+  },
+  // "My Claims" dashboard view (member claims this user has proposed, any status).
+  myClaims: {
+    loading: false,
+    loaded: false,
+    claims: [],
   },
   // "Trees you may belong to" - discovery matches by email, shown on the
   // tree-list landing page. Recomputed every time loadDiscoveryMatches() runs
@@ -1430,6 +1446,98 @@ async function loadMyRequests() {
   }
 }
 
+function renderManageClaimsPageContent() {
+  return renderManageClaimsPageMarkup({ ...state.manageClaims });
+}
+
+async function loadManageClaims() {
+  if (state.manageClaims.loading) return;
+  state.manageClaims.loading = true;
+  render();
+  try {
+    const { claims } = await api('/api/trees/manage-claims');
+    state.manageClaims.claims = claims;
+  } catch (error) {
+    showToast(error.message || 'Could not load pending claims.', { type: 'error' });
+  } finally {
+    state.manageClaims.loading = false;
+    state.manageClaims.loaded = true;
+    render();
+  }
+}
+
+function attachManageClaimsListeners() {
+  document.querySelectorAll('.pending-claim-approve-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideClaim(Number(btn.dataset.claimId), 'approved'));
+  });
+  document.querySelectorAll('.pending-claim-reject-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideClaim(Number(btn.dataset.claimId), 'rejected'));
+  });
+}
+
+async function handleDecideClaim(claimId, status) {
+  try {
+    await api(`/api/trees/claims/${claimId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.manageClaims.claims = state.manageClaims.claims.filter((c) => c.id !== claimId);
+    render();
+    showToast(status === 'approved' ? 'Claim approved.' : 'Claim rejected.');
+  } catch (error) {
+    showToast(error.message || 'Could not update the claim.', { type: 'error' });
+  }
+}
+
+function renderMyClaimsPageContent() {
+  return renderMyClaimsPageMarkup({ ...state.myClaims });
+}
+
+async function loadMyClaims() {
+  if (state.myClaims.loading) return;
+  state.myClaims.loading = true;
+  render();
+  try {
+    const { claims } = await api('/api/trees/my-claims');
+    state.myClaims.claims = claims;
+  } catch (error) {
+    showToast(error.message || 'Could not load your claims.', { type: 'error' });
+  } finally {
+    state.myClaims.loading = false;
+    state.myClaims.loaded = true;
+    render();
+  }
+}
+
+// A tree member proposes "this person is me" from the tree view's per-card
+// menu (see openCardMoreMenu). Always lands 'pending' - the tree's owner
+// must approve it via Manage Claims. Refreshes the current tree's
+// memberId/claimStatus immediately so the card menu reflects the new
+// pending state without a full reload, and marks myClaims stale so it
+// refetches next visit.
+async function handleClaimMember(memberId) {
+  const treeId = state.selectedTreeId;
+  if (!treeId || !memberId) return;
+  try {
+    await api(`/api/trees/${treeId}/claims`, { method: 'POST', body: JSON.stringify({ member_id: memberId }) });
+    state.selectedTreeClaimStatus = 'pending';
+    state.myClaims.loaded = false;
+    render();
+    showToast('Claim sent. The tree owner needs to approve it.');
+  } catch (error) {
+    showToast(error.message || 'Could not send that claim.', { type: 'error' });
+  }
+}
+
+// Gates handleClaimMember behind a confirmation, since claiming an identity
+// sends a request the tree owner has to act on and isn't something to
+// trigger on a stray click.
+function confirmClaimMember(memberId) {
+  showConfirmDialog({
+    title: 'Link this member to my profile',
+    message: 'This will send a request to the tree owner to link this family member to your account as you. Continue?',
+    confirmLabel: 'Send request',
+    onConfirm: () => handleClaimMember(memberId),
+  });
+}
+
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
@@ -1452,6 +1560,25 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     state.dashboardView === 'myRequests';
+  const isManageClaimsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    state.dashboardView === 'manageClaims';
+  const isMyClaimsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    !isManageClaimsView &&
+    state.dashboardView === 'myClaims';
   const isAdminView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1460,6 +1587,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     state.dashboardView === 'admin';
   const isMediaLibraryView =
     !isSecurityView &&
@@ -1469,6 +1598,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     state.dashboardView === 'mediaLibrary' &&
     Boolean(state.selectedTreeId);
@@ -1480,6 +1611,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
@@ -1492,6 +1625,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
@@ -1505,25 +1640,38 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
     !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
-  // "Requests" and "Support" are each a single sidebar nav item covering two
-  // sibling views - render the underline tab row above whichever one is
-  // active so the other stays reachable. ticketDetail is a drill-in from My
-  // Support Tickets (it has its own back-link), so it doesn't get tabs.
-  const isRequestsSection = isPendingRequestsView || isMyRequestsView;
+  // "Requests" and "Support" are each a single sidebar nav item covering
+  // several sibling views - render the underline tab row above whichever one
+  // is active so the others stay reachable. Claims (My Claims/Manage Claims)
+  // live under the Requests nav item too, alongside join requests, since
+  // both are "asking the tree owner for something" flows. ticketDetail is a
+  // drill-in from My Support Tickets (it has its own back-link), so it
+  // doesn't get tabs.
+  const isRequestsSection = isPendingRequestsView || isMyRequestsView || isManageClaimsView || isMyClaimsView;
   const isSupportSection = isContactView || isMyTicketsView;
   const sectionTabs = isRequestsSection
     ? renderSectionTabs({
         idPrefix: 'requests-tab',
-        activeId: isPendingRequestsView ? 'pendingRequests' : 'myRequests',
+        activeId: isPendingRequestsView
+          ? 'pendingRequests'
+          : isManageClaimsView
+            ? 'manageClaims'
+            : isMyClaimsView
+              ? 'myClaims'
+              : 'myRequests',
         tabs: [
           { id: 'myRequests', label: 'My Requests', icon: 'list' },
           { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
+          { id: 'myClaims', label: 'My Claims', icon: 'list' },
+          { id: 'manageClaims', label: 'Manage Claims', icon: 'mail' },
         ],
       })
     : isSupportSection
@@ -1559,7 +1707,11 @@ function renderDashboard() {
                         ? renderPendingRequestsPageContent()
                         : isMyRequestsView
                           ? renderMyRequestsPageContent()
-                          : isAdminView
+                          : isManageClaimsView
+                            ? renderManageClaimsPageContent()
+                            : isMyClaimsView
+                              ? renderMyClaimsPageContent()
+                              : isAdminView
                             ? renderAdminPageContent()
                             : isMediaLibraryView
                               ? renderMediaLibraryPageContent(state.mediaLibrary, {
@@ -1628,6 +1780,17 @@ function renderDashboard() {
 
   if (isMyRequestsView) {
     if (!state.myRequests.loaded) loadMyRequests();
+    return;
+  }
+
+  if (isManageClaimsView) {
+    attachManageClaimsListeners();
+    if (!state.manageClaims.loaded) loadManageClaims();
+    return;
+  }
+
+  if (isMyClaimsView) {
+    if (!state.myClaims.loaded) loadMyClaims();
     return;
   }
 
@@ -3706,6 +3869,27 @@ function closeCardMoreMenu() {
   document.querySelectorAll('.f3-card-more-menu').forEach((m) => m.remove());
 }
 
+// Highlights the card matching the logged-in user's own linked identity - a
+// ring around the card plus a small "You" badge - so they can spot
+// themselves at a glance in a large tree. selectedTreeMemberId is only ever
+// populated once a claim is approved (tree_permissions.member_id stays null
+// while pending - see memberClaimModel.js's decideClaim), so this never
+// fires for a claim that's still awaiting the owner's decision. Safe to call
+// on every card update: CardHtml rebuilds each card's innerHTML from scratch
+// per render (see src/renderers/card-html.ts), so there's no stale badge to
+// clean up first.
+function markMyNodeCard(cardEl, d) {
+  const isMine = !!state.selectedTreeMemberId && d.data.id === state.selectedTreeMemberId;
+  cardEl.classList.toggle('f3-card-mine', isMine);
+  if (!isMine) return;
+  d3.select(cardEl)
+    .append('div')
+    .attr('class', 'f3-card-you-badge')
+    .attr('data-tooltip', 'This is you')
+    .attr('data-tooltip-position', 'bottom')
+    .html(`${icon('check')}<span>You</span>`);
+}
+
 function renderChart() {
   cleanupAllNodesGraph();
   if (state.viewMode === 'duplicate-manager') {
@@ -3850,6 +4034,8 @@ function renderChart() {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
 
+      markMyNodeCard(cardEl, d);
+
       // Drilldown icon: pure navigation, re-root the tree on this person.
       // Only shown when there's actually a subtree left to reveal - hidden
       // entirely (not just a no-op click) once everything about this person
@@ -3935,6 +4121,25 @@ function renderChart() {
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
       menu.appendChild(linkExistingBtn);
+
+      // "This is me": proposes a member claim on this node (see
+      // handleClaimMember). Hidden once the logged-in user already has an
+      // approved claim somewhere in this tree (on this node or another -
+      // one identity per tree, see 013_member_claims.sql) or a pending one
+      // in flight, since either way a new claim would just be rejected
+      // server-side.
+      if (state.selectedTreeClaimStatus !== 'approved' && state.selectedTreeClaimStatus !== 'pending') {
+        const claimBtn = document.createElement('button');
+        claimBtn.type = 'button';
+        claimBtn.className = 'dropdown-item';
+        claimBtn.innerHTML = `${icon('user')}<span>This is me</span>`;
+        claimBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeCardMoreMenu();
+          confirmClaimMember(d.data.id);
+        });
+        menu.appendChild(claimBtn);
+      }
 
       // Sort children: only offered once this person actually has 2+
       // children to put in order. Opens a drag-to-reorder dialog
@@ -4022,6 +4227,20 @@ function renderChart() {
     card.setOnCardUpdate(function cardUpdate(d) {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
+
+      markMyNodeCard(cardEl, d);
+
+      // Viewers have no edit menu at all today, but claiming an identity is
+      // exactly the action a viewer (not yet an editor) is most likely to
+      // need - a single dedicated icon rather than a whole popover, since
+      // "This is me" is the only viewer-facing card action that exists.
+      // Same visibility rule as the editor branch's menu item above.
+      if (state.selectedTreeClaimStatus !== 'approved' && state.selectedTreeClaimStatus !== 'pending') {
+        addCardIcon(cardEl, 0, icon('user'), (e) => {
+          e.stopPropagation();
+          confirmClaimMember(d.data.id);
+        }, 'This is me');
+      }
 
       if (!d.all_rels_displayed) {
         addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
@@ -5544,6 +5763,11 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   const payload = await api(`/api/trees/${treeId}`);
   state.selectedTreeId = treeId;
   state.selectedTreeRole = payload.role;
+  // Which person-node (if any) is a confirmed/pending identity claim for the
+  // logged-in user in this tree - drives the "This is me" card menu item
+  // (see openCardMoreMenu/handleClaimMember).
+  state.selectedTreeMemberId = payload.memberId ?? null;
+  state.selectedTreeClaimStatus = payload.claimStatus ?? 'unclaimed';
   state.selectedTreeData = payload.data;
   state.selectedTreeName = payload.tree.name;
   state.selectedTreeStatus = payload.tree.status || 'active';
@@ -5763,6 +5987,7 @@ function renderTreeSettingsViewMode() {
     currentGenerationDepth: state.treeDefaultGenerationDepth,
     currentEmailAutoVisibility: state.treeEmailAutoVisibility,
     currentStatus: state.selectedTreeStatus,
+    currentUserMemberId: state.selectedTreeMemberId,
   });
 
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');

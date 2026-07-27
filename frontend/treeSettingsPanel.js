@@ -20,8 +20,25 @@ function personLabel(datum) {
   return label || String(datum?.id ?? '');
 }
 
-export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility, currentStatus = 'active' } = {}) {
-  const people = [...(Array.isArray(data) ? data : [])].sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
+export function renderTreeSettingsPanel(
+  data,
+  { currentDefaultMainId, currentGenerationDepth, currentEmailAutoVisibility, currentStatus = 'active', currentUserMemberId = null } = {}
+) {
+  const allPeople = Array.isArray(data) ? data : [];
+  // The settings owner's own linked identity (see markMyNodeCard/
+  // handleClaimMember) gets pulled out of the alphabetical list and offered
+  // as a dedicated "You" option instead, right under "No default" - faster
+  // to find than scanning for your own name, and avoids listing the same
+  // person twice. Only shown if that member still exists in this tree (a
+  // claimed member could in principle be deleted after approval).
+  const youPerson = currentUserMemberId ? allPeople.find((d) => d.id === currentUserMemberId) : null;
+  const people = allPeople
+    .filter((d) => d.id !== currentUserMemberId)
+    .sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
+
+  const youOption = youPerson
+    ? `<option value="${escapeHtml(youPerson.id)}" ${youPerson.id === currentDefaultMainId ? 'selected' : ''}>You (${escapeHtml(personLabel(youPerson))})</option>`
+    : '';
 
   const options = people
     .map((d) => `<option value="${escapeHtml(d.id)}" ${d.id === currentDefaultMainId ? 'selected' : ''}>${escapeHtml(personLabel(d))}</option>`)
@@ -40,6 +57,7 @@ export function renderTreeSettingsPanel(data, { currentDefaultMainId, currentGen
         <div class="tree-settings-row">
           <select id="tree-settings-default-main-select" class="tree-settings-select">
             <option value="">No default (use automatic)</option>
+            ${youOption}
             ${options}
           </select>
         </div>

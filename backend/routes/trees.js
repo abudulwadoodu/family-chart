@@ -26,6 +26,7 @@ import {
   sendRoleChangeRequestCreatedEmail,
 } from '../utils/joinRequestEmail.js';
 import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
+import { MemberClaimError, proposeClaim, getPendingClaimsForOwner, getSentClaimsForUser, decideClaim } from '../models/memberClaimModel.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -41,6 +42,27 @@ const JOIN_REQUEST_ERROR_RESPONSES = {
 function handleJoinRequestError(error, res, next) {
   if (error instanceof JoinRequestError) {
     const mapped = JOIN_REQUEST_ERROR_RESPONSES[error.code];
+    if (mapped) return res.status(mapped.status).json({ error: mapped.message });
+  }
+  return next(error);
+}
+
+const MEMBER_CLAIM_ERROR_RESPONSES = {
+  MEMBER_NOT_FOUND: { status: 404, message: 'That person is not part of this tree' },
+  ALREADY_APPROVED: { status: 409, message: 'You already have an approved claim on this person' },
+  ALREADY_CLAIMED_ELSEWHERE_IN_TREE: { status: 409, message: 'You already have an approved claim on a different person in this tree' },
+  ALREADY_PENDING: { status: 409, message: 'You already have a pending claim on this person' },
+  NOT_FOUND: { status: 404, message: 'Claim not found' },
+  FORBIDDEN: { status: 403, message: 'You do not own this tree' },
+  ALREADY_DECIDED: { status: 409, message: 'This claim has already been decided' },
+  MEMBER_NO_LONGER_EXISTS: { status: 410, message: 'This person no longer exists in the tree' },
+  MEMBER_ALREADY_CLAIMED: { status: 409, message: 'Someone else has already been approved as this person' },
+  USER_ALREADY_CLAIMED_ELSEWHERE: { status: 409, message: 'This user already has an approved claim on a different person in this tree' },
+};
+
+function handleMemberClaimError(error, res, next) {
+  if (error instanceof MemberClaimError) {
+    const mapped = MEMBER_CLAIM_ERROR_RESPONSES[error.code];
     if (mapped) return res.status(mapped.status).json({ error: mapped.message });
   }
   return next(error);
@@ -280,6 +302,72 @@ treesRouter.patch('/requests/:id', async (req, res, next) => {
   }
 });
 
+// Pending member claims across every tree this user owns - "who wants to be
+// linked as a specific person in my tree". Must also be registered before
+// GET /:id for the same reason as /search above.
+treesRouter.get('/manage-claims', async (req, res, next) => {
+  try {
+    const claims = await getPendingClaimsForOwner(req.user.id);
+    return res.json({ claims });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Every claim this user has proposed (any status) - mirrors /my-requests.
+// Must also be registered before GET /:id for the same reason as /search above.
+treesRouter.get('/my-claims', async (req, res, next) => {
+  try {
+    const claims = await getSentClaimsForUser(req.user.id);
+    return res.json({ claims });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// A tree member proposes "this person is me" on a node they don't yet have
+// an approved claim on. Requires existing tree access (any role) - this is
+// about identity within a tree the caller can already see, not about
+// gaining access (that's /:id/request-join). Always lands 'pending'; only
+// an owner's decision below can approve it.
+treesRouter.post('/:id/claims', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { member_id: memberId, message } = req.body || {};
+    if (!isNonEmptyString(memberId, 200)) {
+      return res.status(400).json({ error: 'member_id is required' });
+    }
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const claim = await proposeClaim(treeId, req.user.id, memberId, trimmedMessage || null);
+    return res.status(201).json({ ok: true, claim });
+  } catch (error) {
+    return handleMemberClaimError(error, res, next);
+  }
+});
+
+// Owner decision on a member claim (approve/reject). Scoped at the top
+// level (not under /:id) since the claim id alone is enough to resolve the
+// tree and ownership check happens inside decideClaim - same shape as
+// PATCH /requests/:id above.
+treesRouter.patch('/claims/:claimId', async (req, res, next) => {
+  try {
+    const claimId = Number(req.params.claimId);
+    const { status } = req.body || {};
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be either approved or rejected' });
+    }
+
+    const updated = await decideClaim(claimId, req.user.id, status);
+    return res.json({ ok: true, claim: updated });
+  } catch (error) {
+    return handleMemberClaimError(error, res, next);
+  }
+});
+
 treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
@@ -295,6 +383,8 @@ treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (r
     return res.json({
       tree,
       role: req.treePermission.role,
+      memberId: req.treePermission.member_id,
+      claimStatus: req.treePermission.claim_status,
       data: familyDataRows[0]?.json_data ?? [],
     });
   } catch (error) {

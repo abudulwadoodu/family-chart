@@ -2,7 +2,7 @@ import { query, withTransaction } from '../db/index.js';
 
 export async function getPermissionByUserAndTree(userId, treeId) {
   const { rows } = await query(
-    `SELECT id, tree_id, user_id, role, created_at, updated_at
+    `SELECT id, tree_id, user_id, role, member_id, claim_status, created_at, updated_at
      FROM tree_permissions
      WHERE user_id = $1 AND tree_id = $2`,
     [userId, treeId]
