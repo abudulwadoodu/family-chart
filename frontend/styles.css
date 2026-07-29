@@ -1369,6 +1369,22 @@ button.secondary:active,
   max-width: 280px;
 }
 
+/* Tree-detail pages' left slot (see renderTopbar's `treeName` param) - the
+   breadcrumb + info-popover trigger that used to be their own separate
+   first row above the persistent topbar. min-width: 0 lets the breadcrumb
+   below truncate instead of forcing the bar wider than .content. */
+.app-topbar-tree-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.app-topbar-tree-title .breadcrumb {
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* Pushes the bell/profile cluster to the right while .app-topbar-title (if
    present) stays pinned left - see renderTopbar in components.js. */
 .app-topbar-spacer {
@@ -2458,15 +2474,16 @@ button.secondary:active,
   color: var(--text-secondary);
 }
 
-/* Row 1 of the compact 2-row tree-detail header (see renderTreeDetailHeaderTop
-   in components.js) - breadcrumb/tagline on the left, the main Tree
-   View/Media/Events switcher centered, and global search/Saved status/Manage
-   Data/Share/notification bell/profile avatar on the right. Sits where
-   .app-topbar sits on every other page - the two are mutually exclusive (see
-   isUnifiedHeaderView in main.js's renderDashboard). No background of its
-   own (transparent, blends into the page) - the .header-island cards below
-   supply their own white/raised surface, border and shadow so they still
-   read as floating cards. */
+/* The tree-detail toolbar (Tree View/Media/Events switcher, contextual
+   pills, Saved status/actions/Editing-Viewing toggle/Manage Data - see
+   renderAppHeader in components.js), shared by the Tree Canvas/Media
+   Library/Timeline pages. The breadcrumb/info popover/notification
+   bell/profile avatar that used to be a separate first row above this now
+   live in the persistent .app-topbar instead (see renderTopbar's
+   `treeName`/`hasTree` params). No background of its own (transparent,
+   blends into the page) - the .header-island cards below supply their own
+   white/raised surface, border and shadow so they still read as floating
+   cards. */
 .app-tree-header {
   display: flex;
   flex-direction: column;
@@ -2474,38 +2491,10 @@ button.secondary:active,
   background: transparent;
 }
 
-/* Plain 2-column flex (breadcrumb+info left, bell/avatar right) - the main
-   Tree View/Media/Events switcher that used to need a centered 3rd column
-   here now anchors Row 2 left instead (see .app-primary-bar/.primary-bar-left
-   below). min-height (not height): the row still won't jump under normal use
-   since content per side is stable, but this leaves headroom instead of
-   clipping if a .header-island child (e.g. the profile avatar cluster) ends
-   up a few px taller than expected. */
-.app-tree-header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  min-height: 52px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.app-tree-header-top-left {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-}
-
-.app-tree-header-top-left .breadcrumb {
-  min-width: 0;
-  overflow: hidden;
-}
-
 /* Info-popover trigger (member count/last updated, see [data-tooltip] in
-   the popover section above) replacing the old plain-text "• N members"
-   tagline next to the breadcrumb. */
+   the popover section above) - sits next to the tree breadcrumb in
+   .app-topbar-tree-title (see renderTopbar in components.js), replacing the
+   old plain-text "• N members" tagline next to the breadcrumb. */
 .header-info-trigger {
   display: inline-flex;
   align-items: center;
@@ -2531,16 +2520,9 @@ button.secondary:active,
   height: 16px;
 }
 
-.app-tree-header-top-right {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-shrink: 0;
-}
-
-/* Separates Share from the bell/avatar cluster, matching the request's
-   "vertical divider line" between the action buttons and the account
-   controls. */
+/* Separates the notification bell from the profile avatar in
+   renderHeaderUserCluster, matching the original request's "vertical
+   divider line" between the two. */
 .header-divider {
   width: 1px;
   height: 22px;
@@ -2548,17 +2530,16 @@ button.secondary:active,
   flex-shrink: 0;
 }
 
-/* Row 2: the contextual secondary tabs (Focused/All Nodes/Relationship
-   Finder pills, or Media/Events' filter pills) anchor left, and the
-   Editing/Viewing toggle + that tab's action buttons anchor right - plain
-   flex space-between now that the main Tree View/Media/Events switcher has
-   moved up to Row 1 (see renderAppHeader/renderTreeDetailHeaderTop in
-   components.js), so there's no longer a third, truly-centered column to
-   keep balanced. min-height (not height) so the row stays stable switching
-   between Tree View/Media/Events under normal use (same structure on all
-   three) but can still grow for Media/Events' New Album/Upload/Create Event
-   buttons (.btn, 38px) without clipping against the .header-island--tool
-   cards below. */
+/* The contextual secondary tabs (Focused/All Nodes/Relationship Finder
+   pills, or Media/Events' filter pills) anchor left, and the Editing/Viewing
+   toggle + that tab's action buttons anchor right - plain flex
+   space-between, since the main Tree View/Media/Events switcher (see
+   renderPrimaryTabSwitcher) anchors this same row's left side rather than
+   needing a third, truly-centered column to keep balanced. min-height (not
+   height) so the row stays stable switching between Tree View/Media/Events
+   under normal use (same structure on all three) but can still grow for
+   Media/Events' New Album/Upload/Create Event buttons (.btn, 38px) without
+   clipping against the .header-island--tool cards below. */
 .app-primary-bar {
   display: flex;
   align-items: center;
@@ -2591,13 +2572,12 @@ button.secondary:active,
 /* Header islands (split-island header layout)                        */
 /* ------------------------------------------------------------------ */
 
-/* Shared "floating card" utility applied alongside .app-tree-header-top-left/
-   -center/-right and .primary-bar-left/-right in components.js - white/raised
-   surface, subtle border, soft shadow. Now that .app-tree-header has no
-   background of its own (see above), these read as floating cards purely off
-   their own border/shadow rather than contrast with a recessed backdrop
-   tone; the modifiers below (--top/--tool/--pill) set the height/padding/
-   radius specific to where the island sits. */
+/* Shared "floating card" utility applied alongside .primary-bar-left/-right
+   in components.js - white/raised surface, subtle border, soft shadow. Now
+   that .app-tree-header has no background of its own (see above), these
+   read as floating cards purely off their own border/shadow rather than
+   contrast with a recessed backdrop tone; the modifiers below (--tool/
+   --pill) set the height/padding/radius specific to where the island sits. */
 .header-island {
   display: flex;
   align-items: center;
@@ -2605,17 +2585,7 @@ button.secondary:active,
   box-shadow: var(--shadow-sm);
 }
 
-/* Row 1 left/right islands (breadcrumb/tagline; Saved status/Manage Data/
-   Share/bell/avatar). No fixed height - intrinsic content (the tallest is
-   the ~40px profile avatar cluster) plus this padding comfortably clears the
-   row's 52px min-height with a visible gap above/below, without risking
-   clipping from a hardcoded number. */
-.header-island--top {
-  padding: 4px var(--sp-3);
-  border-radius: var(--radius-md);
-}
-
-/* Row 2 left/right tool islands - a shared min-height (not height) so the
+/* Left/right tool islands - a shared min-height (not height) so the
    secondary-tabs island (left) and mode-selector island (right) match
    exactly on Tree View, where both are shorter than this floor and get
    clamped up to it - while still letting either island grow taller on
@@ -2626,12 +2596,12 @@ button.secondary:active,
   border-radius: var(--radius-md);
 }
 
-/* The Tree View/Media/Events switcher (.segmented-control), centered in Row
-   1, is already a fully-rounded pill, so its island uses pill radius instead
-   of --radius-md and only enough padding to reproduce .segmented-control's
-   old self-owned 2px inset (see .segmented-control below, which no longer
-   supplies its own background/border/padding now that this island does) -
-   keeping it at the same 32px total height as the Row 2 tool islands. */
+/* The Tree View/Media/Events switcher (.segmented-control) is already a
+   fully-rounded pill, so its island uses pill radius instead of --radius-md
+   and only enough padding to reproduce .segmented-control's old self-owned
+   2px inset (see .segmented-control below, which no longer supplies its own
+   background/border/padding now that this island does) - keeping it at the
+   same 32px total height as the other tool islands. */
 .header-island--pill {
   padding: 2px;
   border-radius: var(--radius-pill);
@@ -2983,8 +2953,7 @@ button.secondary:active,
    relocation needed) since .chart-canvas-wrap is already inside
    #tree-focus-target. left is --sp-10, matching .chart-canvas-wrap's own
    -var(--sp-10) bleed margin so it lines up flush with the (now
-   zero-horizontal-padding) header rows above it (.app-tree-header-top/
-   .app-primary-bar). */
+   zero-horizontal-padding) toolbar above it (.app-primary-bar). */
 #member-search {
   position: absolute;
   top: var(--sp-4);
@@ -3129,13 +3098,11 @@ button.secondary:active,
 /* Standalone tree-detail page (see relationshipFinder.js), same wrapper
    convention as .media-library-page/.timeline-page. Reuses
    .member-search-box/.member-search-results styling for the input and
-   dropdown - this block only adds the mobile-first wrapper and result card. */
+   dropdown - this block only adds the mobile-first wrapper and result card.
+   The breadcrumb that used to live here now renders in the persistent
+   .app-topbar instead (see renderTopbar's `breadcrumbActiveTab`). */
 .relationship-finder-page {
   width: 100%;
-}
-
-.relationship-finder-page .breadcrumb {
-  margin-bottom: var(--sp-4);
 }
 
 .relationship-finder {
@@ -3261,11 +3228,12 @@ button.secondary:active,
   margin: 0 calc(-1 * var(--sp-10)) calc(-1 * var(--sp-8));
 }
 
-/* Static px budget for everything above the canvas (.app-tree-header's two
-   48px/40px rows + .content padding), but still an estimate rather than a
-   measured value, so nudge this if the canvas ends up too short/tall
-   against real chrome height. Deliberately no background/border/radius here
-   anymore - the canvas is full-bleed, not a nested card. */
+/* Static px budget for everything above the canvas (.app-topbar's 56px +
+   .app-tree-header's ~48px toolbar row + .content padding), but still an
+   estimate rather than a measured value, so nudge this if the canvas ends up
+   too short/tall against real chrome height. Deliberately no
+   background/border/radius here anymore - the canvas is full-bleed, not a
+   nested card. */
 .chart-container {
   height: calc(100vh - 190px);
   min-height: 420px;
@@ -3273,12 +3241,12 @@ button.secondary:active,
 }
 
 /* Reset View / Maximize, floating over the canvas like a map's zoom widget -
-   out of the Row 2 tab strip (which is data/view tabs only now) but still
-   reachable right next to the content they act on. right is --sp-10,
+   out of the toolbar strip below (which is data/view tabs only now) but
+   still reachable right next to the content they act on. right is --sp-10,
    matching .chart-canvas-wrap's own -var(--sp-10) bleed margin so it lines
-   up flush with the (now zero-horizontal-padding) header rows above it
-   (.app-tree-header-top/.app-primary-bar). top matches #member-search's own
-   top so the two floating widgets sit on one visual line. */
+   up flush with the (now zero-horizontal-padding) toolbar above it
+   (.app-primary-bar). top matches #member-search's own top so the two
+   floating widgets sit on one visual line. */
 .canvas-floating-controls {
   position: absolute;
   top: var(--sp-4);
@@ -5492,23 +5460,10 @@ dialog.modal-overlay[open] {
     grid-template-columns: 1fr;
   }
 
-  /* Both rows of .app-tree-header grow past their fixed desktop height and
-     wrap onto extra lines at this width instead of clipping content -
+  /* .app-tree-header's toolbar row grows past its fixed desktop height and
+     wraps onto extra lines at this width instead of clipping content -
      mobile already gets a taller-is-fine treatment elsewhere (see
      .mobile-topbar above). */
-  .app-tree-header-top {
-    display: flex;
-    height: auto;
-    flex-wrap: wrap;
-    row-gap: var(--sp-2);
-    padding: var(--sp-3) 0;
-  }
-
-  .app-tree-header-top-right {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
   .app-primary-bar {
     flex-wrap: wrap;
     height: auto;

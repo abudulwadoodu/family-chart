@@ -1589,22 +1589,24 @@ function renderDashboard() {
           })
         : '';
 
-  // The three tree-detail pages show the current tree's breadcrumb + info
-  // popover + notification bell in the global renderTopbar instead of a
-  // plain title (see that function's `treeName`/`hasTree` params) - they
-  // used to render their own separate compact header row for this instead,
-  // see renderTopbar's comment for the history.
-  const isTreeDetailHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
+  // The tree-detail pages (Tree Canvas/Media Library/Timeline) plus
+  // Relationship Finder show the current tree's breadcrumb + info popover +
+  // notification bell in the global renderTopbar instead of a plain title
+  // (see that function's `treeName`/`hasTree` params) - they used to render
+  // their own separate compact header row for this instead, see
+  // renderTopbar's comment for the history.
+  const isTreeDetailHeaderView =
+    isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView || isRelationshipFinderView;
 
   // Every remaining page gets the same left-title/right-profile renderTopbar
   // (see that function's comment) - keyed off which view is active rather
   // than off state.selectedTreeId directly, since a tree can still be
   // selected in state while browsing an unrelated page like Security or
   // Admin (only "My Trees" clears it - see clearSelectedTreeView), and that
-  // page's title should never get clobbered by a stale tree name. The two
-  // tree-scoped views that keep their own breadcrumb below this bar instead
-  // of using its `treeName` slot (Relationship Finder, Timeline's
-  // event-detail drill-in) still show the tree name here as a plain title.
+  // page's title should never get clobbered by a stale tree name. Timeline's
+  // event-detail drill-in is the one tree-scoped view that keeps its own
+  // breadcrumb below this bar instead of using its `treeName` slot, so it
+  // still shows the tree name here as a plain title.
   const topbarTitle = isSecurityView
     ? 'Security Settings'
     : isCreateTreeView
@@ -1623,7 +1625,7 @@ function renderDashboard() {
                   ? 'My Requests'
                   : isAdminView
                     ? 'Admin'
-                    : isRelationshipFinderView || isTimelineDetailView
+                    : isTimelineDetailView
                       ? state.selectedTreeName
                       : state.dashboardView === 'trees'
                         ? 'My Trees'
@@ -1647,6 +1649,7 @@ function renderDashboard() {
           memberCount: isTreeDetailHeaderView ? (state.selectedTreeData || []).length : null,
           updatedAt: isTreeDetailHeaderView ? state.trees.find((t) => t.id === state.selectedTreeId)?.updated_at : null,
           hasTree: isTreeDetailHeaderView,
+          breadcrumbActiveTab: isRelationshipFinderView ? 'Relationship Finder' : null,
         })}
         <main class="content">
           ${
@@ -1700,7 +1703,6 @@ function renderDashboard() {
                                   ? renderRelationshipFinderPageContent({
                                       data: state.selectedTreeData,
                                       rootId: state.focusedMainId,
-                                      treeName: state.selectedTreeName,
                                     })
                                   : isViewerView
                                     ? `

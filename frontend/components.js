@@ -132,23 +132,25 @@ export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
 // Global top bar - page title (or, for the My Trees/Requests/Support
 // sections, that section's tab switcher - see tabsHtml below) on the left,
 // user cluster on the right. Rendered once inside .main-area (above
-// .content), so it's present above every page, including the tree-detail
-// pages (Tree Canvas/Media Library/Timeline) - passing `treeName` swaps the
-// left slot to that tree's breadcrumb + a member-count/last-updated info
-// popover instead of a plain title, and `hasTree` adds the family-feed
-// notification bell next to the profile avatar, so this one persistent bar
-// now covers what those three pages used to render as their own separate
-// first row (renderTreeDetailHeaderTop, since removed - see main.js's
-// renderDashboard). `leftLabel` is that page's title - main.js's
-// renderDashboard computes it per-view (Security Settings, Create a Tree,
-// etc.), falling back to the selected tree's name only for the two
-// tree-scoped views that don't pass `treeName` (Relationship Finder,
-// Timeline's event-detail drill-in, both of which keep their own breadcrumb
-// below this bar instead). `tabsHtml` (see renderTopbarTabs) takes over the
-// same left slot instead of leftLabel for the three sections with sibling
-// views (My Trees/Private Vault, Requests, Support) - one wouldn't make
-// sense next to the other, since the active tab's label already says which
-// page this is.
+// .content), so it's present above every page, including every tree-scoped
+// page (Tree Canvas/Media Library/Timeline/Relationship Finder) - passing
+// `treeName` swaps the left slot to that tree's breadcrumb + a
+// member-count/last-updated info popover instead of a plain title, and
+// `hasTree` adds the family-feed notification bell next to the profile
+// avatar, so this one persistent bar now covers what those pages used to
+// render as their own separate first row (renderTreeDetailHeaderTop, since
+// removed - see main.js's renderDashboard). `breadcrumbActiveTab`/
+// `breadcrumbDetailLabel` pass straight through to renderTreeBreadcrumb for
+// pages that are a drill-in below the tree itself (Relationship Finder
+// passes `breadcrumbActiveTab: 'Relationship Finder'`) rather than the tree
+// view itself. `leftLabel` is that page's title - main.js's renderDashboard
+// computes it per-view (Security Settings, Create a Tree, etc.), falling
+// back to the selected tree's name only for Timeline's event-detail
+// drill-in, which keeps its own breadcrumb below this bar instead.
+// `tabsHtml` (see renderTopbarTabs) takes over the same left slot instead of
+// leftLabel for the three sections with sibling views (My Trees/Private
+// Vault, Requests, Support) - one wouldn't make sense next to the other,
+// since the active tab's label already says which page this is.
 export function renderTopbar({
   email,
   activeTheme,
@@ -158,6 +160,8 @@ export function renderTopbar({
   memberCount = null,
   updatedAt = null,
   hasTree = false,
+  breadcrumbActiveTab = null,
+  breadcrumbDetailLabel = null,
 }) {
   let leftHtml;
   if (treeName) {
@@ -169,7 +173,7 @@ export function renderTopbar({
       : '';
     leftHtml = `
       <div class="app-topbar-tree-title">
-        ${renderTreeBreadcrumb({ treeName })}
+        ${renderTreeBreadcrumb({ treeName, activeTab: breadcrumbActiveTab, detailLabel: breadcrumbDetailLabel })}
         ${infoHtml}
       </div>
     `;
@@ -746,12 +750,13 @@ export function renderSkeletonGrid(count = 6) {
 // `detailLabel` is an optional 4th segment (e.g. an event's title on the
 // Timeline detail view) - when present, `activeTab` itself becomes a
 // clickable link (id="breadcrumb-tab-btn") back to its list view, and
-// `detailLabel` becomes the new current (non-clickable) segment.
-// Shared by the Relationship Finder view and the Timeline event-detail
-// sub-view (relationshipFinder.js/timelinePanel.js) - the tree-detail views
-// that render their own compact header rather than the shared
-// renderAppHeader primary bar (see main.js's renderDashboard) - so the
-// breadcrumb stays visually and structurally identical between them.
+// `detailLabel` becomes the new current (non-clickable) segment. Used both
+// by renderTopbar (Relationship Finder passes `activeTab: 'Relationship
+// Finder'` via its `breadcrumbActiveTab` prop) and directly by the Timeline
+// event-detail sub-view (timelinePanel.js), which still renders its own
+// compact header rather than going through renderTopbar/renderAppHeader
+// (see main.js's renderDashboard) - so the breadcrumb stays visually and
+// structurally identical between the two.
 export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">

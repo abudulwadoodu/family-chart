@@ -14,7 +14,7 @@
 // pair - the page state lives in this module and is rebuilt from
 // state.selectedTreeData on every render.
 
-import { renderTreeBreadcrumb } from './components.js';
+import { renderPageHeader } from './components.js';
 import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
 import { getRelationshipPath } from './relationshipGraph.js';
 import { escapeHtml } from './utils.js';
@@ -98,13 +98,16 @@ function relationshipCardHtml() {
 
 /**
  * Full page content for the Relationship Finder tree-detail page, matching
- * the shape of renderMediaLibraryPageContent/renderTimelinePageContent.
- * @param {{ data: Array, rootId: string|number, rootLabel?: string, treeName: string }} options
+ * the shape of renderMediaLibraryPageContent/renderTimelinePageContent. The
+ * tree breadcrumb lives in the persistent .app-topbar instead (see
+ * renderTopbar's `breadcrumbActiveTab` in main.js's renderDashboard), so
+ * this only renders the tagline + search/result card below it.
+ * @param {{ data: Array, rootId: string|number, rootLabel?: string }} options
  *   `data` is the full family tree array for the current tree; `rootId` is
  *   the person the relationship is described relative to (the tree's
  *   focused/default person, since person-nodes aren't tied 1:1 to accounts).
  */
-export function renderRelationshipFinderPageContent({ data, rootId, treeName }) {
+export function renderRelationshipFinderPageContent({ data, rootId }) {
   state.data = Array.isArray(data) ? data : [];
   state.rootId = rootId != null ? String(rootId) : null;
   state.index = buildMemberSearchIndex(state.data);
@@ -117,11 +120,11 @@ export function renderRelationshipFinderPageContent({ data, rootId, treeName }) 
 
   return `
     <div class="relationship-finder-page">
-      ${renderTreeBreadcrumb({ treeName, activeTab: 'Relationship Finder' })}
-      <header class="page-header">
-        <h1 class="page-title">Relationship Finder</h1>
-        <p class="page-subtitle">${rootPerson ? `See how anyone in this tree relates to ${escapeHtml(rootName)}.` : 'Search a family member to see how they relate to this tree.'}</p>
-      </header>
+      ${renderPageHeader({
+        subtitle: rootPerson
+          ? `See how anyone in this tree relates to ${rootName}.`
+          : 'Search a family member to see how they relate to this tree.',
+      })}
 
       <div class="relationship-finder" id="relationship-finder">
         <div class="member-search" id="relationship-finder-search">
@@ -150,13 +153,16 @@ export function renderRelationshipFinderPageContent({ data, rootId, treeName }) 
 // `onBack` navigates back to the tree viewer (breadcrumb tree-name link);
 // `onExitTree` navigates all the way out to the My Trees list (breadcrumb
 // "My Trees" link) - same contract as attachMediaLibraryPageListeners /
-// attachTimelinePageListeners.
+// attachTimelinePageListeners. The breadcrumb itself now lives in the
+// persistent .app-topbar (see renderTopbar's `breadcrumbActiveTab`), a
+// sibling of .relationship-finder-page rather than a descendant, so those
+// two listeners are bound unscoped from `document` instead of `root`.
 export function attachRelationshipFinderPageListeners(onBack, onExitTree) {
   const root = document.querySelector('.relationship-finder-page');
   if (!root) return;
 
-  root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
-  root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
+  document.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
+  document.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
 
   const { input, clearBtn } = getEls();
   if (!input || !clearBtn) return;
