@@ -86,9 +86,9 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
 
 // The bell (family feed trigger, tree pages only) + avatar/email/theme
 // toggle/logout popover, reusing the same dropdown-menu/data-menu-trigger
-// mechanism as every other menu in the app. Factored out of renderTopbar so
-// the compact tree-detail header (renderTreeDetailHeaderTop) can reuse the
-// exact same cluster instead of duplicating the profile-menu markup.
+// mechanism as every other menu in the app. Factored out so renderTopbar can
+// pass `hasTree: true` on the tree-detail pages without duplicating the
+// profile-menu markup.
 export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
   return `
@@ -132,27 +132,56 @@ export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
 // Global top bar - page title (or, for the My Trees/Requests/Support
 // sections, that section's tab switcher - see tabsHtml below) on the left,
 // user cluster on the right. Rendered once inside .main-area (above
-// .content), so it's present above every page except the three tree-detail
-// pages (Tree Canvas/Media Library/Timeline), which render their own
-// compact renderTreeDetailHeaderTop instead (see main.js's renderDashboard).
-// `leftLabel` is that page's title - main.js's renderDashboard computes it
-// per-view (Security Settings, Create a Tree, etc.), falling back to the
-// selected tree's name only for the two tree-scoped views that still land
-// here (Relationship Finder, Timeline's event-detail drill-in, both of
-// which keep their own breadcrumb below this bar). `tabsHtml` (see
-// renderTopbarTabs) takes over the same left slot instead of leftLabel for
-// the three sections with sibling views (My Trees/Private Vault,
-// Requests, Support) - one wouldn't make sense next to the other, since the
-// active tab's label already says which page this is. Always shows just
-// the profile icon (no notification bell) - the family feed bell is
-// tree-detail-only, see renderTreeDetailHeaderTop, since it opens that
-// tree's activity feed and these pages have no tree context to scope it to.
-export function renderTopbar({ email, activeTheme, leftLabel, tabsHtml = '' }) {
+// .content), so it's present above every page, including the tree-detail
+// pages (Tree Canvas/Media Library/Timeline) - passing `treeName` swaps the
+// left slot to that tree's breadcrumb + a member-count/last-updated info
+// popover instead of a plain title, and `hasTree` adds the family-feed
+// notification bell next to the profile avatar, so this one persistent bar
+// now covers what those three pages used to render as their own separate
+// first row (renderTreeDetailHeaderTop, since removed - see main.js's
+// renderDashboard). `leftLabel` is that page's title - main.js's
+// renderDashboard computes it per-view (Security Settings, Create a Tree,
+// etc.), falling back to the selected tree's name only for the two
+// tree-scoped views that don't pass `treeName` (Relationship Finder,
+// Timeline's event-detail drill-in, both of which keep their own breadcrumb
+// below this bar instead). `tabsHtml` (see renderTopbarTabs) takes over the
+// same left slot instead of leftLabel for the three sections with sibling
+// views (My Trees/Private Vault, Requests, Support) - one wouldn't make
+// sense next to the other, since the active tab's label already says which
+// page this is.
+export function renderTopbar({
+  email,
+  activeTheme,
+  leftLabel,
+  tabsHtml = '',
+  treeName = null,
+  memberCount = null,
+  updatedAt = null,
+  hasTree = false,
+}) {
+  let leftHtml;
+  if (treeName) {
+    const infoParts = [];
+    if (typeof memberCount === 'number') infoParts.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
+    if (updatedAt) infoParts.push(formatRelativeTime(updatedAt));
+    const infoHtml = infoParts.length
+      ? `<button type="button" class="header-info-trigger" data-tooltip="${escapeHtml(infoParts.join(' • '))}" data-tooltip-pos="bottom" aria-label="Tree info">${icon('info')}</button>`
+      : '';
+    leftHtml = `
+      <div class="app-topbar-tree-title">
+        ${renderTreeBreadcrumb({ treeName })}
+        ${infoHtml}
+      </div>
+    `;
+  } else {
+    leftHtml = tabsHtml || (leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : '');
+  }
+
   return `
     <header class="app-topbar">
-      ${tabsHtml || (leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : '')}
+      ${leftHtml}
       <div class="app-topbar-spacer"></div>
-      ${renderHeaderUserCluster({ email, activeTheme, hasTree: false })}
+      ${renderHeaderUserCluster({ email, activeTheme, hasTree })}
     </header>
   `;
 }
@@ -745,12 +774,14 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel =
   `;
 }
 
-// Combines Share, the old separate Import/Export buttons, Relationships/
-// Duplicates (moved out of the old Tools menu), and the standalone header
-// gear menu's Rename/Settings/Save to Vault/Delete Tree/CSV templates into
-// one icon-only "More" dropdown (see renderAppHeader) - Share used to be its
-// own button next to this menu; it's now that menu's first item so Row 2
-// only has to carry the Editing dropdown and this one icon.
+// Combines Share, the old separate Import/Export buttons, and the standalone
+// header gear menu's Rename/Settings/Save to Vault/Delete Tree/CSV templates
+// into one icon-only "More" dropdown (see renderAppHeader) - Share used to be
+// its own button next to this menu; it's now that menu's first item so Row 2
+// only has to carry the Editing dropdown and this one icon. Relationships/
+// Duplicates used to live here too (a "Tools" group) but moved into the Tree
+// View options menu's Manage Data section instead (see
+// renderPrimaryTabSwitcher) so they're not duplicated across two menus.
 export function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
   const shareGroup = isOwner ? [{ action: 'share', label: 'Share', icon: 'share' }] : [];
   const importGroup = canEdit
@@ -765,10 +796,6 @@ export function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
     { action: 'export-json', label: 'Export JSON', icon: 'download' },
     { action: 'export-csv', label: 'Export CSV', icon: 'download' },
     { action: 'export-gedcom', label: 'Export GEDCOM', icon: 'download' },
-  ];
-  const toolsGroup = [
-    { action: 'relationship-manager', label: 'Relationships', icon: 'share', active: viewMode === 'relationship-manager' },
-    { action: 'duplicate-manager', label: 'Duplicates', icon: 'unlink', active: viewMode === 'duplicate-manager' },
   ];
   const treeGroup = [];
   if (canEdit) {
@@ -808,8 +835,6 @@ export function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
         ${importGroup.length ? renderGroup('Import', importGroup) : ''}
         ${importGroup.length ? '<div class="dropdown-divider"></div>' : ''}
         ${renderGroup('Export', exportGroup)}
-        <div class="dropdown-divider"></div>
-        ${renderGroup('Tools', toolsGroup)}
         ${treeGroup.length ? '<div class="dropdown-divider"></div>' : ''}
         ${treeGroup.length ? renderGroup('Tree', treeGroup) : ''}
       </div>
@@ -867,50 +892,20 @@ function renderRoleModeControl({ role, viewOnly }) {
   `;
 }
 
-// Row 1 of the compact 2-row header shared by every tree-detail page (Tree
-// Canvas, Media Library, Timeline) - breadcrumb + an info popover (member
-// count/last updated, see the info-trigger below) on the left, notification
-// bell + profile avatar on the right. The Tree View/Media/Events switcher
-// used to be centered here; it now anchors Row 2 left instead (see
-// renderAppHeader/renderPrimaryTabSwitcher) so this row stays a plain
-// 2-column bar. Member search used to live here too; it's now a floating
-// widget over the tree canvas instead (see renderMemberSearch, only rendered
-// by renderTreeCanvasMarkup in main.js), which is why it's Tree-Canvas-only
-// and no longer shown on Media Library/Timeline. Sits where renderTopbar
-// sits on every other dashboard page (see main.js's renderDashboard), so
-// these two are mutually exclusive - never rendered together. Row 2 is
-// renderAppHeader below.
-export function renderTreeDetailHeaderTop({ treeName, memberCount, updatedAt, email, activeTheme }) {
-  const infoParts = [];
-  if (typeof memberCount === 'number') infoParts.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
-  if (updatedAt) infoParts.push(formatRelativeTime(updatedAt));
-  const infoHtml = infoParts.length
-    ? `<button type="button" class="header-info-trigger" data-tooltip="${escapeHtml(infoParts.join(' • '))}" data-tooltip-pos="bottom" aria-label="Tree info">${icon('info')}</button>`
-    : '';
-
-  return `
-    <div class="app-tree-header-top">
-      <div class="app-tree-header-top-left header-island header-island--top">
-        ${renderTreeBreadcrumb({ treeName })}
-        ${infoHtml}
-      </div>
-      <div class="app-tree-header-top-right header-island header-island--top">
-        ${renderHeaderUserCluster({ email, activeTheme, hasTree: true })}
-      </div>
-    </div>
-  `;
-}
-
-// Row 2 of the compact 2-row header shared by every tree-detail page (Tree
-// Canvas, Media Library, Timeline) - the Tree View/Media/Events switcher
-// (see renderPrimaryTabSwitcher) plus, for Media/Events, their filter pills
+// The tree-detail toolbar shared by every tree-detail page (Tree Canvas,
+// Media Library, Timeline) - the Tree View/Media/Events switcher (see
+// renderPrimaryTabSwitcher) plus, for Media/Events, their filter pills
 // (`centerHtml` - renderMediaLibraryFilterPills/renderTimelineFilterPills in
 // their own files) anchor left; Saved status, that tab's action button(s)
 // (`actionsHtml` - renderMediaLibraryActions/renderTimelineActions),
 // renderRoleModeControl's Editing/Viewing dropdown, and the merged
 // Share/Manage Data "More" menu (see renderManageDataMenu) anchor right.
 // There's no tree title/rename button here - Rename Tree lives in that More
-// dropdown instead of a standalone inline pencil button.
+// dropdown instead of a standalone inline pencil button. The breadcrumb +
+// notification bell that used to sit in a first row above this one now live
+// in the persistent global renderTopbar instead (see main.js's
+// renderDashboard/renderTreeDetailHeader), so this is the whole of the
+// tree-detail chrome below that bar.
 export function renderAppHeader({
   role,
   viewMode,
@@ -947,11 +942,13 @@ export function renderAppHeader({
 // independent of the actual viewMode/dashboardView; clicking an option is
 // what actually navigates. Tree View's label and caret are separate click
 // targets sharing one pill (see .segmented-option-group): the label switches
-// to Tree View like Media/Events do, the caret opens a menu of
-// Focused/All Nodes/Relationship Finder (formerly a standalone row of chips,
-// see the old renderTreeViewSubtoggle) - reuses their original
-// #focused-mode-btn/#all-nodes-mode-btn/#relationship-finder-btn ids so
-// main.js's setupViewModeToggle wiring didn't need to change, just where
+// to Tree View like Media/Events do, the caret opens a menu of two groups:
+// View (Focused/All Nodes/Relationship Finder - formerly a standalone row of
+// chips, see the old renderTreeViewSubtoggle) and Manage Data
+// (Relationships/Duplicates, moved here from the Manage Data "More" dropdown's
+// old Tools group so they're not duplicated across two menus) - reuses the
+// original #focused-mode-btn/#all-nodes-mode-btn/#relationship-finder-btn ids
+// so main.js's setupViewModeToggle wiring didn't need to change, just where
 // these buttons physically live.
 export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
   return `
@@ -969,6 +966,7 @@ export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
           >${icon('chevronDown')}</button>
         </div>
         <div class="dropdown-menu" id="tree-view-mode-menu" data-menu-id="tree-view-mode-menu">
+          <div class="dropdown-group-label">View</div>
           <button type="button" id="focused-mode-btn" class="dropdown-item ${viewMode === 'focused' ? 'dropdown-item-active' : ''}">
             ${icon('crosshair')}<span>Focused</span>
           </button>
@@ -977,6 +975,14 @@ export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
           </button>
           <button type="button" id="relationship-finder-btn" class="dropdown-item" title="Find how two people in this tree are related">
             ${icon('share')}<span>Relationship Finder</span>
+          </button>
+          <div class="dropdown-divider"></div>
+          <div class="dropdown-group-label">Manage Data</div>
+          <button type="button" id="relationship-manager-btn" class="dropdown-item ${viewMode === 'relationship-manager' ? 'dropdown-item-active' : ''}">
+            ${icon('share')}<span>Relationships</span>
+          </button>
+          <button type="button" id="duplicate-manager-btn" class="dropdown-item ${viewMode === 'duplicate-manager' ? 'dropdown-item-active' : ''}">
+            ${icon('unlink')}<span>Duplicates</span>
           </button>
         </div>
       </div>

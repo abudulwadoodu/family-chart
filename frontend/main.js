@@ -88,7 +88,6 @@ import {
   renderEmptyState,
   renderSkeletonGrid,
   renderAppHeader,
-  renderTreeDetailHeaderTop,
   renderPrimaryTabSwitcher,
   renderCanvasFloatingControls,
   renderMemberSearch,
@@ -1590,20 +1589,22 @@ function renderDashboard() {
           })
         : '';
 
-  // The three tree-detail pages render their own compact 2-row header
-  // (renderTreeDetailHeader below) in place of the global renderTopbar - see
-  // that function's comment for why.
-  const isUnifiedHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
+  // The three tree-detail pages show the current tree's breadcrumb + info
+  // popover + notification bell in the global renderTopbar instead of a
+  // plain title (see that function's `treeName`/`hasTree` params) - they
+  // used to render their own separate compact header row for this instead,
+  // see renderTopbar's comment for the history.
+  const isTreeDetailHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
 
   // Every remaining page gets the same left-title/right-profile renderTopbar
   // (see that function's comment) - keyed off which view is active rather
   // than off state.selectedTreeId directly, since a tree can still be
   // selected in state while browsing an unrelated page like Security or
   // Admin (only "My Trees" clears it - see clearSelectedTreeView), and that
-  // page's title should never get clobbered by a stale tree name. Only the
-  // two tree-scoped views that fall through to renderTopbar instead of the
-  // unified header (Relationship Finder, Timeline's event-detail drill-in)
-  // show the tree name here.
+  // page's title should never get clobbered by a stale tree name. The two
+  // tree-scoped views that keep their own breadcrumb below this bar instead
+  // of using its `treeName` slot (Relationship Finder, Timeline's
+  // event-detail drill-in) still show the tree name here as a plain title.
   const topbarTitle = isSecurityView
     ? 'Security Settings'
     : isCreateTreeView
@@ -1637,16 +1638,16 @@ function renderDashboard() {
       })}
       <div class="main-area">
         ${renderMobileTopbar()}
-        ${
-          isUnifiedHeaderView
-            ? ''
-            : renderTopbar({
-                email: state.user.email,
-                activeTheme: state.theme,
-                leftLabel: topbarTitle,
-                tabsHtml: topbarTabsHtml,
-              })
-        }
+        ${renderTopbar({
+          email: state.user.email,
+          activeTheme: state.theme,
+          leftLabel: topbarTitle,
+          tabsHtml: topbarTabsHtml,
+          treeName: isTreeDetailHeaderView ? state.selectedTreeName : null,
+          memberCount: isTreeDetailHeaderView ? (state.selectedTreeData || []).length : null,
+          updatedAt: isTreeDetailHeaderView ? state.trees.find((t) => t.id === state.selectedTreeId)?.updated_at : null,
+          hasTree: isTreeDetailHeaderView,
+        })}
         <main class="content">
           ${
             isSecurityView
@@ -2632,14 +2633,16 @@ function bindGedcomExportOptionsListeners(modal, options, treeId, treeName) {
 // Tree viewer
 // ---------------------------------------------------------------------------
 
-// The compact 2-row header shared by the Tree Canvas/Media Library/Timeline
-// pages (renderDashboard and refreshTreeViewerHeader, the only two callers) -
-// Row 1 (breadcrumb/tab switcher/Manage Data/Share/bell/avatar) plus Row 2
-// (contextual pills/mode toggle/actions). `primaryTab` is passed in
-// explicitly rather than read from state.treeToolbarPrimaryTab: for the
-// Media/Timeline branches that state field is only updated in the
-// post-render attach phase (see isMediaLibraryView/isTimelineView below), so
-// it can't be trusted yet while this string is being built.
+// The compact toolbar shared by the Tree Canvas/Media Library/Timeline pages
+// (renderDashboard and refreshTreeViewerHeader, the only two callers) -
+// contextual pills/mode toggle/actions (renderAppHeader). The breadcrumb/
+// info popover/bell/avatar that used to be a separate row above this one now
+// live in the persistent global renderTopbar instead (see that function's
+// `treeName`/`hasTree` params). `primaryTab` is passed in explicitly rather
+// than read from state.treeToolbarPrimaryTab: for the Media/Timeline
+// branches that state field is only updated in the post-render attach phase
+// (see isMediaLibraryView/isTimelineView below), so it can't be trusted yet
+// while this string is being built.
 function renderTreeDetailHeader(primaryTab) {
   const { centerHtml, actionsHtml } =
     primaryTab === 'media'
@@ -2656,13 +2659,6 @@ function renderTreeDetailHeader(primaryTab) {
 
   return `
     <header class="app-tree-header">
-      ${renderTreeDetailHeaderTop({
-        treeName: state.selectedTreeName,
-        memberCount: (state.selectedTreeData || []).length,
-        updatedAt: state.trees.find((t) => t.id === state.selectedTreeId)?.updated_at,
-        email: state.user.email,
-        activeTheme: state.theme,
-      })}
       ${renderAppHeader({
         role: state.selectedTreeRole,
         viewMode: state.viewMode,
@@ -3332,13 +3328,12 @@ function setupFocusMode() {
 }
 
 function handleViewerSettingsAction(action) {
-  // Relationships/Duplicates/Settings (all now grouped in the Manage Data
-  // dropdown) swap what's showing in place of the canvas rather than opening
-  // a modal/triggering a download - close whichever dropdown is still open
-  // first, since switchTreeViewMode()'s toolbar rebuild won't touch it (the
-  // Manage Data menu lives in Row 1 of .app-tree-header, outside
-  // #primary-tab-switcher entirely).
-  if (action === 'relationship-manager' || action === 'duplicate-manager' || action === 'settings') {
+  // Settings (in the Manage Data dropdown) swaps what's showing in place of
+  // the canvas rather than opening a modal/triggering a download - close
+  // whichever dropdown is still open first, since switchTreeViewMode()'s
+  // toolbar rebuild won't touch it (the Manage Data menu lives in Row 1 of
+  // .app-tree-header, outside #primary-tab-switcher entirely).
+  if (action === 'settings') {
     document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
     return switchTreeViewMode(action);
   }
@@ -4233,10 +4228,11 @@ function renderChart() {
   setupViewModeToggle();
 }
 
-// Shared by setupViewModeToggle's Focused/All Nodes chips and by
-// handleViewerSettingsAction's Manage Data (Relationships/Duplicates) and
-// gear-menu (Settings) items - anything that swaps what's showing in place
-// of the chart canvas goes through here so the toolbar stays in sync.
+// Shared by setupViewModeToggle's Focused/All Nodes chips, its Tree View
+// options menu's Manage Data (Relationships/Duplicates) items, and
+// handleViewerSettingsAction's gear-menu (Settings) item - anything that
+// swaps what's showing in place of the chart canvas goes through here so the
+// toolbar stays in sync.
 function switchTreeViewMode(mode) {
   if (state.chart?.getMainDatum && state.viewMode === 'focused') {
     const currentMain = state.chart.getMainDatum();
@@ -4245,10 +4241,10 @@ function switchTreeViewMode(mode) {
   state.viewMode = mode;
   // Every viewMode (chart, all-nodes, relationship-manager, duplicate-manager,
   // settings) renders into #FamilyChart, which only exists on the tree
-  // canvas page - reachable here via the Manage Data "Tools" group or the
-  // gear menu's Settings item, both of which are also shown on the Media
-  // Library/Timeline pages (see renderAppHeader), so this can fire from
-  // there too and needs to route back to the canvas first.
+  // canvas page - reachable here via the Tree View options menu's Manage Data
+  // group or the gear menu's Settings item, both of which are also shown on
+  // the Media Library/Timeline pages (see renderAppHeader), so this can fire
+  // from there too and needs to route back to the canvas first.
   if (state.dashboardView !== 'trees') {
     state.treeToolbarPrimaryTab = 'tree';
     state.dashboardView = 'trees';
@@ -4321,6 +4317,8 @@ function setupViewModeToggle() {
     state.dashboardView = 'relationshipFinder';
     render();
   });
+  document.querySelector('#relationship-manager-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-manager'));
+  document.querySelector('#duplicate-manager-btn')?.addEventListener('click', () => switchTreeViewMode('duplicate-manager'));
 
   syncSaveButtonAvailability();
   syncFocusModeToolbarState();
