@@ -2273,6 +2273,48 @@ button.secondary:active,
   display: flex;
 }
 
+/* Pointer arrow for the small "more options"-style popovers built on top of
+   this shared wrapper - Download Template/Import/Sort on the trees
+   dashboard, that page's per-card "Tree actions" kebab, and the tree-detail
+   header's "More options" kebab (see renderTreesActionButtons/renderTreeCard/
+   renderManageDataMenu in components.js) - all a small icon-btn trigger plus
+   a dropdownMenu() dropdown as its only sibling inside .tree-card-menu-wrap.
+   Same two-layer bordered-triangle technique as the family-tree canvas
+   card's .f3-card-more-menu popover further below: ::before is the larger
+   border-colored triangle, ::after is a 2px-smaller fill-colored triangle on
+   top of it, leaving a ring matching the popover's own border - 2px rather
+   than the box border's actual 1px since a diagonal edge at the same
+   thickness as a straight one reads noticeably thinner (anti-aliasing
+   spreads it over more pixels), especially in the light theme where the
+   fill is white. `right: 17px` centers both under the 34px-wide .icon-btn
+   trigger (see .icon-btn above) since these menus' own `right: 0` (base rule
+   above) keeps their right edge flush with the button's right edge -
+   .tree-card-menu-wrap has no padding of its own, so its width is just the
+   button's. */
+.tree-card-menu-wrap > .dropdown-menu::before,
+.tree-card-menu-wrap > .dropdown-menu::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 17px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+.tree-card-menu-wrap > .dropdown-menu::before {
+  border-bottom: 7px solid var(--border-default);
+}
+
+.tree-card-menu-wrap > .dropdown-menu::after {
+  border-bottom-width: 5px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--bg-surface-raised);
+  border-left-width: 5px;
+  border-right-width: 5px;
+}
+
 .dropdown-item {
   display: flex;
   align-items: center;
@@ -2463,15 +2505,29 @@ button.secondary:active,
   min-height: auto;
   font-weight: 500;
   font-size: 0.82rem;
+  opacity: 0.75;
 }
 
 .breadcrumb-link:hover {
   color: var(--accent-hover);
   background: none;
+  opacity: 1;
 }
 
+/* "/" segment dividers - kept quieter than the parent links themselves so
+   the eye skips past them straight to .breadcrumb-current. */
+.breadcrumb-sep {
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+/* The only breadcrumb segment that should read as "where you are" - full
+   text-primary + bumped weight/size so it stands out against the muted
+   parent links/separators/info icon around it. */
 .breadcrumb-current {
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.88rem;
 }
 
 /* The tree-detail toolbar (Tree View/Media/Events switcher, contextual
@@ -2507,12 +2563,14 @@ button.secondary:active,
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-tertiary);
+  opacity: 0.75;
 }
 
 .header-info-trigger:hover,
 .header-info-trigger:focus-visible {
   color: var(--text-primary);
   background: var(--bg-surface-hover);
+  opacity: 1;
 }
 
 .header-info-trigger .icon {
@@ -2696,6 +2754,39 @@ button.secondary:active,
   min-width: 160px;
 }
 
+/* Pointer arrow for the Editing/Viewing dropdown, aligned under the
+   trigger's chevron (see .role-mode-trigger above) rather than centered on
+   the whole pill - the pill's width shifts with its label ("Editing" vs
+   "Viewing"), but the trailing chevron + its padding-right is constant, so
+   anchoring there keeps the arrow in the same spot regardless of mode.
+   Same two-layer bordered-triangle technique as the other dropdown-menu
+   popovers (.tree-card-menu-wrap/.f3-card-more-menu below): ::before is the
+   larger border-colored triangle, ::after is a 2px-smaller fill-colored
+   triangle on top of it, leaving a ring matching the popover's own border. */
+.role-mode-menu::before,
+.role-mode-menu::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 17px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+.role-mode-menu::before {
+  border-bottom: 7px solid var(--border-default);
+}
+
+.role-mode-menu::after {
+  border-bottom-width: 5px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--bg-surface-raised);
+  border-left-width: 5px;
+  border-right-width: 5px;
+}
+
 .badge-tooltip-link:hover {
   color: var(--accent-hover);
   background: none;
@@ -2729,6 +2820,11 @@ button.secondary:active,
   z-index: 40;
   width: max-content;
   max-width: 220px;
+  /* Triggers are buttons, and `button` sets `white-space: nowrap` (see
+     above) - that's an inherited property, so without resetting it here
+     this pseudo-element inherits nowrap too and long tooltip text (e.g.
+     "My Trees") runs straight past its own max-width instead of wrapping. */
+  white-space: normal;
   padding: var(--sp-1) var(--sp-2);
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-strong);
@@ -2745,10 +2841,60 @@ button.secondary:active,
   pointer-events: none;
 }
 
+/* Pointed arrow bridging the gap between the bubble and the element it
+   describes - a single filled CSS triangle (::before), with a drop-shadow
+   outline (see below) standing in for the bordered double-triangle used by
+   the card "more" popover, since a real second layer isn't available here
+   (::after is already the bubble's text content). Each variant zeroes the
+   border on the side opposite its colored (visible) side
+   rather than leaving it transparent - a transparent-but-present border on
+   that side still occupies box height/width, which doubles the triangle's
+   footprint and pushes its visible half entirely behind the bubble instead
+   of into the gap toward the trigger element. Default points down (bubble
+   sits above, per ::after's default `bottom` placement above); the position
+   variants below flip it to match their own ::after override. `left: 50%`/
+   `translateX(-50%)` centers it under the bubble same as the bubble centers
+   over the trigger element, so it stays aligned at any bubble width. Shares
+   ::after's opacity/visibility/transition so it fades in and out together
+   with the bubble text. The `filter: drop-shadow` outline (not `box-shadow`,
+   which would box the whole 0x0 border box instead of hugging the triangle's
+   actual silhouette) matches the bubble's own `border: 1px solid
+   var(--border-strong)` - without it the arrow is borderless fill only, and
+   in the light theme (`--bg-surface-raised` is white) a white triangle on a
+   light page all but disappears since it has no edge to read against. Set
+   once here rather than repeated per variant below since `filter` isn't
+   touched by their border-side overrides. */
+[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + var(--sp-2) - 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid var(--bg-surface-raised);
+  border-bottom: 0;
+  filter: drop-shadow(0 0 1px var(--border-strong)) drop-shadow(0 0 1px var(--border-strong));
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+  pointer-events: none;
+}
+
 [data-tooltip][data-tooltip-pos='bottom']::after {
   bottom: auto;
   top: calc(100% + var(--sp-2));
   transform: translateX(-50%) translateY(-4px);
+}
+
+[data-tooltip][data-tooltip-pos='bottom']::before {
+  bottom: auto;
+  top: calc(100% + var(--sp-2) - 7px);
+  border-top: 0;
+  border-bottom: 7px solid var(--bg-surface-raised);
 }
 
 [data-tooltip][data-tooltip-pos='right']::after {
@@ -2758,11 +2904,28 @@ button.secondary:active,
   transform: translateY(-50%) translateX(-4px);
 }
 
+[data-tooltip][data-tooltip-pos='right']::before {
+  bottom: auto;
+  left: calc(100% + var(--sp-2) - 7px);
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 0;
+  border-right: 7px solid var(--bg-surface-raised);
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+}
+
 [data-tooltip]:hover::after,
 [data-tooltip]:focus-visible::after {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  visibility: visible;
 }
 
 [data-tooltip][data-tooltip-pos='bottom']:hover::after,
@@ -2783,6 +2946,17 @@ button.secondary:active,
   left: calc(100% + var(--sp-3));
   top: 50%;
   transform: translateY(-50%) translateX(-4px);
+}
+
+.sidebar [data-tooltip]::before {
+  bottom: auto;
+  left: calc(100% + var(--sp-3) - 7px);
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 0;
+  border-right: 7px solid var(--bg-surface-raised);
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
 }
 
 .sidebar [data-tooltip]:hover::after,
@@ -8296,16 +8470,52 @@ button.admin-stat-card {
    sits top-right), and min-width is narrower than the default dropdown-menu
    since this one only ever holds Edit/Add relative. Higher z-index than a
    page dropdown-menu since it must sit above sibling tree cards, not just
-   page content. */
+   page content. margin-top is bumped from the default 4px to 8px to leave
+   room for the pointer arrow below without it overlapping the icon. */
 .f3-svg-circle-hover > .f3-card-more-menu.dropdown-menu {
   top: 100%;
   right: 0;
-  margin-top: 4px;
+  margin-top: 8px;
   min-width: 140px;
   z-index: 40;
   padding: var(--sp-1);
   transform-origin: top right;
   transform: none !important;
+}
+
+/* Pointer arrow anchoring the popover to the "..." icon it opened from.
+   Two stacked CSS-triangle pseudo-elements (the classic bordered-triangle
+   trick): ::before is the larger border-colored triangle, ::after is a
+   2px-smaller fill-colored triangle on top of it, leaving a ring that
+   matches the popover's own border - 2px rather than the box border's
+   actual 1px since a diagonal edge at the same thickness as a straight one
+   reads noticeably thinner (anti-aliasing spreads it over more pixels),
+   especially in the light theme where the fill is white. `right: 10px`
+   centers both on the 20px-wide icon box (see addCardIcon in main.js) since
+   the popover's own right edge is anchored flush with the icon's right edge
+   above. */
+.f3-card-more-menu.dropdown-menu::before,
+.f3-card-more-menu.dropdown-menu::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 10px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+.f3-card-more-menu.dropdown-menu::before {
+  border-bottom: 7px solid var(--border-default);
+}
+
+.f3-card-more-menu.dropdown-menu::after {
+  border-bottom-width: 5px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--bg-surface-raised);
+  border-left-width: 5px;
+  border-right-width: 5px;
 }
 
 /* Compact rows: tighter padding/font and a smaller icon-text gap than the
@@ -8370,6 +8580,10 @@ button.admin-stat-card {
   transform: translate(-50%, 4px);
   width: max-content;
   max-width: 220px;
+  /* `button` sets `white-space: nowrap`, which this pseudo-element inherits
+     from its trigger button unless reset - without this, long tooltip text
+     (e.g. "My Trees") overflows past its own max-width instead of wrapping. */
+  white-space: normal;
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);

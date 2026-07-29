@@ -831,7 +831,7 @@ export function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
 
   return `
     <div class="tree-card-menu-wrap">
-      <button type="button" id="tree-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="tree-more-options" data-tooltip="More options" aria-label="More options">
+      <button type="button" id="tree-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="tree-more-options" aria-label="More options">
         ${icon('kebab')}
       </button>
       <div class="dropdown-menu" data-menu-id="tree-more-options">

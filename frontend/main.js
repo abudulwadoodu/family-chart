@@ -3859,9 +3859,15 @@ function addCardIcon(cardEl, horizontalPosition, iconHtml, onClick, tooltipLabel
     // letting the popover anchor to the icon instead of the whole card.
     .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''} relative`)
     .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: ${topOffset}px; ${positionStyle}`)
-    .attr('data-tooltip', tooltipLabel)
-    .attr('data-tooltip-position', 'bottom')
     .html(iconHtml);
+  // Skip data-tooltip entirely when no label is given (see the "More" icon
+  // call site below) - its own popover already points back at it with an
+  // arrow, so a hover tooltip on top would be redundant.
+  if (tooltipLabel) {
+    iconSelection
+      .attr('data-tooltip', tooltipLabel)
+      .attr('data-tooltip-position', 'bottom');
+  }
   iconSelection
     .select('svg')
     .style('padding', '0')
@@ -3975,7 +3981,7 @@ function renderChart() {
   // extra wiring needed.
   const card = state.chart
     .setCard(f3.CardHtml)
-    .setCardDisplay([['first name', 'last name'], ['birthday', 'location']])
+    .setCardDisplay([['first name', 'last name']])
     // Circle (examples/11-html-card-styling.html: photo in a gender-colored
     // circle, name label overlapping its bottom edge) or the library's
     // original wide rectangle - whichever this browser last picked via the
@@ -4069,11 +4075,13 @@ function renderChart() {
       // More icon: opens a small popover with Edit and Add relative. Built
       // directly here (not the app's shared dropdownMenu()) since that
       // helper targets static page markup and app-icon set, not per-card
-      // D3-driven re-renders using f3.icons' inline SVGs.
+      // D3-driven re-renders using f3.icons' inline SVGs. No tooltip label -
+      // the popover it opens already has its own pointer arrow back at this
+      // icon (see .f3-card-more-menu.dropdown-menu in styles.css).
       const moreIconEl = addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
         e.stopPropagation();
         openCardMoreMenu(moreIconEl, d);
-      }, 'More');
+      });
     });
 
     // Popover for the "more" icon. Reuses the app's .dropdown-menu/.dropdown-item
