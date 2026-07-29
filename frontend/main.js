@@ -106,7 +106,7 @@ import {
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
   renderMyRequestsPageMarkup,
-  renderSectionTabs,
+  renderTopbarTabs,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
@@ -1447,11 +1447,10 @@ async function loadMyRequests() {
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
-  // Private Vault - reached via the My Trees action bar's More Options menu
-  // (see handleTreesLandingHeaderAction's 'open-vault' -> openVaultPage),
-  // not a tab of the trees landing view anymore. A plain dashboardView page
-  // like every sibling flag here, rather than a modal - see
-  // renderVaultPageMarkup's comment for why.
+  // Private Vault - reached via the My Trees/Private Vault tab switcher in
+  // the top bar (see renderDashboard's isTreesSection/topbarTabsHtml below).
+  // A plain dashboardView page like every sibling flag here, rather than a
+  // modal - see renderVaultPageMarkup's comment for why.
   const isVaultView = !isSecurityView && !isCreateTreeView && state.dashboardView === 'vault';
   const isContactView = !isSecurityView && !isCreateTreeView && !isVaultView && state.dashboardView === 'contact';
   const isMyTicketsView =
@@ -1552,31 +1551,44 @@ function renderDashboard() {
     !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
-  // "Requests" and "Support" are each a single sidebar nav item covering two
-  // sibling views - render the underline tab row above whichever one is
-  // active so the other stays reachable. ticketDetail is a drill-in from My
-  // Support Tickets (it has its own back-link), so it doesn't get tabs.
+  // "My Trees"/"Requests"/"Support" are each a single sidebar nav item that
+  // actually covers two sibling views - render a tab switcher in the top
+  // bar's title slot for whichever one is active (see renderTopbar's
+  // tabsHtml) so the other view stays reachable without an extra header
+  // row. ticketDetail (a drill-in from My Support Tickets, with its own
+  // back-link) and Create Tree (a drill-in from My Trees, ditto) don't get
+  // tabs - same reasoning as isVaultView not covering isCreateTreeView.
+  const isTreesSection = state.dashboardView === 'trees' || isVaultView;
   const isRequestsSection = isPendingRequestsView || isMyRequestsView;
   const isSupportSection = isContactView || isMyTicketsView;
-  const sectionTabs = isRequestsSection
-    ? renderSectionTabs({
-        idPrefix: 'requests-tab',
-        activeId: isPendingRequestsView ? 'pendingRequests' : 'myRequests',
+  const topbarTabsHtml = isTreesSection
+    ? renderTopbarTabs({
+        idPrefix: 'trees-tab',
+        activeId: isVaultView ? 'vault' : 'trees',
         tabs: [
-          { id: 'myRequests', label: 'My Requests', icon: 'list' },
-          { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
+          { id: 'trees', label: 'My Trees', icon: 'trees' },
+          { id: 'vault', label: 'Private Vault', icon: 'lock' },
         ],
       })
-    : isSupportSection
-      ? renderSectionTabs({
-          idPrefix: 'support-tab',
-          activeId: isMyTicketsView ? 'myTickets' : 'contact',
+    : isRequestsSection
+      ? renderTopbarTabs({
+          idPrefix: 'requests-tab',
+          activeId: isPendingRequestsView ? 'pendingRequests' : 'myRequests',
           tabs: [
-            { id: 'contact', label: 'Contact Us', icon: 'mail' },
-            { id: 'myTickets', label: 'My Support Tickets', icon: 'clock' },
+            { id: 'myRequests', label: 'My Requests', icon: 'list' },
+            { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
           ],
         })
-      : '';
+      : isSupportSection
+        ? renderTopbarTabs({
+            idPrefix: 'support-tab',
+            activeId: isMyTicketsView ? 'myTickets' : 'contact',
+            tabs: [
+              { id: 'contact', label: 'Contact Us', icon: 'mail' },
+              { id: 'myTickets', label: 'My Support Tickets', icon: 'clock' },
+            ],
+          })
+        : '';
 
   // The three tree-detail pages render their own compact 2-row header
   // (renderTreeDetailHeader below) in place of the global renderTopbar - see
@@ -1632,10 +1644,10 @@ function renderDashboard() {
                 email: state.user.email,
                 activeTheme: state.theme,
                 leftLabel: topbarTitle,
+                tabsHtml: topbarTabsHtml,
               })
         }
         <main class="content">
-          ${sectionTabs}
           ${
             isSecurityView
               ? renderSecuritySettingsMarkup()
@@ -1703,7 +1715,7 @@ function renderDashboard() {
     </div>
   `;
 
-  if (isRequestsSection || isSupportSection) attachSectionTabListeners();
+  if (isTreesSection || isRequestsSection || isSupportSection) attachSectionTabListeners();
 
   attachShellListeners();
   if (state.selectedTreeId) attachFamilyFeedListeners();
@@ -1894,7 +1906,7 @@ function attachShellListeners() {
 // only needs to flip state.dashboardView. Arrow-key roving tabindex mirrors
 // attachAuthMethodTabListeners' pattern above.
 function attachSectionTabListeners() {
-  const tabs = document.querySelectorAll('.section-tab');
+  const tabs = document.querySelectorAll('.topbar-tabs .segmented-option');
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
       const view = tab.dataset.tabId;
@@ -1903,7 +1915,7 @@ function attachSectionTabListeners() {
       render();
     });
   });
-  const tabList = document.querySelector('.section-tabs');
+  const tabList = document.querySelector('.topbar-tabs');
   tabList?.addEventListener('keydown', (event) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
@@ -1999,32 +2011,30 @@ function bindDropdownTriggers(scopeEl) {
 // Trees landing (dashboard home)
 // ---------------------------------------------------------------------------
 
-// Trees Dashboard landing view. Row 1 (title + profile) is the global
-// renderTopbar above this (see renderDashboard's leftLabel). The old Active
-// Trees/Private Vault tabs are gone - Private Vault is now a modal opened
-// from the More Options menu (see openVaultPage, 'open-vault' in
-// handleTreesLandingHeaderAction).
+// Trees Dashboard landing view. Row 1 (title/tabs + profile) is the global
+// renderTopbar above this (see renderDashboard's isTreesSection/
+// topbarTabsHtml) - Private Vault is the other tab there now, not a menu on
+// this page.
 // Everything here is owned by renderTreeGrid() into #trees-landing-body,
 // since that's the function every data-change call site (loadTrees,
 // sort/filter, create, delete, import...) already calls. That lets the
 // empty-state vs active-state layout swap happen automatically whenever the
 // tree count changes, without having to thread a full top-level render()
 // through every one of those call sites. The Download Template/Import/New
-// Tree/More Options actions (renderTreesActionButtons) live inline in the
-// active state's .trees-toolbar-right next to the sort trigger, and in their
-// own standalone renderTreesActionBar row for the empty state (which has no
+// Tree actions (renderTreesActionButtons) live inline in the active state's
+// .trees-toolbar-right next to the sort trigger, and in their own
+// standalone renderTreesActionBar row for the empty state (which has no
 // sort control to sit next to) - see renderTreeGrid's two branches below.
 function renderTreesLandingMarkup() {
   return `<div id="trees-landing-body"></div>`;
 }
 
-// Wires the Download Template/Import/New Tree/More Options actions -
-// rendered fresh into #trees-landing-body by renderTreeGrid on every
-// load/filter/sort/create/delete, in both its empty-state and active-state
-// branches, so this is called from both rather than once per top-level
-// render().
+// Wires the Download Template/Import/New Tree actions - rendered fresh into
+// #trees-landing-body by renderTreeGrid on every load/filter/sort/
+// create/delete, in both its empty-state and active-state branches, so this
+// is called from both rather than once per top-level render().
 function attachTreesActionButtonListeners() {
-  ['landing-template-options', 'landing-import-options', 'trees-more-options'].forEach((menuId) => {
+  ['landing-template-options', 'landing-import-options'].forEach((menuId) => {
     document.querySelectorAll(`[data-menu-id="${menuId}"] .dropdown-item`).forEach((btn) => {
       btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
     });
@@ -2049,7 +2059,6 @@ function handleTreesLandingHeaderAction(action) {
       onImported: handleGedcomImported,
     });
   }
-  if (action === 'open-vault') return openVaultPage();
 }
 
 function editableTreeOptions() {
@@ -4656,27 +4665,14 @@ function renderVaultDrawerMarkup() {
 // moment one of those child modals opened. A page sidesteps that entirely
 // and keeps every existing render()-based refresh call site below working
 // unchanged.
+// No breadcrumb here - the My Trees/Private Vault tab switcher in the top
+// bar (see renderDashboard's topbarTabsHtml/isTreesSection) already shows
+// "Private Vault" as current and lets you click back to "My Trees".
 function renderVaultPageMarkup() {
-  return `
-    <nav class="breadcrumb" aria-label="Breadcrumb">
-      <button type="button" id="breadcrumb-trees-from-vault-btn" class="breadcrumb-link">My Trees</button>
-      <span class="breadcrumb-sep">/</span>
-      <span class="breadcrumb-current">Private Vault</span>
-    </nav>
-    <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
-  `;
-}
-
-function openVaultPage() {
-  state.dashboardView = 'vault';
-  render();
+  return `<section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>`;
 }
 
 function attachVaultPageListeners() {
-  document.querySelector('#breadcrumb-trees-from-vault-btn').addEventListener('click', () => {
-    state.dashboardView = 'trees';
-    render();
-  });
   attachVaultDrawerListeners();
   if (!state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
 }

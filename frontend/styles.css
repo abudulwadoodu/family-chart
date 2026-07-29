@@ -1586,55 +1586,19 @@ button.secondary:active,
 }
 
 /* ------------------------------------------------------------------ */
-/* Section tabs                                                       */
+/* Topbar tabs                                                        */
 /*                                                                      */
-/* Underline tab row switching between the sibling views merged under   */
-/* one sidebar nav item (Requests: My Requests/Pending Requests;        */
-/* Support: Contact Us/My Support Tickets). Deliberately lighter than   */
-/* .auth-method-tabs' filled segmented pill - it sits above a page's    */
-/* own header/content rather than replacing a single form's mode.       */
+/* Tab switcher between the sibling views merged under one sidebar nav  */
+/* item (My Trees/Private Vault; Requests: My Requests/Pending          */
+/* Requests; Support: Contact Us/My Support Tickets) - fills            */
+/* renderTopbar's title slot (see its tabsHtml/renderTopbarTabs in      */
+/* components.js) instead of an extra row, reusing                      */
+/* .segmented-control/.segmented-option's pill look (below) so it       */
+/* matches the Tree View/Media/Events switcher's header placement.      */
 /* ------------------------------------------------------------------ */
 
-.section-tabs {
-  display: flex;
-  gap: var(--sp-5);
-  margin-bottom: var(--sp-6);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.section-tab {
-  display: flex;
-  align-items: center;
+.topbar-tabs .segmented-option {
   gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-1);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  margin-bottom: -1px;
-  color: var(--text-tertiary);
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.section-tab .icon {
-  width: 16px;
-  height: 16px;
-}
-
-.section-tab:hover {
-  background: transparent;
-  color: var(--text-primary);
-}
-
-.section-tab[aria-selected='true'] {
-  background: transparent;
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.section-tab[aria-selected='true']:hover {
-  background: transparent;
 }
 
 .page-title {

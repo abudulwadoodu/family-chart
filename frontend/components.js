@@ -129,23 +129,28 @@ export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
   `;
 }
 
-// Global top bar - page title on the left, user cluster on the right.
-// Rendered once inside .main-area (above .content), so it's present above
-// every page except the three tree-detail pages (Tree Canvas/Media
-// Library/Timeline), which render their own compact renderTreeDetailHeaderTop
-// instead (see main.js's renderDashboard). `leftLabel` is that page's title -
-// main.js's renderDashboard computes it per-view (Security Settings, My
-// Support Tickets, etc.), falling back to the selected tree's name only for
-// the two tree-scoped views that still land here (Relationship Finder,
-// Timeline's event-detail drill-in, both of which keep their own breadcrumb
-// below this bar). Always shows just the profile icon (no notification
-// bell) - the family feed bell is tree-detail-only, see
-// renderTreeDetailHeaderTop, since it opens that tree's activity feed and
-// these pages have no tree context to scope it to.
-export function renderTopbar({ email, activeTheme, leftLabel }) {
+// Global top bar - page title (or, for the My Trees/Requests/Support
+// sections, that section's tab switcher - see tabsHtml below) on the left,
+// user cluster on the right. Rendered once inside .main-area (above
+// .content), so it's present above every page except the three tree-detail
+// pages (Tree Canvas/Media Library/Timeline), which render their own
+// compact renderTreeDetailHeaderTop instead (see main.js's renderDashboard).
+// `leftLabel` is that page's title - main.js's renderDashboard computes it
+// per-view (Security Settings, Create a Tree, etc.), falling back to the
+// selected tree's name only for the two tree-scoped views that still land
+// here (Relationship Finder, Timeline's event-detail drill-in, both of
+// which keep their own breadcrumb below this bar). `tabsHtml` (see
+// renderTopbarTabs) takes over the same left slot instead of leftLabel for
+// the three sections with sibling views (My Trees/Private Vault,
+// Requests, Support) - one wouldn't make sense next to the other, since the
+// active tab's label already says which page this is. Always shows just
+// the profile icon (no notification bell) - the family feed bell is
+// tree-detail-only, see renderTreeDetailHeaderTop, since it opens that
+// tree's activity feed and these pages have no tree context to scope it to.
+export function renderTopbar({ email, activeTheme, leftLabel, tabsHtml = '' }) {
   return `
     <header class="app-topbar">
-      ${leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : ''}
+      ${tabsHtml || (leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : '')}
       <div class="app-topbar-spacer"></div>
       ${renderHeaderUserCluster({ email, activeTheme, hasTree: false })}
     </header>
@@ -177,19 +182,24 @@ export function renderPageHeader({ title, subtitle }) {
   `;
 }
 
-// Underline tab row switching between sibling views inside one sidebar nav
+// Segmented-pill tab switcher between sibling views inside one sidebar nav
 // item's section (e.g. Requests -> My Requests / Pending Requests). Each tab
-// is `{ id, label, icon }`; `activeId` picks the pressed one. Sits above the
-// section's own page header/content, which is left untouched.
-export function renderSectionTabs({ tabs, activeId, idPrefix = 'section-tab' }) {
+// is `{ id, label, icon }`; `activeId` picks the pressed one. Fills
+// renderTopbar's left slot in place of a plain title (see its `tabsHtml`),
+// reusing the same .segmented-control/.segmented-option pill look as the
+// Tree View/Media/Events switcher (see renderPrimaryTabSwitcher) so every
+// "tabs living in a header bar" spot in the app shares one visual pattern,
+// instead of the old underline row (renderSectionTabs) that used to sit
+// above the page content as its own extra row.
+export function renderTopbarTabs({ tabs, activeId, idPrefix = 'section-tab' }) {
   return `
-    <div class="section-tabs" role="tablist">
+    <div class="segmented-control topbar-tabs" role="tablist">
       ${tabs
         .map(
           (tab) => `
         <button
           type="button"
-          class="section-tab"
+          class="segmented-option ${tab.id === activeId ? 'segmented-option-active' : ''}"
           role="tab"
           id="${idPrefix}-${tab.id}"
           data-tab-id="${tab.id}"
@@ -492,13 +502,16 @@ function renderSentRequestRow(request) {
   `;
 }
 
-// Icon-only Download Template/Import/New Tree/More Options (private vault)
-// actions. Rendered inline in .trees-toolbar-right next to the sort trigger
-// (see renderTreesToolbarRow below) once the account has at least one tree;
-// the zero-tree empty state has no sort control to sit next to, so it still
-// gets its own standalone row via renderTreesActionBar (main.js's
-// renderTreeGrid empty branch) - see handleTreesLandingHeaderAction (which
-// also handles 'open-vault').
+// Icon-only Download Template/Import/New Tree actions. Rendered inline in
+// .trees-toolbar-right next to the sort trigger (see renderTreesToolbarRow
+// below) once the account has at least one tree; the zero-tree empty state
+// has no sort control to sit next to, so it still gets its own standalone
+// row via renderTreesActionBar (main.js's renderTreeGrid empty branch) -
+// see handleTreesLandingHeaderAction. Private Vault used to live here too
+// as a "More Options" kebab menu (its only entry) - it's now the My
+// Trees/Private Vault tab switcher in the top bar instead (see
+// renderTopbarTabs' isTreesSection in main.js's renderDashboard), so the
+// kebab was dropped rather than left with one redundant item.
 export function renderTreesActionButtons() {
   return `
     <div class="tree-card-menu-wrap">
@@ -522,13 +535,6 @@ export function renderTreesActionButtons() {
       })}
     </div>
     <button type="button" id="new-tree-cta" class="icon-btn" data-tooltip="New Tree" aria-label="New Tree">${icon('plus')}</button>
-    <div class="tree-card-menu-wrap">
-      <button type="button" id="trees-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="trees-more-options" data-tooltip="More options" aria-label="More options">${icon('kebab')}</button>
-      ${dropdownMenu({
-        id: 'trees-more-options',
-        items: [{ action: 'open-vault', label: 'Private Vault', icon: 'lock' }],
-      })}
-    </div>
   `;
 }
 
