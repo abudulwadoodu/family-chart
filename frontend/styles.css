@@ -8603,7 +8603,6 @@ button.admin-stat-card {
 [data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
-  transition-delay: 0.25s;
 }
 
 [data-tooltip][data-tooltip-position='bottom']::after {
