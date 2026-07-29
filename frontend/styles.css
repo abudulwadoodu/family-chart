@@ -2505,7 +2505,6 @@ button.secondary:active,
   gap: var(--sp-4);
   min-height: 52px;
   flex-shrink: 0;
-  padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -2584,7 +2583,6 @@ button.secondary:active,
   gap: var(--sp-4);
   min-height: 48px;
   flex-shrink: 0;
-  padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -2620,7 +2618,6 @@ button.secondary:active,
 .header-island {
   display: flex;
   align-items: center;
-  background: var(--bg-surface-raised);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-sm);
 }
@@ -2989,26 +2986,26 @@ button.secondary:active,
 }
 
 /* Floats top-left over the tree canvas, matching .canvas-floating-controls'
-   top-right widget - a direct child of .chart-canvas-wrap (see
-   renderTreeCanvasMarkup in main.js), which supplies the position: relative
-   context. Tree-Canvas-only: it's no longer part of the shared header, so it
-   doesn't show up on the Media Library/Timeline pages. Stays put through
-   Focus Mode for free (no relocation needed) since .chart-canvas-wrap is
-   already inside #tree-focus-target. left is --sp-10 + --sp-6, matching
-   .chart-canvas-wrap's own -var(--sp-10) bleed margin plus the header rows'
-   left padding (.app-tree-header-top/.app-primary-bar), so it visually
-   aligns under the header islands above it instead of sitting further left. */
+   top-right widget (same `top`, so the two sit on one visual line) - a
+   direct child of .chart-canvas-wrap (see renderTreeCanvasMarkup in
+   main.js), which supplies the position: relative context. Tree-Canvas-only:
+   it's no longer part of the shared header, so it doesn't show up on the
+   Media Library/Timeline pages. Stays put through Focus Mode for free (no
+   relocation needed) since .chart-canvas-wrap is already inside
+   #tree-focus-target. left is --sp-10, matching .chart-canvas-wrap's own
+   -var(--sp-10) bleed margin so it lines up flush with the (now
+   zero-horizontal-padding) header rows above it (.app-tree-header-top/
+   .app-primary-bar). */
 #member-search {
   position: absolute;
   top: var(--sp-4);
-  left: calc(var(--sp-10) + var(--sp-6));
+  left: var(--sp-10);
   z-index: 10;
   width: 260px;
-  max-width: calc(100% - (var(--sp-10) + var(--sp-6)) - var(--sp-4));
+  max-width: calc(100% - var(--sp-10) - var(--sp-4));
 }
 
 #member-search .member-search-box {
-  background: var(--bg-surface-raised);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
@@ -3288,25 +3285,23 @@ button.secondary:active,
 
 /* Reset View / Maximize, floating over the canvas like a map's zoom widget -
    out of the Row 2 tab strip (which is data/view tabs only now) but still
-   reachable right next to the content they act on. right is --sp-10 + --sp-6,
-   matching .chart-canvas-wrap's own -var(--sp-10) bleed margin plus the
-   header rows' right padding (.app-tree-header-top/.app-primary-bar), so it
-   visually aligns under the header islands above it instead of sitting
-   further right. */
+   reachable right next to the content they act on. right is --sp-10,
+   matching .chart-canvas-wrap's own -var(--sp-10) bleed margin so it lines
+   up flush with the (now zero-horizontal-padding) header rows above it
+   (.app-tree-header-top/.app-primary-bar). top matches #member-search's own
+   top so the two floating widgets sit on one visual line. */
 .canvas-floating-controls {
   position: absolute;
-  top: var(--sp-3);
-  right: calc(var(--sp-10) + var(--sp-6));
+  top: var(--sp-4);
+  right: var(--sp-10);
   z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--sp-1);
   padding: var(--sp-1);
-  background: color-mix(in srgb, var(--bg-surface-raised) 85%, transparent);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-md);
-  backdrop-filter: blur(6px);
 }
 
 .canvas-floating-btn {
@@ -5349,17 +5344,17 @@ dialog.modal-overlay[open] {
     margin: 0 calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));
   }
 
-  /* .app-tree-header-top/.app-primary-bar padding stays --sp-6 at this
-     breakpoint (only .content's shrinks), so re-derive the header inset
-     from --sp-5 (not --sp-10) to keep these floating widgets aligned under
-     it - see #member-search/.canvas-floating-controls above. */
+  /* .content's own padding shrinks to --sp-5 at this breakpoint (header rows
+     have no horizontal padding of their own), so re-derive the inset from
+     --sp-5 (not --sp-10) to keep these floating widgets aligned under it -
+     see #member-search/.canvas-floating-controls above. */
   #member-search {
-    left: calc(var(--sp-5) + var(--sp-6));
-    max-width: calc(100% - (var(--sp-5) + var(--sp-6)) - var(--sp-4));
+    left: var(--sp-5);
+    max-width: calc(100% - var(--sp-5) - var(--sp-4));
   }
 
   .canvas-floating-controls {
-    right: calc(var(--sp-5) + var(--sp-6));
+    right: var(--sp-5);
   }
 
   .mobile-topbar {
@@ -5446,13 +5441,12 @@ dialog.modal-overlay[open] {
     margin: 0 calc(-1 * var(--sp-4)) calc(-1 * var(--sp-5));
   }
 
-  /* .app-tree-header-top/.app-primary-bar padding also drops to --sp-4 at
-     this breakpoint, so re-derive the header inset from --sp-4 (not --sp-10)
-     to keep the toolbar aligned under it - see .canvas-floating-controls
-     above. (#member-search already gets its own full-width mobile layout
-     below, so it doesn't need this treatment.) */
+  /* .content's own padding drops to --sp-4 at this breakpoint, so re-derive
+     the inset from --sp-4 (not --sp-10) to keep the toolbar aligned under it
+     - see .canvas-floating-controls above. (#member-search already gets its
+     own full-width mobile layout below, so it doesn't need this treatment.) */
   .canvas-floating-controls {
-    right: calc(var(--sp-4) + var(--sp-4));
+    right: var(--sp-4);
   }
 
   .page-header {
@@ -5510,7 +5504,7 @@ dialog.modal-overlay[open] {
     height: auto;
     flex-wrap: wrap;
     row-gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-4);
+    padding: var(--sp-3) 0;
   }
 
   .app-tree-header-top-right {
@@ -5522,7 +5516,7 @@ dialog.modal-overlay[open] {
     flex-wrap: wrap;
     height: auto;
     row-gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-4);
+    padding: var(--sp-2) 0;
   }
 
   .primary-bar-left {
