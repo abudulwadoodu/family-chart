@@ -1565,7 +1565,7 @@ function renderDashboard() {
         idPrefix: 'trees-tab',
         activeId: isVaultView ? 'vault' : 'trees',
         tabs: [
-          { id: 'trees', label: 'My Trees', icon: 'trees' },
+          { id: 'trees', label: 'My Trees', icon: 'trees', tooltip: 'Create, manage, and collaborate on your family trees' },
           { id: 'vault', label: 'Private Vault', icon: 'lock' },
         ],
       })

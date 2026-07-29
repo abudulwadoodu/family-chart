@@ -50,7 +50,7 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
         <button type="button" id="sidebar-close-btn" class="icon-btn sidebar-close" aria-label="Close navigation" data-tooltip="Close navigation" data-tooltip-pos="bottom">${icon('close')}</button>
       </div>
       <nav class="sidebar-nav" aria-label="Primary">
-        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn" data-tooltip="My Trees &mdash; create, manage, and collaborate on your family trees">
+        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn" data-tooltip="My Trees">
           ${icon('trees')}<span class="nav-label">My Trees</span>
         </button>
         <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn" data-tooltip="Security Settings">
@@ -217,7 +217,11 @@ export function renderPageHeader({ title, subtitle }) {
 
 // Segmented-pill tab switcher between sibling views inside one sidebar nav
 // item's section (e.g. Requests -> My Requests / Pending Requests). Each tab
-// is `{ id, label, icon }`; `activeId` picks the pressed one. Fills
+// is `{ id, label, icon, tooltip? }` - `tooltip` is optional and carries any
+// longer description of the tab (e.g. the "My Trees" tab's tagline, which
+// used to live on the sidebar nav item's own tooltip - see nav-trees-btn in
+// renderSidebarNav - before it moved here to leave that tooltip as just the
+// short "My Trees" label). `activeId` picks the pressed one. Fills
 // renderTopbar's left slot in place of a plain title (see its `tabsHtml`),
 // reusing the same .segmented-control/.segmented-option pill look as the
 // Tree View/Media/Events switcher (see renderPrimaryTabSwitcher) so every
@@ -238,6 +242,7 @@ export function renderTopbarTabs({ tabs, activeId, idPrefix = 'section-tab' }) {
           data-tab-id="${tab.id}"
           aria-selected="${tab.id === activeId}"
           tabindex="${tab.id === activeId ? '0' : '-1'}"
+          ${tab.tooltip ? `data-tooltip="${escapeHtml(tab.tooltip)}" data-tooltip-pos="bottom"` : ''}
         >${tab.icon ? icon(tab.icon) : ''}<span>${escapeHtml(tab.label)}</span></button>
       `
         )
