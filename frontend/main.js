@@ -592,7 +592,7 @@ function renderSupportPageAuthed() {
         ${renderTopbar({
           email: state.user.email,
           activeTheme: state.theme,
-          leftLabel: state.selectedTreeId ? state.selectedTreeName : null,
+          leftLabel: 'Contact Us',
         })}
         <main class="content">
           ${renderContactPageContent()}
@@ -1583,6 +1583,39 @@ function renderDashboard() {
   // that function's comment for why.
   const isUnifiedHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
 
+  // Every remaining page gets the same left-title/right-profile renderTopbar
+  // (see that function's comment) - keyed off which view is active rather
+  // than off state.selectedTreeId directly, since a tree can still be
+  // selected in state while browsing an unrelated page like Security or
+  // Admin (only "My Trees" clears it - see clearSelectedTreeView), and that
+  // page's title should never get clobbered by a stale tree name. Only the
+  // two tree-scoped views that fall through to renderTopbar instead of the
+  // unified header (Relationship Finder, Timeline's event-detail drill-in)
+  // show the tree name here.
+  const topbarTitle = isSecurityView
+    ? 'Security Settings'
+    : isCreateTreeView
+      ? 'Create a Tree'
+      : isVaultView
+        ? 'Private Vault'
+        : isContactView
+          ? 'Contact Us'
+          : isMyTicketsView
+            ? 'My Support Tickets'
+            : isTicketDetailView
+              ? state.support.selectedTicket?.subject || 'Support Ticket'
+              : isPendingRequestsView
+                ? 'Pending Requests'
+                : isMyRequestsView
+                  ? 'My Requests'
+                  : isAdminView
+                    ? 'Admin'
+                    : isRelationshipFinderView || isTimelineDetailView
+                      ? state.selectedTreeName
+                      : state.dashboardView === 'trees'
+                        ? 'My Trees'
+                        : null;
+
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       ${renderSidebarNav({
@@ -1598,7 +1631,7 @@ function renderDashboard() {
             : renderTopbar({
                 email: state.user.email,
                 activeTheme: state.theme,
-                leftLabel: state.selectedTreeId ? state.selectedTreeName : state.dashboardView === 'trees' ? 'My Trees / Private' : null,
+                leftLabel: topbarTitle,
               })
         }
         <main class="content">
@@ -1799,7 +1832,6 @@ function renderDashboard() {
     return;
   }
 
-  attachTreesLandingListeners();
   renderTreeGrid();
 }
 
@@ -1968,34 +2000,36 @@ function bindDropdownTriggers(scopeEl) {
 // ---------------------------------------------------------------------------
 
 // Trees Dashboard landing view. Row 1 (title + profile) is the global
-// renderTopbar above this (see renderDashboard's leftLabel), so only Row 2
-// (renderTreesActionBar - Download Template/Import/New Tree/More Options)
-// and Row 3 onward (search/sort + the tree grid) live here. The old Active
+// renderTopbar above this (see renderDashboard's leftLabel). The old Active
 // Trees/Private Vault tabs are gone - Private Vault is now a modal opened
 // from the More Options menu (see openVaultPage, 'open-vault' in
 // handleTreesLandingHeaderAction).
-// Only the action bar is static markup here - everything below it (toolbar,
-// discover-search, empty states, and the tree grid itself) is owned by
-// renderTreeGrid() into #trees-landing-body, since that's the function every
-// data-change call site (loadTrees, sort/filter, create, delete,
-// import...) already calls. That lets the empty-state vs active-state
-// layout swap happen automatically whenever the tree count changes, without
-// having to thread a full top-level render() through every one of those
-// call sites.
+// Everything here is owned by renderTreeGrid() into #trees-landing-body,
+// since that's the function every data-change call site (loadTrees,
+// sort/filter, create, delete, import...) already calls. That lets the
+// empty-state vs active-state layout swap happen automatically whenever the
+// tree count changes, without having to thread a full top-level render()
+// through every one of those call sites. The Download Template/Import/New
+// Tree/More Options actions (renderTreesActionButtons) live inline in the
+// active state's .trees-toolbar-right next to the sort trigger, and in their
+// own standalone renderTreesActionBar row for the empty state (which has no
+// sort control to sit next to) - see renderTreeGrid's two branches below.
 function renderTreesLandingMarkup() {
-  return `
-    ${renderTreesActionBar()}
-    <div id="trees-landing-body"></div>
-  `;
+  return `<div id="trees-landing-body"></div>`;
 }
 
-function attachTreesLandingListeners() {
-  const actionBar = document.querySelector('.trees-action-bar');
-  bindDropdownTriggers(actionBar);
-  actionBar.querySelectorAll('.dropdown-item').forEach((btn) => {
-    btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
+// Wires the Download Template/Import/New Tree/More Options actions -
+// rendered fresh into #trees-landing-body by renderTreeGrid on every
+// load/filter/sort/create/delete, in both its empty-state and active-state
+// branches, so this is called from both rather than once per top-level
+// render().
+function attachTreesActionButtonListeners() {
+  ['landing-template-options', 'landing-import-options', 'trees-more-options'].forEach((menuId) => {
+    document.querySelectorAll(`[data-menu-id="${menuId}"] .dropdown-item`).forEach((btn) => {
+      btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
+    });
   });
-  document.querySelector('#new-tree-cta').addEventListener('click', () => {
+  document.querySelector('#new-tree-cta')?.addEventListener('click', () => {
     state.dashboardView = 'createTree';
     render();
   });
@@ -2253,12 +2287,14 @@ function renderTreeGrid() {
     !state.discovery.dismissed && state.discovery.trees.length ? renderDiscoverySectionMarkup({ trees: state.discovery.trees }) : '';
 
   if (state.trees.length === 0) {
-    body.innerHTML = discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
+    body.innerHTML = renderTreesActionBar() + discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
     document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
     document.querySelector('#skip-search-create-btn').addEventListener('click', () => {
       state.dashboardView = 'createTree';
       render();
     });
+    bindDropdownTriggers(document.querySelector('.trees-action-bar'));
+    attachTreesActionButtonListeners();
     attachJoinResultListeners();
     attachDiscoverySectionListeners();
     return;
@@ -2296,6 +2332,7 @@ function renderTreeGrid() {
       renderTreeGrid();
     });
   });
+  attachTreesActionButtonListeners();
 
   document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
   attachJoinResultListeners();
@@ -2865,6 +2902,11 @@ function attachFamilyFeedListeners() {
 // header-only refresh never touches, so rebinding it here would double up
 // its event listeners on the same still-mounted input).
 function attachTreeViewerHeaderListeners() {
+  document.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', () => {
+    navigateToDashboardView('trees');
+    clearSelectedTreeView();
+    render();
+  });
   document.querySelector('#autosave-status')?.addEventListener('click', () => {
     if (document.querySelector('#autosave-status')?.dataset.state === 'error') performAutoSave();
   });
@@ -4517,12 +4559,7 @@ function renderSecuritySettingsMarkup() {
       })();
 
   return `
-    <header class="page-header">
-      <div>
-        <h1 class="page-title">Security Settings</h1>
-        <p class="page-subtitle">Manage multi-factor authentication for your account.</p>
-      </div>
-    </header>
+    ${renderPageHeader({ subtitle: 'Manage multi-factor authentication for your account.' })}
     <section class="security-panel">${body}</section>
     <section class="security-panel danger-zone">
       <h2 class="danger-zone-title">Delete Account</h2>

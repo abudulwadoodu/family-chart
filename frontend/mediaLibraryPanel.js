@@ -84,8 +84,8 @@ export function renderMediaLibraryActions(pageState, { readOnly }) {
   if (readOnly) return '';
   return `
     <div class="toolbar-actions">
-      <button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>
-      <label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
+      <button type="button" class="icon-btn media-library-new-album-btn" aria-label="New Album" data-tooltip="New Album" data-tooltip-pos="bottom">${icon('folderPlus')}</button>
+      <label class="icon-btn media-library-upload-label" for="media-library-upload-input" aria-label="Upload" data-tooltip="Upload" data-tooltip-pos="bottom">${icon('upload')}</label>
       <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />
     </div>
   `;

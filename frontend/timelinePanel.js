@@ -479,7 +479,7 @@ export function renderTimelineActions(pageState, { readOnly }) {
   if (readOnly) return '';
   return `
     <div class="toolbar-actions">
-      <button type="button" class="btn btn-primary" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>
+      <button type="button" class="icon-btn" id="timeline-new-event-btn" aria-label="Create Event" data-tooltip="Create Event" data-tooltip-pos="bottom">${icon('plus')}</button>
     </div>
   `;
 }

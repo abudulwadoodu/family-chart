@@ -1351,7 +1351,10 @@ button.secondary:active,
   gap: var(--sp-3);
   height: 56px;
   flex-shrink: 0;
-  padding: 0 var(--sp-6);
+  /* Matches .content's horizontal padding (including its responsive
+     overrides below) so app-topbar-title lines up with the page content
+     under it - e.g. "My Trees" over the tree grid/toolbar row. */
+  padding: 0 var(--sp-10);
   border-bottom: 1px solid var(--border-subtle);
   background: transparent;
 }
@@ -1894,10 +1897,12 @@ button.secondary:active,
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a94a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }
 
-/* Row 2 of the My Trees page - icon-only Download Template/Import/New
-   Tree/More Options buttons (see renderTreesActionBar in components.js),
-   replacing the old label+icon page-header buttons. Tooltips carry the
-   labels now (see [data-tooltip] in the popover section above). */
+/* Standalone row for the Download Template/Import/New Tree/More Options
+   buttons (see renderTreesActionBar in components.js) - only used for the
+   zero-tree empty state, which has no sort trigger for them to sit next to.
+   Once there's at least one tree they render inline in .trees-toolbar-right
+   instead (see renderTreesActionButtons/renderTreesToolbarRow). Tooltips
+   carry the labels (see [data-tooltip] in the popover section above). */
 .trees-action-bar {
   display: flex;
   align-items: center;
@@ -1905,15 +1910,14 @@ button.secondary:active,
   margin-bottom: var(--sp-5);
 }
 
-.icon-btn-primary {
-  background: var(--accent);
-  border-color: transparent;
-  color: var(--text-on-accent);
+.trees-action-bar .icon-btn .icon {
+  width: 1.3em;
+  height: 1.3em;
+  stroke-width: 2.5;
 }
 
-.icon-btn-primary:hover {
-  background: var(--accent-hover);
-  color: var(--text-on-accent);
+.trees-action-bar .icon-btn {
+  border-color: var(--border-default);
 }
 
 /* Row 3 left: the personal tree-name filter and the "Discover other family
@@ -1965,12 +1969,27 @@ button.secondary:active,
 }
 
 /* Sort trigger (icon + dropdown menu, see #tree-sort-menu in
-   renderTreesToolbarRow) grouped with the row's other right-hand controls. */
+   renderTreesToolbarRow) grouped with the row's other right-hand controls
+   (Download Template/Import/New Tree/More Options - renderTreesActionButtons). */
 .trees-toolbar-right {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   flex-shrink: 0;
+}
+
+/* Bigger, bolder icons for this row's icon-only buttons - same treatment as
+   Media Library/Timeline's .toolbar-actions (see styles.css's toolbar-actions
+   .icon-btn .icon rule) - the default 1em/1.75 stroke reads as too thin/small
+   once the icon is the button's only content. */
+.trees-toolbar-right .icon-btn .icon {
+  width: 1.3em;
+  height: 1.3em;
+  stroke-width: 2.5;
+}
+
+.trees-toolbar-right .icon-btn {
+  border-color: var(--border-default);
 }
 
 /* "Discover other family branches" search - the Members mode of
@@ -2857,6 +2876,12 @@ button.secondary:active,
   align-items: center;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.toolbar-actions .icon-btn .icon {
+  width: 1.3em;
+  height: 1.3em;
+  stroke-width: 2.5;
 }
 
 /* Primary views (Tree View/Timeline/Media/Feed) as one pill-shaped segmented
@@ -5340,6 +5365,10 @@ dialog.modal-overlay[open] {
     padding: var(--sp-6) var(--sp-5);
   }
 
+  .app-topbar {
+    padding: 0 var(--sp-5);
+  }
+
   .chart-canvas-wrap {
     margin: 0 calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));
   }
@@ -5435,6 +5464,10 @@ dialog.modal-overlay[open] {
 @media (max-width: 700px) {
   .content {
     padding: var(--sp-5) var(--sp-4);
+  }
+
+  .app-topbar {
+    padding: 0 var(--sp-4);
   }
 
   .chart-canvas-wrap {
@@ -7891,6 +7924,8 @@ button.admin-stat-card {
 .media-library-upload-label {
   margin-left: auto;
   cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .media-library-pending-upload {

@@ -129,17 +129,19 @@ export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
   `;
 }
 
-// Global top-right bar - selected tree name and the user cluster above.
+// Global top bar - page title on the left, user cluster on the right.
 // Rendered once inside .main-area (above .content), so it's present above
 // every page except the three tree-detail pages (Tree Canvas/Media
 // Library/Timeline), which render their own compact renderTreeDetailHeaderTop
-// instead (see main.js's renderDashboard). `leftLabel` is whatever context
-// title belongs on the left - the "Family Trees" page title when on the
-// trees landing page, or the selected tree's name for the Relationship
-// Finder/Timeline-detail sub-views (which keep their own breadcrumb below
-// this bar) - null everywhere else (Security/Support/etc). Always shows just
-// the profile icon (no notification bell) - the family feed bell is
-// tree-detail-only, see renderTreeDetailHeaderTop.
+// instead (see main.js's renderDashboard). `leftLabel` is that page's title -
+// main.js's renderDashboard computes it per-view (Security Settings, My
+// Support Tickets, etc.), falling back to the selected tree's name only for
+// the two tree-scoped views that still land here (Relationship Finder,
+// Timeline's event-detail drill-in, both of which keep their own breadcrumb
+// below this bar). Always shows just the profile icon (no notification
+// bell) - the family feed bell is tree-detail-only, see
+// renderTreeDetailHeaderTop, since it opens that tree's activity feed and
+// these pages have no tree context to scope it to.
 export function renderTopbar({ email, activeTheme, leftLabel }) {
   return `
     <header class="app-topbar">
@@ -159,6 +161,11 @@ export function renderMobileTopbar() {
   `;
 }
 
+// `title` is optional and left unset by every current caller (Security
+// Settings, Pending/My Requests) - their page title now lives in the
+// persistent renderTopbar instead (see main.js's renderDashboard
+// topbarTitle), so this just renders the descriptive subtitle line with the
+// same spacing the title+subtitle pairing used to have.
 export function renderPageHeader({ title, subtitle }) {
   return `
     <header class="page-header">
@@ -404,7 +411,7 @@ export function renderPendingRequestsPageMarkup({ loading, requests }) {
       : `<div class="pending-request-list">${requests.map(renderPendingRequestRow).join('')}</div>`;
 
   return `
-    ${renderPageHeader({ title: 'Pending Requests', subtitle: 'Review requests to join your family trees.' })}
+    ${renderPageHeader({ subtitle: 'Review requests to join your family trees.' })}
     ${body}
   `;
 }
@@ -458,7 +465,7 @@ export function renderMyRequestsPageMarkup({ loading, requests }) {
       : `<div class="pending-request-list">${requests.map(renderSentRequestRow).join('')}</div>`;
 
   return `
-    ${renderPageHeader({ title: 'My Requests', subtitle: 'Track the status of trees you have asked to join.' })}
+    ${renderPageHeader({ subtitle: 'Track the status of trees you have asked to join.' })}
     ${body}
   `;
 }
@@ -485,54 +492,62 @@ function renderSentRequestRow(request) {
   `;
 }
 
-// Row 2 of the My Trees page: icon-only Download Template/Import/New
-// Tree/More Options (private vault) actions, replacing the old label+icon
-// buttons that lived in a page header above the (now-removed) Active
-// Trees/Private Vault tabs - see main.js's renderTreesLandingMarkup and
-// handleTreesLandingHeaderAction (which now also handles 'open-vault').
-export function renderTreesActionBar() {
+// Icon-only Download Template/Import/New Tree/More Options (private vault)
+// actions. Rendered inline in .trees-toolbar-right next to the sort trigger
+// (see renderTreesToolbarRow below) once the account has at least one tree;
+// the zero-tree empty state has no sort control to sit next to, so it still
+// gets its own standalone row via renderTreesActionBar (main.js's
+// renderTreeGrid empty branch) - see handleTreesLandingHeaderAction (which
+// also handles 'open-vault').
+export function renderTreesActionButtons() {
   return `
-    <div class="trees-action-bar">
-      <div class="tree-card-menu-wrap">
-        <button type="button" id="download-template-btn" class="icon-btn menu-trigger" data-menu-trigger="landing-template-options" data-tooltip="Download Template" aria-label="Download Template">${icon('download')}</button>
-        ${dropdownMenu({
-          id: 'landing-template-options',
-          items: [
-            { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
-            { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
-          ],
-        })}
-      </div>
-      <div class="tree-card-menu-wrap">
-        <button type="button" id="import-tree-cta" class="icon-btn menu-trigger" data-menu-trigger="landing-import-options" data-tooltip="Import" aria-label="Import">${icon('upload')}</button>
-        ${dropdownMenu({
-          id: 'landing-import-options',
-          items: [
-            { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-            { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-          ],
-        })}
-      </div>
-      <button type="button" id="new-tree-cta" class="icon-btn icon-btn-primary" data-tooltip="New Tree" aria-label="New Tree">${icon('plus')}</button>
-      <div class="tree-card-menu-wrap">
-        <button type="button" id="trees-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="trees-more-options" data-tooltip="More options" aria-label="More options">${icon('kebab')}</button>
-        ${dropdownMenu({
-          id: 'trees-more-options',
-          items: [{ action: 'open-vault', label: 'Private Vault', icon: 'lock' }],
-        })}
-      </div>
+    <div class="tree-card-menu-wrap">
+      <button type="button" id="download-template-btn" class="icon-btn menu-trigger" data-menu-trigger="landing-template-options" data-tooltip="Download Template" aria-label="Download Template">${icon('download')}</button>
+      ${dropdownMenu({
+        id: 'landing-template-options',
+        items: [
+          { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
+          { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
+        ],
+      })}
+    </div>
+    <div class="tree-card-menu-wrap">
+      <button type="button" id="import-tree-cta" class="icon-btn menu-trigger" data-menu-trigger="landing-import-options" data-tooltip="Import" aria-label="Import">${icon('upload')}</button>
+      ${dropdownMenu({
+        id: 'landing-import-options',
+        items: [
+          { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+          { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+        ],
+      })}
+    </div>
+    <button type="button" id="new-tree-cta" class="icon-btn" data-tooltip="New Tree" aria-label="New Tree">${icon('plus')}</button>
+    <div class="tree-card-menu-wrap">
+      <button type="button" id="trees-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="trees-more-options" data-tooltip="More options" aria-label="More options">${icon('kebab')}</button>
+      ${dropdownMenu({
+        id: 'trees-more-options',
+        items: [{ action: 'open-vault', label: 'Private Vault', icon: 'lock' }],
+      })}
     </div>
   `;
+}
+
+// Standalone row used only for the zero-tree empty state (see renderTreesActionButtons above).
+export function renderTreesActionBar() {
+  return `<div class="trees-action-bar">${renderTreesActionButtons()}</div>`;
 }
 
 // Row 3: the personal tree-name filter and the "Discover other family
 // branches" member/tree search now share one box - search-mode-select picks
 // which underlying form is visible (see the .search-box-group/hidden dance
 // in main.js's renderTreeGrid) - plus a sort trigger (icon + dropdown menu,
-// replacing the old plain-text "Sort by" <select>). Only rendered once the
-// account already has at least one tree (see renderTreeGrid in main.js),
-// since the zero-tree empty state has its own create-tree entry point
-// (renderTreesEmptyStateMarkup's "skip search and create" link).
+// replacing the old plain-text "Sort by" <select>) and the Download
+// Template/Import/New Tree/More Options actions (renderTreesActionButtons
+// above), grouped together on the right. Only rendered once the account
+// already has at least one tree (see renderTreeGrid in main.js), since the
+// zero-tree empty state has its own create-tree entry point
+// (renderTreesEmptyStateMarkup's "skip search and create" link) and gets
+// renderTreesActionBar's standalone row instead.
 export function renderTreesToolbarRow({ search, sort, searchMode = 'trees', joinSearchHtml = '' }) {
   const sortLabels = { updated: 'Recently Updated', alpha: 'Alphabetical', created: 'Creation Date' };
   return `
@@ -560,6 +575,7 @@ export function renderTreesToolbarRow({ search, sort, searchMode = 'trees', join
             ],
           })}
         </div>
+        ${renderTreesActionButtons()}
       </div>
     </div>
   `;
