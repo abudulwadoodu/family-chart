@@ -140,6 +140,14 @@ export const icons = {
   treeHorizontal: svg(
     '<circle cx="5" cy="12" r="2"></circle><path d="M7 12h3"></path><path d="M10 6.5v11"></path><path d="M10 6.5h3.5"></path><path d="M10 17.5h3.5"></path><circle cx="15.5" cy="6.5" r="2"></circle><circle cx="15.5" cy="17.5" r="2"></circle>'
   ),
+  // Info-popover trigger (tree member-count/last-updated tooltip, and
+  // generic [data-tooltip] usage elsewhere).
+  info: svg('<circle cx="12" cy="12" r="8.5"></circle><path d="M12 11v5.5"></path><path d="M12 8.2v.3"></path>'),
+  // Sort trigger (My Trees toolbar) - stacked up/down arrows next to lines,
+  // standing in for a native <select>'s sort-order options.
+  sort: svg(
+    '<path d="M7 5v14"></path><path d="M4 8l3-3 3 3"></path><path d="M17 19V5"></path><path d="M14 16l3 3 3-3"></path>'
+  ),
 };
 
 export function icon(name) {

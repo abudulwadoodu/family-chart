@@ -47,24 +47,24 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
           <span class="sidebar-logo">${icon('logo')}</span>
           <span class="sidebar-wordmark">Family Chart</span>
         </div>
-        <button type="button" id="sidebar-close-btn" class="icon-btn sidebar-close" aria-label="Close navigation">${icon('close')}</button>
+        <button type="button" id="sidebar-close-btn" class="icon-btn sidebar-close" aria-label="Close navigation" data-tooltip="Close navigation" data-tooltip-pos="bottom">${icon('close')}</button>
       </div>
       <nav class="sidebar-nav" aria-label="Primary">
-        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn" title="My Trees">
+        <button type="button" class="nav-item ${activeView === 'trees' ? 'nav-item-active' : ''}" id="nav-trees-btn" data-tooltip="My Trees &mdash; create, manage, and collaborate on your family trees">
           ${icon('trees')}<span class="nav-label">My Trees</span>
         </button>
-        <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn" title="Security Settings">
+        <button type="button" class="nav-item ${activeView === 'security' ? 'nav-item-active' : ''}" id="nav-security-btn" data-tooltip="Security Settings">
           ${icon('shield')}<span class="nav-label">Security Settings</span>
         </button>
-        <button type="button" class="nav-item ${isRequestsActive ? 'nav-item-active' : ''}" id="nav-requests-btn" title="Requests">
+        <button type="button" class="nav-item ${isRequestsActive ? 'nav-item-active' : ''}" id="nav-requests-btn" data-tooltip="Requests">
           ${icon('list')}<span class="nav-label">Requests</span>
         </button>
-        <button type="button" class="nav-item ${isSupportActive ? 'nav-item-active' : ''}" id="nav-support-btn" title="Support">
+        <button type="button" class="nav-item ${isSupportActive ? 'nav-item-active' : ''}" id="nav-support-btn" data-tooltip="Support">
           ${icon('mail')}<span class="nav-label">Support</span>
         </button>
         ${
           isAdmin
-            ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn" title="Admin">
+            ? `<button type="button" class="nav-item ${activeView === 'admin' ? 'nav-item-active' : ''}" id="nav-admin-btn" data-tooltip="Admin">
                 ${icon('settings')}<span class="nav-label">Admin</span>
               </button>`
             : ''
@@ -74,7 +74,8 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
         type="button"
         id="sidebar-collapse-btn"
         class="sidebar-collapse-btn"
-        title="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+        data-tooltip="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
+        data-tooltip-pos="right"
         aria-pressed="${Boolean(collapsed)}"
         aria-label="${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}"
       >${icon('chevronRight')}</button>
@@ -83,52 +84,68 @@ export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
   `;
 }
 
-// Global top-right bar - selected tree name, notification bell, and the
-// avatar/email/theme toggle/logout popover, reusing the same
-// dropdown-menu/data-menu-trigger mechanism as every other menu in the app.
-// Rendered once inside .main-area (above .content), so it's present above
-// every page, not just the tree viewer. `leftLabel` is whatever context
-// title belongs on the left - the "Family Trees" page title when on the
-// trees landing page, or the selected tree's name once inside one (see
-// main.js's renderDashboard) - null everywhere else (Security/Support/etc).
-export function renderTopbar({ email, activeTheme, hasTree, leftLabel }) {
+// The bell (family feed trigger, tree pages only) + avatar/email/theme
+// toggle/logout popover, reusing the same dropdown-menu/data-menu-trigger
+// mechanism as every other menu in the app. Factored out of renderTopbar so
+// the compact tree-detail header (renderTreeDetailHeaderTop) can reuse the
+// exact same cluster instead of duplicating the profile-menu markup.
+export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
+  return `
+    ${
+      hasTree
+        ? `<button type="button" id="feed-notification-btn" class="icon-btn" aria-label="Family feed" data-tooltip="Family feed" data-tooltip-pos="bottom">${icon('bell')}</button>
+           <span class="header-divider" aria-hidden="true"></span>`
+        : ''
+    }
+    <div class="profile-menu-wrap">
+      <button
+        type="button"
+        id="profile-menu-btn"
+        class="profile-trigger"
+        data-menu-trigger="profile-menu"
+        data-tooltip="${escapeHtml(email)}"
+        data-tooltip-pos="bottom"
+        aria-haspopup="true"
+      >
+        <span class="user-avatar">${escapeHtml(initial)}</span>
+        ${icon('chevronDown')}
+      </button>
+      <div class="dropdown-menu profile-menu" id="profile-menu" data-menu-id="profile-menu">
+        <div class="profile-menu-header">
+          <span class="user-avatar user-avatar-lg">${escapeHtml(initial)}</span>
+          <span class="profile-menu-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
+        </div>
+        <div class="dropdown-divider"></div>
+        <div class="profile-menu-theme">
+          ${renderThemeToggle({ activeTheme, idPrefix: 'topbar-theme-toggle' })}
+        </div>
+        <div class="dropdown-divider"></div>
+        <button type="button" id="logout-btn" class="dropdown-item dropdown-item-danger" title="Logout">
+          ${icon('logout')}<span>Logout</span>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// Global top-right bar - selected tree name and the user cluster above.
+// Rendered once inside .main-area (above .content), so it's present above
+// every page except the three tree-detail pages (Tree Canvas/Media
+// Library/Timeline), which render their own compact renderTreeDetailHeaderTop
+// instead (see main.js's renderDashboard). `leftLabel` is whatever context
+// title belongs on the left - the "Family Trees" page title when on the
+// trees landing page, or the selected tree's name for the Relationship
+// Finder/Timeline-detail sub-views (which keep their own breadcrumb below
+// this bar) - null everywhere else (Security/Support/etc). Always shows just
+// the profile icon (no notification bell) - the family feed bell is
+// tree-detail-only, see renderTreeDetailHeaderTop.
+export function renderTopbar({ email, activeTheme, leftLabel }) {
   return `
     <header class="app-topbar">
       ${leftLabel ? `<span class="app-topbar-title">${escapeHtml(leftLabel)}</span>` : ''}
       <div class="app-topbar-spacer"></div>
-      ${
-        hasTree
-          ? `<button type="button" id="feed-notification-btn" class="icon-btn" aria-label="Family feed" title="Family feed">${icon('bell')}</button>`
-          : ''
-      }
-      <div class="profile-menu-wrap">
-        <button
-          type="button"
-          id="profile-menu-btn"
-          class="profile-trigger"
-          data-menu-trigger="profile-menu"
-          title="${escapeHtml(email)}"
-          aria-haspopup="true"
-        >
-          <span class="user-avatar">${escapeHtml(initial)}</span>
-          ${icon('chevronDown')}
-        </button>
-        <div class="dropdown-menu profile-menu" id="profile-menu" data-menu-id="profile-menu">
-          <div class="profile-menu-header">
-            <span class="user-avatar user-avatar-lg">${escapeHtml(initial)}</span>
-            <span class="profile-menu-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
-          </div>
-          <div class="dropdown-divider"></div>
-          <div class="profile-menu-theme">
-            ${renderThemeToggle({ activeTheme, idPrefix: 'topbar-theme-toggle' })}
-          </div>
-          <div class="dropdown-divider"></div>
-          <button type="button" id="logout-btn" class="dropdown-item dropdown-item-danger" title="Logout">
-            ${icon('logout')}<span>Logout</span>
-          </button>
-        </div>
-      </div>
+      ${renderHeaderUserCluster({ email, activeTheme, hasTree: false })}
     </header>
   `;
 }
@@ -142,46 +159,12 @@ export function renderMobileTopbar() {
   `;
 }
 
-export function renderPageHeader({
-  title,
-  subtitle,
-  primaryActionId,
-  primaryActionLabel,
-  secondaryActionId,
-  secondaryActionLabel,
-  importMenu,
-  templateMenu,
-}) {
+export function renderPageHeader({ title, subtitle }) {
   return `
     <header class="page-header">
       <div>
         ${title ? `<h1 class="page-title">${escapeHtml(title)}</h1>` : ''}
         <p class="page-subtitle">${escapeHtml(subtitle)}</p>
-      </div>
-      <div class="page-header-actions">
-        ${
-          templateMenu
-            ? `<div class="tree-card-menu-wrap">
-                 <button type="button" id="${templateMenu.triggerId}" class="btn btn-secondary menu-trigger" data-menu-trigger="${templateMenu.id}">${icon('download')}<span>${escapeHtml(templateMenu.label)}</span></button>
-                 ${dropdownMenu({ id: templateMenu.id, items: templateMenu.items })}
-               </div>`
-            : ''
-        }
-        ${
-          importMenu
-            ? `<div class="tree-card-menu-wrap">
-                 <button type="button" id="${importMenu.triggerId}" class="btn btn-secondary menu-trigger" data-menu-trigger="${importMenu.id}">${icon('upload')}<span>${escapeHtml(importMenu.label)}</span></button>
-                 ${dropdownMenu({ id: importMenu.id, items: importMenu.items })}
-               </div>`
-            : secondaryActionId
-              ? `<button type="button" id="${secondaryActionId}" class="btn btn-secondary">${icon('upload')}<span>${escapeHtml(secondaryActionLabel)}</span></button>`
-              : ''
-        }
-        ${
-          primaryActionId
-            ? `<button type="button" id="${primaryActionId}" class="btn btn-primary">${icon('plus')}<span>${escapeHtml(primaryActionLabel)}</span></button>`
-            : ''
-        }
       </div>
     </header>
   `;
@@ -235,8 +218,9 @@ export function renderCreateTreeCard() {
 // family" search is embedded directly inside the empty container instead of
 // living in its own card above it, since there's no tree grid yet to
 // separate it from. A "skip search and create" link is the only way to
-// reach tree creation here - the redundant "+ Create Tree" button was
-// removed since the page header's "+ New Tree" already covers that action.
+// reach tree creation here - "+ New Tree" itself only lives in the toolbar
+// row next to Search/Sort (see renderTreesToolbarRow), which isn't rendered
+// until the account has at least one tree.
 export function renderTreesEmptyStateMarkup({ query, loading, searched, results }) {
   const body = loading
     ? `<p class="muted join-search-status">Searching...</p>`
@@ -264,22 +248,18 @@ export function renderTreesEmptyStateMarkup({ query, loading, searched, results 
   `;
 }
 
-// Discover-search shown once the account already has trees. Collapsed by
-// default to a plain text link (so it doesn't visually compete with the
-// primary "Search trees by name..." box in the toolbar row); clicking it
-// swaps in the actual search form, still styled with the accent color
-// (discover-search-box) so it reads as "search everyone's trees" rather
-// than "filter my trees".
-export function renderCompactJoinSearch({ query, expanded }) {
-  if (!expanded) {
-    return `<button type="button" id="join-search-reveal-btn" class="link-btn discover-search-link">${icon('search')}<span>Discover other family branches</span></button>`;
-  }
-
+// Discover-search shown once the account already has trees - the "Members"
+// mode of the merged search box in the toolbar row (see renderTreesToolbarRow
+// and its search-mode-select), searching the whole database by tree name or
+// a family member's first/last name rather than just the caller's own trees.
+// Styled with the accent color (discover-search-box) so it reads as "search
+// everyone's trees" rather than "filter my trees".
+export function renderCompactJoinSearch({ query }) {
   return `
     <form id="join-search-form" class="discover-search-form">
       <label class="search-box discover-search-box" title="Search the entire database for other family trees, not just yours">
         ${icon('search')}
-        <input id="join-search-input" type="search" name="query" placeholder="Discover other family branches..." maxlength="120" value="${escapeHtml(query)}" />
+        <input id="join-search-input" type="search" name="query" placeholder="Search by a family member's name..." maxlength="120" value="${escapeHtml(query)}" />
       </label>
     </form>
   `;
@@ -505,32 +485,87 @@ function renderSentRequestRow(request) {
   `;
 }
 
-// discoverSearchHtml is an optional slot (renderCompactJoinSearch's markup)
-// placed between the personal filter and the sort dropdown, so both search
-// boxes sit in the same sub-header row - visually side by side, but styled
-// distinctly (see .discover-search-box) so it's clear one filters your own
-// trees and the other searches the whole database.
-export function renderTreesToolbarRow({ search, sort, discoverSearchHtml = '' }) {
+// Row 2 of the My Trees page: icon-only Download Template/Import/New
+// Tree/More Options (private vault) actions, replacing the old label+icon
+// buttons that lived in a page header above the (now-removed) Active
+// Trees/Private Vault tabs - see main.js's renderTreesLandingMarkup and
+// handleTreesLandingHeaderAction (which now also handles 'open-vault').
+export function renderTreesActionBar() {
   return `
-    <div class="trees-toolbar-row">
-      <label class="search-box">
-        ${icon('search')}
-        <input type="search" id="tree-search-input" placeholder="Search trees by name..." value="${escapeHtml(search)}" />
-      </label>
-      ${discoverSearchHtml}
-      <label class="sort-box">
-        <span class="sort-box-label">Sort by</span>
-        <select id="tree-sort-select">
-          <option value="updated" ${sort === 'updated' ? 'selected' : ''}>Recently Updated</option>
-          <option value="alpha" ${sort === 'alpha' ? 'selected' : ''}>Alphabetical</option>
-          <option value="created" ${sort === 'created' ? 'selected' : ''}>Creation Date</option>
-        </select>
-      </label>
+    <div class="trees-action-bar">
+      <div class="tree-card-menu-wrap">
+        <button type="button" id="download-template-btn" class="icon-btn menu-trigger" data-menu-trigger="landing-template-options" data-tooltip="Download Template" aria-label="Download Template">${icon('download')}</button>
+        ${dropdownMenu({
+          id: 'landing-template-options',
+          items: [
+            { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
+            { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
+          ],
+        })}
+      </div>
+      <div class="tree-card-menu-wrap">
+        <button type="button" id="import-tree-cta" class="icon-btn menu-trigger" data-menu-trigger="landing-import-options" data-tooltip="Import" aria-label="Import">${icon('upload')}</button>
+        ${dropdownMenu({
+          id: 'landing-import-options',
+          items: [
+            { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
+            { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
+          ],
+        })}
+      </div>
+      <button type="button" id="new-tree-cta" class="icon-btn icon-btn-primary" data-tooltip="New Tree" aria-label="New Tree">${icon('plus')}</button>
+      <div class="tree-card-menu-wrap">
+        <button type="button" id="trees-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="trees-more-options" data-tooltip="More options" aria-label="More options">${icon('kebab')}</button>
+        ${dropdownMenu({
+          id: 'trees-more-options',
+          items: [{ action: 'open-vault', label: 'Private Vault', icon: 'lock' }],
+        })}
+      </div>
     </div>
   `;
 }
 
-function dropdownMenu({ id, items }) {
+// Row 3: the personal tree-name filter and the "Discover other family
+// branches" member/tree search now share one box - search-mode-select picks
+// which underlying form is visible (see the .search-box-group/hidden dance
+// in main.js's renderTreeGrid) - plus a sort trigger (icon + dropdown menu,
+// replacing the old plain-text "Sort by" <select>). Only rendered once the
+// account already has at least one tree (see renderTreeGrid in main.js),
+// since the zero-tree empty state has its own create-tree entry point
+// (renderTreesEmptyStateMarkup's "skip search and create" link).
+export function renderTreesToolbarRow({ search, sort, searchMode = 'trees', joinSearchHtml = '' }) {
+  const sortLabels = { updated: 'Recently Updated', alpha: 'Alphabetical', created: 'Creation Date' };
+  return `
+    <div class="trees-toolbar-row">
+      <div class="search-box-group">
+        <label class="search-box" ${searchMode === 'members' ? 'hidden' : ''}>
+          ${icon('search')}
+          <input type="search" id="tree-search-input" placeholder="Search trees by name..." value="${escapeHtml(search)}" />
+        </label>
+        <div class="discover-search-slot" ${searchMode === 'trees' ? 'hidden' : ''}>${joinSearchHtml}</div>
+        <select id="tree-search-mode-select" class="search-mode-select" data-tooltip="Search your own trees, or discover other family trees by a member's name" data-tooltip-pos="bottom">
+          <option value="trees" ${searchMode === 'trees' ? 'selected' : ''}>Trees</option>
+          <option value="members" ${searchMode === 'members' ? 'selected' : ''}>Members</option>
+        </select>
+      </div>
+      <div class="trees-toolbar-right">
+        <div class="tree-card-menu-wrap">
+          <button type="button" id="tree-sort-btn" class="icon-btn menu-trigger" data-menu-trigger="tree-sort-menu" data-tooltip="Sort: ${escapeHtml(sortLabels[sort] || sortLabels.updated)}" aria-label="Sort trees">${icon('sort')}</button>
+          ${dropdownMenu({
+            id: 'tree-sort-menu',
+            items: [
+              { action: 'sort-updated', label: 'Recently Updated', icon: 'clock', active: sort === 'updated' },
+              { action: 'sort-alpha', label: 'Alphabetical', icon: 'list', active: sort === 'alpha' },
+              { action: 'sort-created', label: 'Creation Date', icon: 'folderPlus', active: sort === 'created' },
+            ],
+          })}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+export function dropdownMenu({ id, items }) {
   return `
     <div class="dropdown-menu" data-menu-id="${id}">
       ${items
@@ -583,7 +618,12 @@ export function renderTreeCard(tree, { renaming } = {}) {
     : `<h3 class="tree-card-title" data-tree-id="${tree.id}">${escapeHtml(tree.name)}</h3>`;
 
   const memberLabel = `${tree.member_count} member${tree.member_count === 1 ? '' : 's'}`;
+  // formatRelativeTime falls back to a literal "Last updated: Unknown" string
+  // when the tree has no (or an unparseable) updated_at - that sentinel isn't
+  // useful information for the user, so the whole meta line is dropped
+  // instead of ever rendering "Unknown".
   const updatedLabel = formatRelativeTime(tree.updated_at);
+  const hasUpdatedLabel = updatedLabel !== 'Last updated: Unknown';
 
   return `
     <article class="tree-card tree-card-clickable${isDisabled ? ' tree-card-disabled' : ''}" data-tree-id="${tree.id}" data-tree-status="${escapeHtml(tree.status || 'active')}" tabindex="0" role="button" aria-label="Open ${escapeHtml(tree.name)}">
@@ -602,12 +642,12 @@ export function renderTreeCard(tree, { renaming } = {}) {
       <div class="tree-card-body">
         ${titleBlock}
         <p class="tree-card-meta">${escapeHtml(memberLabel)}</p>
-        <p class="tree-card-meta tree-card-meta-muted">${escapeHtml(updatedLabel)}</p>
+        ${hasUpdatedLabel ? `<p class="tree-card-meta tree-card-meta-muted">${escapeHtml(updatedLabel)}</p>` : ''}
       </div>
       <div class="tree-card-foot">
         <span class="badge badge-role-${tree.role}">${ROLE_LABELS[tree.role] || tree.role}</span>
         ${isDisabled ? '<span class="badge badge-status-disabled">Disabled</span>' : ''}
-        <button type="button" class="btn btn-secondary btn-sm tree-open-btn" data-tree-id="${tree.id}" ${isDisabled ? 'disabled' : ''}>Open</button>
+        <span class="tree-card-arrow" aria-hidden="true">${icon('chevronRight')}</span>
       </div>
     </article>
   `;
@@ -683,14 +723,14 @@ export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel =
   `;
 }
 
-// Combines the old separate Import/Export buttons, Relationships/Duplicates
-// (moved out of the old Tools menu), and the standalone header gear menu's
-// Rename/Settings/Save to Vault/Delete Tree/CSV templates (folded in once the
-// compact primary bar dropped the separate gear icon-button - see
-// renderAppHeader) into one "Manage Data" dropdown, grouped with small
-// section labels so the four action groups stay visually distinct despite
-// sharing a trigger.
-function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
+// Combines Share, the old separate Import/Export buttons, Relationships/
+// Duplicates (moved out of the old Tools menu), and the standalone header
+// gear menu's Rename/Settings/Save to Vault/Delete Tree/CSV templates into
+// one icon-only "More" dropdown (see renderAppHeader) - Share used to be its
+// own button next to this menu; it's now that menu's first item so Row 2
+// only has to carry the Editing dropdown and this one icon.
+export function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
+  const shareGroup = isOwner ? [{ action: 'share', label: 'Share', icon: 'share' }] : [];
   const importGroup = canEdit
     ? [
         { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
@@ -721,24 +761,28 @@ function renderManageDataMenu({ canEdit, isOwner, viewMode }) {
     treeGroup.push({ action: 'vault-snapshot', label: 'Save to Vault', icon: 'lock' });
     treeGroup.push({ action: 'delete', label: 'Delete Tree', icon: 'trash', danger: true });
   }
-  const renderGroup = (label, items) => `
-    <div class="dropdown-group-label">${escapeHtml(label)}</div>
-    ${items
+  const renderItems = (items) =>
+    items
       .map(
         (item) => `
       <button type="button" class="dropdown-item ${item.active ? 'dropdown-item-active' : ''} ${item.danger ? 'dropdown-item-danger' : ''}" data-action="${item.action}">
         ${icon(item.icon)}<span>${escapeHtml(item.label)}</span>
       </button>`
       )
-      .join('')}
+      .join('');
+  const renderGroup = (label, items) => `
+    <div class="dropdown-group-label">${escapeHtml(label)}</div>
+    ${renderItems(items)}
   `;
 
   return `
     <div class="tree-card-menu-wrap">
-      <button type="button" id="manage-data-btn" class="btn btn-secondary menu-trigger" data-menu-trigger="manage-data-options">
-        ${icon('download')}<span>Manage Data</span>
+      <button type="button" id="tree-more-options-btn" class="icon-btn menu-trigger" data-menu-trigger="tree-more-options" data-tooltip="More options" aria-label="More options">
+        ${icon('kebab')}
       </button>
-      <div class="dropdown-menu" data-menu-id="manage-data-options">
+      <div class="dropdown-menu" data-menu-id="tree-more-options">
+        ${shareGroup.length ? renderItems(shareGroup) : ''}
+        ${shareGroup.length ? '<div class="dropdown-divider"></div>' : ''}
         ${importGroup.length ? renderGroup('Import', importGroup) : ''}
         ${importGroup.length ? '<div class="dropdown-divider"></div>' : ''}
         ${renderGroup('Export', exportGroup)}
@@ -801,77 +845,125 @@ function renderRoleModeControl({ role, viewOnly }) {
   `;
 }
 
-// The single compact primary bar shared by every tree-detail page (Tree
-// View, Media Library, Timeline) - see renderPrimaryTabSwitcher for the
-// centered segmented control, renderRoleModeControl for the left-side
-// role/mode indicator, and renderTreeViewSubtoggle/
-// renderMediaLibraryToolbarExtra/renderTimelineToolbarExtra for the
-// contextual sub-bar rendered directly below it (main.js). All three stay
-// structurally identical no matter which page is showing, which is what
-// keeps the bar's height from jumping when switching views - callers should
-// never build their own competing header. There's no breadcrumb or sidebar
-// toggle here - the tree name lives in the global renderTopbar instead, and
-// the sidebar's own #sidebar-collapse-btn is the only sidebar toggle. There's
-// no tree title/rename button either - Rename Tree lives in the Manage Data
-// dropdown (see renderManageDataMenu) instead of a standalone inline pencil
-// button.
-export function renderAppHeader({ role, viewMode, primaryTab = 'tree', viewOnly = false }) {
-  const isOwner = role === 'owner';
-  const canEdit = (isOwner || role === 'editor') && !viewOnly;
+// Row 1 of the compact 2-row header shared by every tree-detail page (Tree
+// Canvas, Media Library, Timeline) - breadcrumb + an info popover (member
+// count/last updated, see the info-trigger below) on the left, notification
+// bell + profile avatar on the right. The Tree View/Media/Events switcher
+// used to be centered here; it now anchors Row 2 left instead (see
+// renderAppHeader/renderPrimaryTabSwitcher) so this row stays a plain
+// 2-column bar. Member search used to live here too; it's now a floating
+// widget over the tree canvas instead (see renderMemberSearch, only rendered
+// by renderTreeCanvasMarkup in main.js), which is why it's Tree-Canvas-only
+// and no longer shown on Media Library/Timeline. Sits where renderTopbar
+// sits on every other dashboard page (see main.js's renderDashboard), so
+// these two are mutually exclusive - never rendered together. Row 2 is
+// renderAppHeader below.
+export function renderTreeDetailHeaderTop({ treeName, memberCount, updatedAt, email, activeTheme }) {
+  const infoParts = [];
+  if (typeof memberCount === 'number') infoParts.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
+  if (updatedAt) infoParts.push(formatRelativeTime(updatedAt));
+  const infoHtml = infoParts.length
+    ? `<button type="button" class="header-info-trigger" data-tooltip="${escapeHtml(infoParts.join(' • '))}" data-tooltip-pos="bottom" aria-label="Tree info">${icon('info')}</button>`
+    : '';
 
+  return `
+    <div class="app-tree-header-top">
+      <div class="app-tree-header-top-left header-island header-island--top">
+        ${renderTreeBreadcrumb({ treeName })}
+        ${infoHtml}
+      </div>
+      <div class="app-tree-header-top-right header-island header-island--top">
+        ${renderHeaderUserCluster({ email, activeTheme, hasTree: true })}
+      </div>
+    </div>
+  `;
+}
+
+// Row 2 of the compact 2-row header shared by every tree-detail page (Tree
+// Canvas, Media Library, Timeline) - the Tree View/Media/Events switcher
+// (see renderPrimaryTabSwitcher) plus, for Media/Events, their filter pills
+// (`centerHtml` - renderMediaLibraryFilterPills/renderTimelineFilterPills in
+// their own files) anchor left; Saved status, that tab's action button(s)
+// (`actionsHtml` - renderMediaLibraryActions/renderTimelineActions),
+// renderRoleModeControl's Editing/Viewing dropdown, and the merged
+// Share/Manage Data "More" menu (see renderManageDataMenu) anchor right.
+// There's no tree title/rename button here - Rename Tree lives in that More
+// dropdown instead of a standalone inline pencil button.
+export function renderAppHeader({
+  role,
+  viewMode,
+  primaryTab = 'tree',
+  viewOnly = false,
+  canEdit,
+  isOwner,
+  centerHtml = '',
+  actionsHtml = '',
+}) {
   return `
     <header class="app-primary-bar">
       <div class="primary-bar-left">
-        ${renderRoleModeControl({ role, viewOnly })}
+        <div class="header-island header-island--pill">
+          <div id="primary-tab-switcher">${renderPrimaryTabSwitcher({ primaryTab, viewMode })}</div>
+        </div>
+        ${centerHtml ? `<div class="header-island header-island--tool">${centerHtml}</div>` : ''}
       </div>
-      <div class="primary-bar-center">
-        <div id="primary-tab-switcher">${renderPrimaryTabSwitcher({ primaryTab })}</div>
-      </div>
-      <div class="primary-bar-right">
-        ${renderMemberSearch()}
+      <div class="primary-bar-right header-island header-island--tool">
         ${renderAutoSaveStatus({ canEdit })}
+        ${actionsHtml}
+        ${renderRoleModeControl({ role, viewOnly })}
         ${canEdit ? `<input type="file" id="import-tree-json-input" accept=".json,application/json" hidden />` : ''}
         ${renderManageDataMenu({ canEdit, isOwner, viewMode })}
-        ${isOwner ? `<button type="button" id="share-tree-btn" class="btn btn-secondary">${icon('share')}<span>Share</span></button>` : ''}
       </div>
     </header>
   `;
 }
 
 // Three top-level destinations - Tree View, Media, and Events - as one
-// segmented control (Media/Events used to be a nested Gallery sub-tab, now
-// folded into direct peers of Tree View), centered in the compact primary
-// bar (see renderAppHeader). `primaryTab` ('tree' | 'media' | 'events') is a
-// pure display concern - which one reads as active - tracked in
-// state.treeToolbarPrimaryTab by main.js and independent of the actual
-// viewMode/dashboardView; clicking an option is what actually navigates.
-export function renderPrimaryTabSwitcher({ primaryTab }) {
+// segmented control, anchoring Row 2 left (see renderAppHeader). `primaryTab`
+// ('tree' | 'media' | 'events') is a pure display concern - which one reads
+// as active - tracked in state.treeToolbarPrimaryTab by main.js and
+// independent of the actual viewMode/dashboardView; clicking an option is
+// what actually navigates. Tree View's label and caret are separate click
+// targets sharing one pill (see .segmented-option-group): the label switches
+// to Tree View like Media/Events do, the caret opens a menu of
+// Focused/All Nodes/Relationship Finder (formerly a standalone row of chips,
+// see the old renderTreeViewSubtoggle) - reuses their original
+// #focused-mode-btn/#all-nodes-mode-btn/#relationship-finder-btn ids so
+// main.js's setupViewModeToggle wiring didn't need to change, just where
+// these buttons physically live.
+export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
   return `
     <div class="segmented-control" role="tablist" aria-label="Primary views">
-      <button type="button" id="primary-tab-tree-btn" class="segmented-option ${primaryTab === 'tree' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'tree'}">
-        Tree View
-      </button>
+      <div class="segmented-dropdown-wrap">
+        <div class="segmented-option-group ${primaryTab === 'tree' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'tree'}">
+          <button type="button" id="primary-tab-tree-btn" class="segmented-option-label">Tree View</button>
+          <button
+            type="button"
+            id="tree-view-mode-btn"
+            class="segmented-option-caret"
+            data-menu-trigger="tree-view-mode-menu"
+            aria-haspopup="true"
+            aria-label="Tree View options"
+          >${icon('chevronDown')}</button>
+        </div>
+        <div class="dropdown-menu" id="tree-view-mode-menu" data-menu-id="tree-view-mode-menu">
+          <button type="button" id="focused-mode-btn" class="dropdown-item ${viewMode === 'focused' ? 'dropdown-item-active' : ''}">
+            ${icon('crosshair')}<span>Focused</span>
+          </button>
+          <button type="button" id="all-nodes-mode-btn" class="dropdown-item ${viewMode === 'all-nodes' ? 'dropdown-item-active' : ''}">
+            ${icon('list')}<span>All Nodes</span>
+          </button>
+          <button type="button" id="relationship-finder-btn" class="dropdown-item" title="Find how two people in this tree are related">
+            ${icon('share')}<span>Relationship Finder</span>
+          </button>
+        </div>
+      </div>
       <button type="button" id="primary-tab-media-btn" class="segmented-option ${primaryTab === 'media' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'media'}">
         Media
       </button>
       <button type="button" id="primary-tab-events-btn" class="segmented-option ${primaryTab === 'events' ? 'segmented-option-active' : ''}" role="tab" aria-selected="${primaryTab === 'events'}">
         Events
       </button>
-    </div>
-  `;
-}
-
-// Tree View's own Focused/All Nodes/Relationship Finder choice, one rung
-// below the primary tab switcher - rendered as the contextual sub-bar's
-// content when primaryTab === 'tree' (a peer of renderMediaLibraryToolbarExtra/
-// renderTimelineToolbarExtra, which fill the same sub-bar slot for the other
-// two tabs - see .app-sub-bar in main.js).
-export function renderTreeViewSubtoggle({ viewMode }) {
-  return `
-    <div class="tree-view-subtoggle" role="group" aria-label="Tree View">
-      <button type="button" id="focused-mode-btn" class="chip chip-sm ${viewMode === 'focused' ? 'chip-active' : ''}" ${viewMode === 'focused' ? 'disabled' : ''}>Focused</button>
-      <button type="button" id="all-nodes-mode-btn" class="chip chip-sm ${viewMode === 'all-nodes' ? 'chip-active' : ''}" ${viewMode === 'all-nodes' ? 'disabled' : ''}>All Nodes</button>
-      <button type="button" id="relationship-finder-btn" class="chip chip-sm" title="Find how two people in this tree are related">Relationship Finder</button>
     </div>
   `;
 }
@@ -916,7 +1008,12 @@ export function renderCanvasFloatingControls({ cardStyle = 'circle', orientation
   `;
 }
 
-export function renderMemberSearch() {
+// Floats top-left over the tree canvas (see .member-search in styles.css and
+// renderTreeCanvasMarkup in main.js) rather than living in the shared header
+// row - `shortcutLabel` is computed in main.js (platform-specific ⌘K/Ctrl+K)
+// and shown inside the box until the user actually types something, at which
+// point main.js's attachMemberSearchListeners swaps it for the clear button.
+export function renderMemberSearch({ shortcutLabel = 'Ctrl+K' } = {}) {
   return `
     <div class="member-search" id="member-search">
       <label class="search-box member-search-box">
@@ -931,6 +1028,7 @@ export function renderMemberSearch() {
           aria-controls="member-search-results"
           role="combobox"
         />
+        <kbd class="member-search-shortcut" id="member-search-shortcut" aria-hidden="true">${escapeHtml(shortcutLabel)}</kbd>
         <button type="button" id="member-search-clear-btn" class="member-search-clear" aria-label="Clear search" hidden>${icon('close')}</button>
       </label>
       <div class="member-search-results" id="member-search-results" role="listbox" hidden></div>

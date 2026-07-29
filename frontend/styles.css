@@ -1353,7 +1353,7 @@ button.secondary:active,
   flex-shrink: 0;
   padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  background: transparent;
 }
 
 .app-topbar-title {
@@ -1634,27 +1634,6 @@ button.secondary:active,
   background: transparent;
 }
 
-/* Trees Dashboard sub-nav (Active Trees / Private Vault). Reuses
-   .section-tabs/.section-tab's underline styling; the extra rules here are
-   just to keep the bar usable on narrow/mobile viewports where it sits right
-   at the top of the page instead of below a page-header. */
-.trees-tabs {
-  margin-bottom: var(--sp-5);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* legacy Edge/IE */
-}
-
-.trees-tabs::-webkit-scrollbar {
-  display: none; /* Chrome/Safari/WebKit */
-}
-
-.trees-tabs .section-tab {
-  padding: var(--sp-3) var(--sp-2);
-  white-space: nowrap;
-}
-
 .page-title {
   font-size: 1.7rem;
   font-weight: 700;
@@ -1852,6 +1831,15 @@ button.secondary:active,
   color: var(--text-tertiary);
 }
 
+/* .search-box sets its own `display: flex` above, which (being an author
+   rule) otherwise outranks the UA stylesheet's `[hidden] { display: none }`
+   - needed so .search-box-group's Trees/Members mode-swap (see
+   renderTreesToolbarRow) actually hides the inactive box instead of just
+   leaving it empty-but-visible. */
+.search-box[hidden] {
+  display: none;
+}
+
 .search-box .icon {
   width: 16px;
   height: 16px;
@@ -1869,6 +1857,11 @@ button.secondary:active,
   outline: none;
 }
 
+/* Labeled sort <select> - used by the Duplicate/Relationship managers'
+   list panels (duplicateManager/duplicateListPanel.js,
+   relationshipManager/disconnectedListPanel.js). The My Trees toolbar used
+   to have its own copy of this pattern too; it now uses an icon + dropdown
+   menu instead (see .trees-toolbar-right/#tree-sort-menu below). */
 .sort-box {
   display: flex;
   align-items: center;
@@ -1901,39 +1894,95 @@ button.secondary:active,
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a94a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }
 
-/* Compact "discover other family branches" search shown in the active-state
-   toolbar row, next to the plain personal-list filter. Uses the accent
-   color for its border/icon (instead of --border-default/--text-tertiary
-   like .search-box) so it visually reads as "search everyone's trees," not
-   a second copy of the personal filter box beside it. */
+/* Row 2 of the My Trees page - icon-only Download Template/Import/New
+   Tree/More Options buttons (see renderTreesActionBar in components.js),
+   replacing the old label+icon page-header buttons. Tooltips carry the
+   labels now (see [data-tooltip] in the popover section above). */
+.trees-action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+}
+
+.icon-btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--text-on-accent);
+}
+
+.icon-btn-primary:hover {
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* Row 3 left: the personal tree-name filter and the "Discover other family
+   branches" member/tree search now share one visual box - a mode dropdown
+   (search-mode-select) picks which underlying form is visible (only one of
+   .search-box/.discover-search-form is un-hidden at a time; see
+   renderTreesToolbarRow) rather than showing two separate inputs. */
+.search-box-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 260px;
+  max-width: 420px;
+}
+
+.search-box-group .search-box,
+.search-box-group .discover-search-form {
+  max-width: none;
+}
+
+/* Wraps renderCompactJoinSearch's <form> (only rendered, but hidden, in
+   Trees mode) so it can be a flex item in its own right - a plain wrapper
+   div would otherwise ignore the form's own flex:1 sizing, since flex
+   properties only apply to direct children of a flex container. */
+.discover-search-slot {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-mode-select {
+  flex-shrink: 0;
+  min-width: 100px;
+  padding: 8px 30px 8px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2379829a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+}
+
+[data-theme='light'] .search-mode-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a94a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+/* Sort trigger (icon + dropdown menu, see #tree-sort-menu in
+   renderTreesToolbarRow) grouped with the row's other right-hand controls. */
+.trees-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-shrink: 0;
+}
+
+/* "Discover other family branches" search - the Members mode of
+   .search-box-group above. Uses the accent color for its border/icon
+   (instead of --border-default/--text-tertiary like .search-box) so it
+   visually reads as "search everyone's trees," not a second copy of the
+   personal filter box beside it. */
 .discover-search-form {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-}
-
-/* Collapsed state of the discover-search: a plain text link so it reads as
-   a secondary action next to the primary "Search trees by name..." box,
-   instead of a second input box competing for attention in the same row. */
-.discover-search-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-shrink: 0;
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.discover-search-link .icon {
-  width: 15px;
-  height: 15px;
-}
-
-.discover-search-link:hover {
-  color: var(--accent-hover);
-  text-decoration: underline;
+  flex: 1;
 }
 
 .discover-search-box {
@@ -2023,9 +2072,11 @@ button.secondary:active,
   transform: translateY(-2px);
 }
 
-/* The whole card opens the tree now (see .tree-open-btn's click handler in
-   main.js), so it needs its own affordances - pointer cursor and a visible
-   focus ring for keyboard users tabbing to the [role="button"] article. */
+/* The whole card opens the tree (see bindTreeGridListeners' .tree-card-clickable
+   handler in main.js), so it needs its own affordances - pointer cursor and a
+   visible focus ring for keyboard users tabbing to the [role="button"] article.
+   There's no separate "Open" button anymore; .tree-card-arrow below is a
+   purely decorative hint, not a second click target. */
 .tree-card-clickable {
   cursor: pointer;
 }
@@ -2099,6 +2150,29 @@ button.secondary:active,
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* Replaces the old explicit "Open" button - the whole card is the click
+   target now (see .tree-card-clickable), so this is just a hover hint that
+   nudges right and shifts to the accent color instead of anything
+   interactive of its own (aria-hidden in the markup). */
+.tree-card-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  transition: transform var(--transition-base), color var(--transition-base);
+}
+
+.tree-card-arrow .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.tree-card:hover .tree-card-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
 }
 
 .tree-rename-form {
@@ -2380,7 +2454,6 @@ button.secondary:active,
   gap: var(--sp-2);
   font-size: 0.82rem;
   color: var(--text-tertiary);
-  margin-bottom: var(--sp-2);
 }
 
 .breadcrumb-link {
@@ -2402,19 +2475,117 @@ button.secondary:active,
   color: var(--text-secondary);
 }
 
-/* Compact primary bar: role badge on the left, the segmented view switcher
-   truly centered (grid, not flex space-between, so the center group stays
-   centered regardless of how wide the left/right groups are), and
-   search/save/actions on the right - one fixed-height row that can't jump
-   when switching between Tree View/Media/Events (same left-group shape on
-   all three). */
-.app-primary-bar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+/* Row 1 of the compact 2-row tree-detail header (see renderTreeDetailHeaderTop
+   in components.js) - breadcrumb/tagline on the left, the main Tree
+   View/Media/Events switcher centered, and global search/Saved status/Manage
+   Data/Share/notification bell/profile avatar on the right. Sits where
+   .app-topbar sits on every other page - the two are mutually exclusive (see
+   isUnifiedHeaderView in main.js's renderDashboard). No background of its
+   own (transparent, blends into the page) - the .header-island cards below
+   supply their own white/raised surface, border and shadow so they still
+   read as floating cards. */
+.app-tree-header {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+/* Plain 2-column flex (breadcrumb+info left, bell/avatar right) - the main
+   Tree View/Media/Events switcher that used to need a centered 3rd column
+   here now anchors Row 2 left instead (see .app-primary-bar/.primary-bar-left
+   below). min-height (not height): the row still won't jump under normal use
+   since content per side is stable, but this leaves headroom instead of
+   clipping if a .header-island child (e.g. the profile avatar cluster) ends
+   up a few px taller than expected. */
+.app-tree-header-top {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--sp-4);
   min-height: 52px;
-  margin-bottom: var(--sp-3);
+  flex-shrink: 0;
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.app-tree-header-top-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.app-tree-header-top-left .breadcrumb {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Info-popover trigger (member count/last updated, see [data-tooltip] in
+   the popover section above) replacing the old plain-text "• N members"
+   tagline next to the breadcrumb. */
+.header-info-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+
+.header-info-trigger:hover,
+.header-info-trigger:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.header-info-trigger .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.app-tree-header-top-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* Separates Share from the bell/avatar cluster, matching the request's
+   "vertical divider line" between the action buttons and the account
+   controls. */
+.header-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+  flex-shrink: 0;
+}
+
+/* Row 2: the contextual secondary tabs (Focused/All Nodes/Relationship
+   Finder pills, or Media/Events' filter pills) anchor left, and the
+   Editing/Viewing toggle + that tab's action buttons anchor right - plain
+   flex space-between now that the main Tree View/Media/Events switcher has
+   moved up to Row 1 (see renderAppHeader/renderTreeDetailHeaderTop in
+   components.js), so there's no longer a third, truly-centered column to
+   keep balanced. min-height (not height) so the row stays stable switching
+   between Tree View/Media/Events under normal use (same structure on all
+   three) but can still grow for Media/Events' New Album/Upload/Create Event
+   buttons (.btn, 38px) without clipping against the .header-island--tool
+   cards below. */
+.app-primary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  min-height: 48px;
+  flex-shrink: 0;
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .primary-bar-left {
@@ -2424,20 +2595,66 @@ button.secondary:active,
   min-width: 0;
 }
 
-.primary-bar-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Search + the global action buttons (Save status/Manage Data/Share), in
-   that visual order so search sits closest to the center group. */
+/* The Editing/Viewing toggle + that tab's action button(s) (New Album/
+   Upload, Create Event), in that visual order so the mode toggle sits
+   closest to the secondary-tabs group. */
 .primary-bar-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--sp-2);
   flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Header islands (split-island header layout)                        */
+/* ------------------------------------------------------------------ */
+
+/* Shared "floating card" utility applied alongside .app-tree-header-top-left/
+   -center/-right and .primary-bar-left/-right in components.js - white/raised
+   surface, subtle border, soft shadow. Now that .app-tree-header has no
+   background of its own (see above), these read as floating cards purely off
+   their own border/shadow rather than contrast with a recessed backdrop
+   tone; the modifiers below (--top/--tool/--pill) set the height/padding/
+   radius specific to where the island sits. */
+.header-island {
+  display: flex;
+  align-items: center;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Row 1 left/right islands (breadcrumb/tagline; Saved status/Manage Data/
+   Share/bell/avatar). No fixed height - intrinsic content (the tallest is
+   the ~40px profile avatar cluster) plus this padding comfortably clears the
+   row's 52px min-height with a visible gap above/below, without risking
+   clipping from a hardcoded number. */
+.header-island--top {
+  padding: 4px var(--sp-3);
+  border-radius: var(--radius-md);
+}
+
+/* Row 2 left/right tool islands - a shared min-height (not height) so the
+   secondary-tabs island (left) and mode-selector island (right) match
+   exactly on Tree View, where both are shorter than this floor and get
+   clamped up to it - while still letting either island grow taller on
+   Media/Events (its .btn action buttons are 38px) without clipping. */
+.header-island--tool {
+  min-height: 32px;
+  padding: 3px var(--sp-3);
+  border-radius: var(--radius-md);
+}
+
+/* The Tree View/Media/Events switcher (.segmented-control), centered in Row
+   1, is already a fully-rounded pill, so its island uses pill radius instead
+   of --radius-md and only enough padding to reproduce .segmented-control's
+   old self-owned 2px inset (see .segmented-control below, which no longer
+   supplies its own background/border/padding now that this island does) -
+   keeping it at the same 32px total height as the Row 2 tool islands. */
+.header-island--pill {
+  padding: 2px;
+  border-radius: var(--radius-pill);
 }
 
 /* Non-owner role badge: the "Request Different Access" action moves behind
@@ -2535,49 +2752,127 @@ button.secondary:active,
   text-decoration: underline;
 }
 
-/* Deliberately short (fits in ~40px) - every pixel here is a pixel not
-   available to the chart canvas below it. Contextual sub-bar shown below the
-   primary bar: Tree View's Focused/All Nodes/Relationship Finder sub-toggle,
-   or - on Media/Events - .toolbar-extra (filter pills + primary action
-   buttons, owned by mediaLibraryPanel.js/timelinePanel.js). Only one of
-   these renders at a time, matching whichever primary tab is active - see
-   renderTreeViewSubtoggle/renderMediaLibraryToolbarExtra/
-   renderTimelineToolbarExtra. */
-.app-sub-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  padding: var(--sp-2) 0;
-  margin-bottom: var(--sp-3);
-  min-height: 0;
+/* ------------------------------------------------------------------ */
+/* Generic hover/focus info popover - [data-tooltip="..."] on any       */
+/* element (buttons, icons, nav items) pops the attribute's text above  */
+/* it via ::after (CSS-only, no JS positioning). Add                    */
+/* data-tooltip-pos="bottom"/"right"/"left" to flip the side for        */
+/* elements near a viewport edge (e.g. the top bar, where a plain top   */
+/* placement would clip). Element needs `position: relative` to anchor  */
+/* the bubble - most candidates already have it; .has-tooltip supplies  */
+/* it for ones that don't.                                              */
+/* ------------------------------------------------------------------ */
+.has-tooltip {
+  position: relative;
 }
 
-/* Media's kind-filter chips/My uploads/New Album/Upload, and Events'
-   All/My events/Create Event - pills cluster left, primary action
-   button(s) pinned far right via margin-left:auto on the last button. */
-.toolbar-extra {
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + var(--sp-2));
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  z-index: 40;
+  width: max-content;
+  max-width: 220px;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+  pointer-events: none;
+}
+
+[data-tooltip][data-tooltip-pos='bottom']::after {
+  bottom: auto;
+  top: calc(100% + var(--sp-2));
+  transform: translateX(-50%) translateY(-4px);
+}
+
+[data-tooltip][data-tooltip-pos='right']::after {
+  bottom: auto;
+  left: calc(100% + var(--sp-2));
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+[data-tooltip][data-tooltip-pos='bottom']:hover::after,
+[data-tooltip][data-tooltip-pos='bottom']:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+[data-tooltip][data-tooltip-pos='right']:hover::after,
+[data-tooltip][data-tooltip-pos='right']:focus-visible::after {
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Sidebar nav items are collapsible to icon-only (see .sidebar-collapsed) -
+   their [data-tooltip] bubble always reads to the right regardless of
+   collapsed state, since the item itself never has room to the left. */
+.sidebar [data-tooltip]::after {
+  bottom: auto;
+  left: calc(100% + var(--sp-3));
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.sidebar [data-tooltip]:hover::after,
+.sidebar [data-tooltip]:focus-visible::after {
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Row 2 left content, next to the Tree View/Media/Events switcher: on
+   Media/Events, these kind-filter/My uploads/All-My-events chips (owned by
+   mediaLibraryPanel.js/timelinePanel.js; Tree View has none here - its own
+   Focused/All Nodes/Relationship Finder choice lives in the switcher's own
+   dropdown instead, see renderPrimaryTabSwitcher in components.js). */
+.toolbar-pills {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   flex-wrap: wrap;
-  width: 100%;
 }
 
-.toolbar-extra .media-library-new-album-btn,
-.toolbar-extra #timeline-new-event-btn {
-  margin-left: auto;
+/* Row 2 right content, next to the Editing/Viewing toggle: New Album/Upload
+   on Media, Create Event on Events - Tree View has none (Reset View/Maximize
+   live as floating canvas controls instead, see .canvas-floating-controls). */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
 }
 
 /* Primary views (Tree View/Timeline/Media/Feed) as one pill-shaped segmented
-   control - the single-line replacement for the old two-row chip stack. */
+   control - the single-line replacement for the old two-row chip stack. Its
+   own border/shadow/outer padding now live on the wrapping
+   .header-island--pill instead (see styles.css's "Header islands" section) -
+   background/radius stay here since .segmented-option-active's white
+   background needs the grey --bg-inset track underneath it for contrast. */
 .segmented-control {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
   background: var(--bg-inset);
-  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
 }
 
@@ -2604,18 +2899,57 @@ button.secondary:active,
   box-shadow: var(--shadow-sm);
 }
 
-/* Focused/All Nodes only shows up while the Tree View segment is active -
-   a lighter-weight secondary choice, not a peer of the primary tabs. */
-.tree-view-subtoggle {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
+/* Tree View's label+caret (see renderPrimaryTabSwitcher in components.js)
+   behave as one segmented-control pill even though they're two separate
+   click targets - the caret opens tree-view-mode-menu
+   (Focused/All Nodes/Relationship Finder) as a dropdown, so it needs its own
+   hit target distinct from the label's "switch to Tree View" click. */
+.segmented-dropdown-wrap {
+  position: relative;
 }
 
-.chip-sm {
-  min-height: 26px;
-  padding: 3px 10px;
-  font-size: 0.78rem;
+.segmented-option-group {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+}
+
+.segmented-option-group:hover {
+  color: var(--text-primary);
+}
+
+.segmented-option-group.segmented-option-active {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented-option-label,
+.segmented-option-caret {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.83rem;
+  font-weight: 500;
+}
+
+.segmented-option-label {
+  padding: 4px 6px 4px 14px;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+}
+
+.segmented-option-caret {
+  padding: 4px 10px 4px 2px;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+}
+
+.segmented-option-caret .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .dropdown-item-active {
@@ -2633,16 +2967,18 @@ button.secondary:active,
 }
 
 /* ------------------------------------------------------------------ */
-/* Member search (tree toolbar)                                       */
+/* Member search                                                      */
 /* ------------------------------------------------------------------ */
 
-/* Always shown as the full input - stays open regardless of focus/query
-   state instead of collapsing to an icon-only pill when idle. */
+/* .member-search/.member-search-box/.member-search-results are shared
+   styling reused by two different markups: the canvas widget below
+   (#member-search, from renderMemberSearch in components.js) and the
+   standalone Relationship Finder page (#relationship-finder-search, see
+   relationshipFinder.js and .relationship-finder-page below) - so the base
+   rules here stay layout-agnostic (relative positioning, no fixed size) and
+   the floating/card treatment is scoped to #member-search only, below. */
 .member-search {
   position: relative;
-  flex: 1;
-  min-width: 220px;
-  max-width: 360px;
 }
 
 .member-search-box {
@@ -2650,6 +2986,50 @@ button.secondary:active,
   max-width: none;
   width: 100%;
   cursor: text;
+}
+
+/* Floats top-left over the tree canvas, matching .canvas-floating-controls'
+   top-right widget - a direct child of .chart-canvas-wrap (see
+   renderTreeCanvasMarkup in main.js), which supplies the position: relative
+   context. Tree-Canvas-only: it's no longer part of the shared header, so it
+   doesn't show up on the Media Library/Timeline pages. Stays put through
+   Focus Mode for free (no relocation needed) since .chart-canvas-wrap is
+   already inside #tree-focus-target. left is --sp-10 + --sp-6, matching
+   .chart-canvas-wrap's own -var(--sp-10) bleed margin plus the header rows'
+   left padding (.app-tree-header-top/.app-primary-bar), so it visually
+   aligns under the header islands above it instead of sitting further left. */
+#member-search {
+  position: absolute;
+  top: var(--sp-4);
+  left: calc(var(--sp-10) + var(--sp-6));
+  z-index: 10;
+  width: 260px;
+  max-width: calc(100% - (var(--sp-10) + var(--sp-6)) - var(--sp-4));
+}
+
+#member-search .member-search-box {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* "Ctrl+K"/"⌘K" hint (label text picked in main.js by platform) - shown
+   until the user actually types something, at which point
+   attachMemberSearchListeners swaps it out for .member-search-clear. Only
+   rendered by the canvas widget (renderMemberSearch), not the Relationship
+   Finder page's own markup. */
+.member-search-shortcut {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
 }
 
 .member-search-clear {
@@ -2781,11 +3161,6 @@ button.secondary:active,
   margin: 0 auto;
 }
 
-.relationship-finder .member-search {
-  max-width: none;
-  min-width: 0;
-}
-
 .relationship-card {
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-default);
@@ -2891,31 +3266,37 @@ button.secondary:active,
   }
 }
 
+/* Bled out to .content's full width and flush with its bottom edge (negative
+   margin matching .content's own padding, see .content above) so the canvas
+   underneath reads as full-bleed rather than a card floating inside page
+   padding - no gap, no border, edge-to-edge below the toolbar strip. */
 .chart-canvas-wrap {
   position: relative;
+  margin: 0 calc(-1 * var(--sp-10)) calc(-1 * var(--sp-8));
 }
 
-/* Static px budget for everything above the canvas (.app-topbar + primary
-   bar + sub-bar + .content padding), but still an estimate rather than a
+/* Static px budget for everything above the canvas (.app-tree-header's two
+   48px/40px rows + .content padding), but still an estimate rather than a
    measured value, so nudge this if the canvas ends up too short/tall
-   against real chrome height. */
+   against real chrome height. Deliberately no background/border/radius here
+   anymore - the canvas is full-bleed, not a nested card. */
 .chart-container {
-  height: calc(100vh - 260px);
+  height: calc(100vh - 190px);
   min-height: 420px;
-  background: var(--bg-inset);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
 /* Reset View / Maximize, floating over the canvas like a map's zoom widget -
    out of the Row 2 tab strip (which is data/view tabs only now) but still
-   reachable right next to the content they act on. */
+   reachable right next to the content they act on. right is --sp-10 + --sp-6,
+   matching .chart-canvas-wrap's own -var(--sp-10) bleed margin plus the
+   header rows' right padding (.app-tree-header-top/.app-primary-bar), so it
+   visually aligns under the header islands above it instead of sitting
+   further right. */
 .canvas-floating-controls {
   position: absolute;
   top: var(--sp-3);
-  right: var(--sp-3);
+  right: calc(var(--sp-10) + var(--sp-6));
   z-index: 10;
   display: flex;
   align-items: center;
@@ -3938,7 +4319,7 @@ button.secondary:active,
 .tree-focus-target {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: 0;
 }
 
 /* Applied to <body> while Focus Mode is active. Everything outside the
@@ -3954,8 +4335,8 @@ body.focus-mode-active .app-shell > .sidebar,
 body.focus-mode-active .sidebar-overlay,
 body.focus-mode-active .mobile-topbar,
 body.focus-mode-active .app-topbar,
+body.focus-mode-active .app-tree-header,
 body.focus-mode-active .app-footer,
-body.focus-mode-active .app-primary-bar,
 body.focus-mode-active .content > *:not(.tree-focus-target) {
   display: none !important;
 }
@@ -3987,25 +4368,8 @@ body.focus-mode-active .focus-mode-target {
    Maximize itself is redundant once already maximized - both hidden while
    active. Reset View has its own entry in the dedicated Focus Mode toolbar
    instead (see setupFocusMode() in main.js), so it isn't lost. */
-body.focus-mode-active .focus-mode-target .app-sub-bar,
 body.focus-mode-active .focus-mode-target .canvas-floating-controls {
   display: none;
-}
-
-/* Search Person lives in the primary bar (.app-primary-bar) normally, which
-   Focus Mode hides entirely - so relocateMemberSearchForFocusMode() (main.js)
-   moves the #member-search node into #tree-focus-target for the duration,
-   and this floats it top-left the same way it used to when it lived in the
-   toolbar row. Moved back out on exit. */
-body.focus-mode-active .focus-mode-target .member-search {
-  position: fixed;
-  top: var(--sp-5);
-  left: var(--sp-5);
-  z-index: 1300;
-  min-width: 260px;
-  max-width: 320px;
-  animation: focus-mode-toolbar-in 0.26s ease both;
-  animation-delay: 0.05s;
 }
 
 /* .chart-canvas-wrap (not .chart-container) is the direct flex child of
@@ -4015,6 +4379,7 @@ body.focus-mode-active .focus-mode-target .member-search {
 body.focus-mode-active .focus-mode-target .chart-canvas-wrap {
   flex: 1;
   min-height: 0;
+  margin: 0;
 }
 
 body.focus-mode-active .focus-mode-target .chart-container {
@@ -4095,10 +4460,10 @@ body.focus-mode-transitioning .focus-mode-target {
     height: 34px;
   }
 
-  body.focus-mode-active .focus-mode-target .member-search {
+  #member-search {
     left: var(--sp-3);
     right: var(--sp-3);
-    min-width: 0;
+    width: auto;
     max-width: none;
   }
 }
@@ -4980,6 +5345,23 @@ dialog.modal-overlay[open] {
     padding: var(--sp-6) var(--sp-5);
   }
 
+  .chart-canvas-wrap {
+    margin: 0 calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));
+  }
+
+  /* .app-tree-header-top/.app-primary-bar padding stays --sp-6 at this
+     breakpoint (only .content's shrinks), so re-derive the header inset
+     from --sp-5 (not --sp-10) to keep these floating widgets aligned under
+     it - see #member-search/.canvas-floating-controls above. */
+  #member-search {
+    left: calc(var(--sp-5) + var(--sp-6));
+    max-width: calc(100% - (var(--sp-5) + var(--sp-6)) - var(--sp-4));
+  }
+
+  .canvas-floating-controls {
+    right: calc(var(--sp-5) + var(--sp-6));
+  }
+
   .mobile-topbar {
     display: flex;
     align-items: center;
@@ -5060,6 +5442,19 @@ dialog.modal-overlay[open] {
     padding: var(--sp-5) var(--sp-4);
   }
 
+  .chart-canvas-wrap {
+    margin: 0 calc(-1 * var(--sp-4)) calc(-1 * var(--sp-5));
+  }
+
+  /* .app-tree-header-top/.app-primary-bar padding also drops to --sp-4 at
+     this breakpoint, so re-derive the header inset from --sp-4 (not --sp-10)
+     to keep the toolbar aligned under it - see .canvas-floating-controls
+     above. (#member-search already gets its own full-width mobile layout
+     below, so it doesn't need this treatment.) */
+  .canvas-floating-controls {
+    right: calc(var(--sp-4) + var(--sp-4));
+  }
+
   .page-header {
     flex-direction: column;
     align-items: stretch;
@@ -5079,7 +5474,8 @@ dialog.modal-overlay[open] {
     align-items: stretch;
   }
 
-  .search-box {
+  .search-box,
+  .search-box-group {
     max-width: none;
   }
 
@@ -5096,28 +5492,45 @@ dialog.modal-overlay[open] {
     justify-content: space-between;
   }
 
+  .trees-toolbar-right {
+    flex-wrap: wrap;
+  }
+
   .tree-grid,
   .tree-grid-inner {
     grid-template-columns: 1fr;
   }
 
-  .app-primary-bar {
-    grid-template-columns: 1fr;
-    gap: var(--sp-3);
+  /* Both rows of .app-tree-header grow past their fixed desktop height and
+     wrap onto extra lines at this width instead of clipping content -
+     mobile already gets a taller-is-fine treatment elsewhere (see
+     .mobile-topbar above). */
+  .app-tree-header-top {
+    display: flex;
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
   }
 
-  .primary-bar-center {
-    justify-content: flex-start;
+  .app-tree-header-top-right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .app-primary-bar {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-4);
+  }
+
+  .primary-bar-left {
+    width: 100%;
   }
 
   .primary-bar-right {
     width: 100%;
-  }
-
-  .primary-bar-right .member-search {
-    order: -1;
-    max-width: none;
-    flex-basis: 100%;
   }
 
   .primary-bar-right .btn span {
@@ -7544,7 +7957,7 @@ button.admin-stat-card {
 
 /* Event detail header row: breadcrumb on the left, Delete Event pinned top
    right - same placement as the list view's "+ Create Event" button (see
-   .toolbar-extra), rather than the old bottom-of-page danger button. */
+   .toolbar-actions), rather than the old bottom-of-page danger button. */
 .timeline-detail-header {
   display: flex;
   align-items: flex-start;

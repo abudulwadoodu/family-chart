@@ -462,31 +462,36 @@ function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttac
 }
 
 // The All/My events chips + Create Event button render inside main.js's
-// contextual sub-bar (.app-sub-bar), not inside .timeline-page itself - see
-// listBody's own comment below. Listeners for this block are attached from
-// `document` (not the .timeline-page root) in attachTimelinePageListeners,
-// since it lives outside that container.
-export function renderTimelineToolbarExtra(pageState, { readOnly }) {
+// compact Row 2 header (renderAppHeader's left/right slots), not inside
+// .timeline-page itself - see listBody's own comment below. Listeners for
+// this block are attached from `document` (not the .timeline-page root) in
+// attachTimelinePageListeners, since it lives outside that container.
+export function renderTimelineFilterPills(pageState) {
   return `
-    <div class="toolbar-extra">
+    <div class="toolbar-pills">
       <button type="button" class="chip ${!pageState.mineOnly ? 'chip-active' : ''}" id="timeline-all-toggle">All events</button>
       <button type="button" class="chip ${pageState.mineOnly ? 'chip-active' : ''}" id="timeline-mine-toggle">My events</button>
-      ${
-        readOnly
-          ? ''
-          : `<button type="button" class="btn btn-primary" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>`
-      }
     </div>
   `;
 }
 
-// The breadcrumb/title-row/segmented-tabs/toolbar-extra chrome above this is
-// rendered once by main.js's renderDashboard (see renderAppHeader in
-// components.js and renderTimelineToolbarExtra above) and shared with the
-// Tree View/Media Library pages - this only ever renders what's specific to
-// the Timeline list's own body (the event list itself). The event-detail
-// sub-view (eventDetail/eventStubDetail below) is the one exception that
-// still draws its own header - see isTimelineDetailView in main.js.
+export function renderTimelineActions(pageState, { readOnly }) {
+  if (readOnly) return '';
+  return `
+    <div class="toolbar-actions">
+      <button type="button" class="btn btn-primary" id="timeline-new-event-btn">${icon('plus')}<span>Create Event</span></button>
+    </div>
+  `;
+}
+
+// The breadcrumb/title-row/segmented-tabs/filter-pills/actions chrome above
+// this is rendered once by main.js's renderDashboard (see renderAppHeader in
+// components.js and renderTimelineFilterPills/renderTimelineActions above)
+// and shared with the Tree View/Media Library pages - this only ever renders
+// what's specific to the Timeline list's own body (the event list itself).
+// The event-detail sub-view (eventDetail/eventStubDetail below) is the one
+// exception that still draws its own header - see isTimelineDetailView in
+// main.js.
 function listBody(pageState, { memberIndex, readOnly, currentUserId }) {
   const events = pageState.mineOnly ? pageState.events.filter((ev) => ev.created_by === currentUserId) : pageState.events;
   const groups = groupByYear(events);
@@ -965,8 +970,8 @@ export function attachTimelinePageListeners(pageState, { api, treeId, memberInde
     row.addEventListener('click', () => openDetail(pageState, { api, treeId, currentUserId }, Number(row.dataset.eventId), rerender));
   });
 
-  // All/My events + Create Event render in .toolbar-extra, inside main.js's
-  // contextual sub-bar (.app-sub-bar) - outside .timeline-page - so they're
+  // All/My events + Create Event render in main.js's compact Row 2 header
+  // (.toolbar-pills/.toolbar-actions) - outside .timeline-page - so they're
   // queried from `document` rather than `root`.
   document.querySelector('#timeline-all-toggle')?.addEventListener('click', () => {
     pageState.mineOnly = false;

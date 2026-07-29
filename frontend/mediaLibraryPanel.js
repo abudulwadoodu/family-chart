@@ -62,35 +62,41 @@ export function createMediaLibraryPageState() {
 }
 
 // The kind-filter chips + New Album/Upload buttons render inside main.js's
-// contextual sub-bar (.app-sub-bar), not inside .media-library-page itself -
-// see renderMediaLibraryPageContent's own comment below. Listeners for this
-// block are attached from `document` (not the .media-library-page root) in
-// attachMediaLibraryPageListeners, since it lives outside that container.
-export function renderMediaLibraryToolbarExtra(pageState, { readOnly }) {
+// compact Row 2 header (renderAppHeader's left/right slots), not inside
+// .media-library-page itself - see renderMediaLibraryPageContent's own
+// comment below. Listeners for this block are attached from `document` (not
+// the .media-library-page root) in attachMediaLibraryPageListeners, since it
+// lives outside that container.
+export function renderMediaLibraryFilterPills(pageState) {
   const { kindFilter, mineOnly } = pageState;
   return `
-    <div class="toolbar-extra">
+    <div class="toolbar-pills">
       ${KIND_FILTERS.map(
         (f) =>
           `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
       ).join('')}
       <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
-      ${
-        readOnly
-          ? ''
-          : `<button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>
-             <label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
-             <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
-      }
     </div>
   `;
 }
 
-// The breadcrumb/title-row/segmented-tabs/toolbar-extra chrome around this
-// content is rendered once by main.js's renderDashboard (see renderAppHeader
-// in components.js and renderMediaLibraryToolbarExtra above) and shared with
-// the Tree View/Timeline pages - this only ever renders what's specific to
-// Media Library's own body (albums sidebar + media grid).
+export function renderMediaLibraryActions(pageState, { readOnly }) {
+  if (readOnly) return '';
+  return `
+    <div class="toolbar-actions">
+      <button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>
+      <label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
+      <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />
+    </div>
+  `;
+}
+
+// The breadcrumb/title-row/segmented-tabs/filter-pills/actions chrome around
+// this content is rendered once by main.js's renderDashboard (see
+// renderAppHeader in components.js and renderMediaLibraryFilterPills/
+// renderMediaLibraryActions above) and shared with the Tree View/Timeline
+// pages - this only ever renders what's specific to Media Library's own body
+// (albums sidebar + media grid).
 export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
   const { mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
   const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
@@ -186,12 +192,17 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
   hydrateMediaSources(root, new Map(pageState.media.map((m) => [m.id, m])));
 
   // The kind-filter chips/My uploads toggle/New Album/Upload controls render
-  // in .toolbar-extra, inside main.js's contextual sub-bar (.app-sub-bar) -
+  // in main.js's compact Row 2 header (.toolbar-pills/.toolbar-actions) -
   // outside .media-library-page - so they're queried from `document` rather
-  // than `root`.
+  // than `root`. reloadMedia's server round-trip means the grid itself can't
+  // update until it resolves, but the clicked chip flips to .chip-active
+  // synchronously (before the await) so the sub-toolbar itself never waits on
+  // the network to reflect the click.
   document.querySelectorAll('[data-kind]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (btn.dataset.kind === pageState.kindFilter) return;
       pageState.kindFilter = btn.dataset.kind;
+      document.querySelectorAll('[data-kind]').forEach((chip) => chip.classList.toggle('chip-active', chip === btn));
       reloadMedia(pageState, { api, treeId }, rerender).catch((error) =>
         showToast(error.message || 'Could not load media', { type: 'error' })
       );
