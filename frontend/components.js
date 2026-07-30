@@ -38,7 +38,11 @@ export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
 
 export function renderSidebarNav({ email, activeView, isAdmin, activeTheme, collapsed }) {
   const initial = (email || '?').trim().charAt(0).toUpperCase();
-  const isRequestsActive = activeView === 'myRequests' || activeView === 'pendingRequests';
+  const isRequestsActive =
+    activeView === 'myRequests' ||
+    activeView === 'pendingRequests' ||
+    activeView === 'myClaims' ||
+    activeView === 'manageClaims';
   const isSupportActive = activeView === 'contact' || activeView === 'myTickets' || activeView === 'ticketDetail';
 
   return `
@@ -426,6 +430,91 @@ function renderPendingRequestRow(request) {
       <div class="pending-request-actions">
         <button type="button" class="btn btn-secondary btn-sm pending-request-reject-btn" data-request-id="${request.id}">Reject</button>
         <button type="button" class="btn btn-primary btn-sm pending-request-approve-btn" data-request-id="${request.id}">Approve</button>
+      </div>
+    </div>
+  `;
+}
+
+// "Manage Claims" dashboard view: incoming "this is me" member claims across
+// every tree the current user owns - same markup shape as
+// renderPendingRequestsPageMarkup (reuses the pending-request-* classes)
+// since it's the identity-claim analog of a join request.
+export function renderManageClaimsPageMarkup({ loading, claims }) {
+  const body = loading
+    ? `<p class="muted">Loading claims...</p>`
+    : claims.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('user')}</div>
+          <h2 class="empty-state-title">No Pending Claims</h2>
+          <p class="empty-state-desc">When someone claims a person in one of your family trees as themselves, it'll show up here.</p>
+        </div>`
+      : `<div class="pending-request-list">${claims.map(renderPendingClaimRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'Manage Claims', subtitle: 'Review "this is me" claims on your family trees.' })}
+    ${body}
+  `;
+}
+
+function renderPendingClaimRow(claim) {
+  const memberLabel = claim.member_name ? escapeHtml(claim.member_name) : 'a person';
+
+  return `
+    <div class="pending-request-row" data-claim-id="${claim.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${escapeHtml(claim.user_email)} <span class="muted">claims to be</span> ${memberLabel} <span class="muted">in</span> ${escapeHtml(claim.tree_name)}</p>
+        <p class="pending-request-meta">
+          <span class="muted">${escapeHtml(formatRelativeTime(claim.created_at))}</span>
+        </p>
+      </div>
+      <div class="pending-request-actions">
+        <button type="button" class="btn btn-secondary btn-sm pending-claim-reject-btn" data-claim-id="${claim.id}">Reject</button>
+        <button type="button" class="btn btn-primary btn-sm pending-claim-approve-btn" data-claim-id="${claim.id}">Approve</button>
+      </div>
+    </div>
+  `;
+}
+
+const SENT_CLAIM_STATUS_LABELS = {
+  pending: { label: 'Pending', className: 'badge-role-viewer' },
+  approved: { label: 'Approved', className: 'badge-role-owner' },
+  rejected: { label: 'Rejected', className: 'badge-role-editor' },
+  withdrawn: { label: 'Withdrawn', className: 'badge-role-editor' },
+};
+
+// "My Claims" dashboard view: every member claim the current user has
+// proposed (any status) - mirrors renderMyRequestsPageMarkup.
+export function renderMyClaimsPageMarkup({ loading, claims }) {
+  const body = loading
+    ? `<p class="muted">Loading your claims...</p>`
+    : claims.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('user')}</div>
+          <h2 class="empty-state-title">No Claims Sent</h2>
+          <p class="empty-state-desc">Open a family tree and use "This is me" on your own person card to claim it.</p>
+        </div>`
+      : `<div class="pending-request-list">${claims.map(renderSentClaimRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'My Claims', subtitle: 'Track the status of people you have claimed as yourself.' })}
+    ${body}
+  `;
+}
+
+function renderSentClaimRow(claim) {
+  const status = SENT_CLAIM_STATUS_LABELS[claim.status] || SENT_CLAIM_STATUS_LABELS.pending;
+  const memberLabel = claim.member_name ? escapeHtml(claim.member_name) : 'a person';
+
+  return `
+    <div class="pending-request-row" data-claim-id="${claim.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${memberLabel} <span class="muted">in</span> ${escapeHtml(claim.tree_name)}</p>
+        <p class="pending-request-meta">
+          <span class="badge ${status.className}">${escapeHtml(status.label)}</span>
+          <span class="muted">${escapeHtml(formatRelativeTime(claim.updated_at))}</span>
+        </p>
       </div>
     </div>
   `;

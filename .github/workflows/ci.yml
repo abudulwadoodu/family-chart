@@ -17,7 +17,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: familytree
+          POSTGRES_DB: familytree_test
           POSTGRES_USER: familytree_app
           POSTGRES_PASSWORD: familytree_ci
         ports:
@@ -28,7 +28,14 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://familytree_app:familytree_ci@localhost:5432/familytree
+      DATABASE_URL: postgresql://familytree_app:familytree_ci@localhost:5432/familytree_test
+      # backend/test/testEnv.js overrides DATABASE_URL with a hardcoded local-dev
+      # fallback (familytree_dev password) whenever TEST_DATABASE_URL isn't set, which
+      # doesn't match this service container's password and fails every test with
+      # "password authentication failed". Setting it here keeps CI on this container's
+      # actual credentials. The db name must contain "test" - resetDb() refuses to run
+      # otherwise as a guard against truncating a non-test database.
+      TEST_DATABASE_URL: postgresql://familytree_app:familytree_ci@localhost:5432/familytree_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
