@@ -6,7 +6,6 @@
 import { showToast, showConfirmDialog } from './ui.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
-import { renderTreeBreadcrumb } from './components.js';
 import * as mediaApi from './mediaApi.js';
 import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
@@ -62,47 +61,58 @@ export function createMediaLibraryPageState() {
   };
 }
 
-export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId, treeName }) {
-  const { kindFilter, mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
+// The kind-filter chips + New Album/Upload buttons render inside main.js's
+// compact Row 2 header (renderAppHeader's left/right slots), not inside
+// .media-library-page itself - see renderMediaLibraryPageContent's own
+// comment below. Listeners for this block are attached from `document` (not
+// the .media-library-page root) in attachMediaLibraryPageListeners, since it
+// lives outside that container.
+export function renderMediaLibraryFilterPills(pageState) {
+  const { kindFilter, mineOnly } = pageState;
+  return `
+    <div class="toolbar-pills">
+      ${KIND_FILTERS.map(
+        (f) =>
+          `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
+      ).join('')}
+      <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
+    </div>
+  `;
+}
+
+export function renderMediaLibraryActions(pageState, { readOnly }) {
+  if (readOnly) return '';
+  return `
+    <div class="toolbar-actions">
+      <button type="button" class="icon-btn media-library-new-album-btn" aria-label="New Album" data-tooltip="New Album" data-tooltip-pos="bottom">${icon('folderPlus')}</button>
+      <label class="icon-btn media-library-upload-label" for="media-library-upload-input" aria-label="Upload" data-tooltip="Upload" data-tooltip-pos="bottom">${icon('upload')}</label>
+      <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />
+    </div>
+  `;
+}
+
+// The breadcrumb/title-row/segmented-tabs/filter-pills/actions chrome around
+// this content is rendered once by main.js's renderDashboard (see
+// renderAppHeader in components.js and renderMediaLibraryFilterPills/
+// renderMediaLibraryActions above) and shared with the Tree View/Timeline
+// pages - this only ever renders what's specific to Media Library's own body
+// (albums sidebar + media grid).
+export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
+  const { mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
   const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
 
   return `
     <div class="media-library-page">
-      ${renderTreeBreadcrumb({ treeName, activeTab: 'Media Library' })}
-      <header class="page-header">
-        <h1 class="page-title">Media Library</h1>
-        <p class="page-subtitle">Photos, videos, and documents for this tree</p>
-      </header>
-
       ${
         !loaded
           ? '<p class="muted">Loading&hellip;</p>'
           : `
       <div class="media-library-layout">
         <div class="media-library-sidebar">
-          ${
-            readOnly
-              ? ''
-              : `<button type="button" class="btn btn-secondary media-library-new-album-btn">${icon('folderPlus')}<span>New Album</span></button>`
-          }
           ${albumsSidebar(albums, activeAlbumId, readOnly)}
         </div>
 
         <div class="media-library-main">
-          <div class="media-library-filters">
-            ${KIND_FILTERS.map(
-              (f) =>
-                `<button type="button" class="chip ${kindFilter === f.value ? 'chip-active' : ''}" data-kind="${f.value}">${f.label}</button>`
-            ).join('')}
-            <button type="button" class="chip ${mineOnly ? 'chip-active' : ''}" id="media-library-mine-toggle">My uploads</button>
-            ${
-              readOnly
-                ? ''
-                : `<label class="btn btn-primary media-library-upload-label" for="media-library-upload-input">${icon('upload')}<span>Upload</span></label>
-                   <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
-            }
-          </div>
-
           ${
             pendingFile
               ? `<div class="media-library-pending-upload">
@@ -169,30 +179,37 @@ async function reloadMedia(pageState, { api, treeId }, rerender) {
   rerender();
 }
 
-// `onBack` navigates back to the tree viewer (breadcrumb tree-name link);
-// `onExitTree` navigates all the way out to the My Trees list (breadcrumb
-// "My Trees" link). `rerender` re-invokes the page's own render (main.js's
-// render()), which calls renderMediaLibraryPageContent again with the same
-// pageState and then re-runs this attach function.
-export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender, onBack, onExitTree) {
+// The shared header's breadcrumb/nav (main.js's attachTreeViewerHeaderListeners)
+// is wired separately and covers "My Trees"/tree-name navigation - this only
+// wires what's specific to Media Library itself. `rerender` re-invokes the
+// page's own render (main.js's render()), which calls
+// renderMediaLibraryPageContent again with the same pageState and then
+// re-runs this attach function.
+export function attachMediaLibraryPageListeners(pageState, { api, treeId, memberIndex, memberById, currentUserId, readOnly = false }, rerender) {
   const root = document.querySelector('.media-library-page');
   if (!root) return;
 
   hydrateMediaSources(root, new Map(pageState.media.map((m) => [m.id, m])));
 
-  root.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
-  root.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
-
-  root.querySelectorAll('[data-kind]').forEach((btn) => {
+  // The kind-filter chips/My uploads toggle/New Album/Upload controls render
+  // in main.js's compact Row 2 header (.toolbar-pills/.toolbar-actions) -
+  // outside .media-library-page - so they're queried from `document` rather
+  // than `root`. reloadMedia's server round-trip means the grid itself can't
+  // update until it resolves, but the clicked chip flips to .chip-active
+  // synchronously (before the await) so the sub-toolbar itself never waits on
+  // the network to reflect the click.
+  document.querySelectorAll('[data-kind]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (btn.dataset.kind === pageState.kindFilter) return;
       pageState.kindFilter = btn.dataset.kind;
+      document.querySelectorAll('[data-kind]').forEach((chip) => chip.classList.toggle('chip-active', chip === btn));
       reloadMedia(pageState, { api, treeId }, rerender).catch((error) =>
         showToast(error.message || 'Could not load media', { type: 'error' })
       );
     });
   });
 
-  root.querySelector('#media-library-mine-toggle')?.addEventListener('click', () => {
+  document.querySelector('#media-library-mine-toggle')?.addEventListener('click', () => {
     pageState.mineOnly = !pageState.mineOnly;
     rerender();
   });
@@ -299,7 +316,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
 
   if (readOnly) return;
 
-  root.querySelector('.media-library-new-album-btn')?.addEventListener('click', async () => {
+  document.querySelector('.media-library-new-album-btn')?.addEventListener('click', async () => {
     const name = window.prompt('Album name');
     if (!name?.trim()) return;
     try {
@@ -311,7 +328,7 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
     }
   });
 
-  const uploadInput = root.querySelector('#media-library-upload-input');
+  const uploadInput = document.querySelector('#media-library-upload-input');
   uploadInput?.addEventListener('change', () => {
     const file = uploadInput.files?.[0];
     if (!file) return;

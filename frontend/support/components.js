@@ -94,7 +94,6 @@ export function renderMyTicketsPageMarkup({ tickets, total, page, pageSize, sear
     <div class="ticket-page">
       <header class="page-header">
         <div>
-          <h1 class="page-title">My Support Tickets</h1>
           <p class="page-subtitle">Track replies and follow up on requests you've sent to support.</p>
         </div>
       </header>
@@ -173,7 +172,6 @@ export function renderTicketDetailPageMarkup({ ticket, messages, attachmentUrlFo
       <header class="ticket-detail-header">
         <div>
           <p class="ticket-detail-number">${escapeHtml(ticket.ticket_number)}</p>
-          <h1 class="page-title">${escapeHtml(ticket.subject)}</h1>
           <p class="page-subtitle">${escapeHtml(ticket.category)}</p>
         </div>
         <div class="ticket-detail-badges">${statusBadge(ticket.status)}${priorityBadge(ticket.priority)}</div>

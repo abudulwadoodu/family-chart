@@ -124,6 +124,12 @@ export const icons = {
   cake: svg(
     '<path d="M4 20.5h16"></path><path d="M5 20.5v-6a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v6"></path><path d="M5 16.5c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0"></path><path d="M12 13V9"></path><path d="M12 9c-1 0-1.5-.6-1.5-1.3S11 6 12 4.5c1 1.5 1.5 2.4 1.5 3.2S13 9 12 9Z"></path>'
   ),
+  // Family Feed's notification-bell trigger in the sidebar foot (see
+  // renderSidebarNav in components.js) - replaces the old "Family Feed"
+  // toolbar chip.
+  bell: svg(
+    '<path d="M6 10.5a6 6 0 0 1 12 0v3.5l1.5 3H4.5l1.5-3v-3.5Z"></path><path d="M10 19.5a2 2 0 0 0 4 0"></path>'
+  ),
   // Root-on-top, branches-downward glyph for the tree-orientation toggle
   // (treeOrientation.js) - paired with treeHorizontal below.
   treeVertical: svg(
@@ -138,6 +144,14 @@ export const icons = {
   // reorderable list rows (sortChildrenDialog.js).
   gripVertical: svg(
     '<circle cx="9" cy="5.5" r="1.1"></circle><circle cx="9" cy="12" r="1.1"></circle><circle cx="9" cy="18.5" r="1.1"></circle><circle cx="15" cy="5.5" r="1.1"></circle><circle cx="15" cy="12" r="1.1"></circle><circle cx="15" cy="18.5" r="1.1"></circle>'
+  ),
+  // Info-popover trigger (tree member-count/last-updated tooltip, and
+  // generic [data-tooltip] usage elsewhere).
+  info: svg('<circle cx="12" cy="12" r="8.5"></circle><path d="M12 11v5.5"></path><path d="M12 8.2v.3"></path>'),
+  // Sort trigger (My Trees toolbar) - stacked up/down arrows next to lines,
+  // standing in for a native <select>'s sort-order options.
+  sort: svg(
+    '<path d="M7 5v14"></path><path d="M4 8l3-3 3 3"></path><path d="M17 19V5"></path><path d="M14 16l3 3 3-3"></path>'
   ),
 };
 

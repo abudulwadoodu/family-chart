@@ -45,7 +45,7 @@ import {
   DEFAULT_GENERATION_DEPTH,
 } from './treeSettingsPanel.js';
 import { showConfirmDialog, showToast, showModal } from './ui.js';
-import { appToast } from './appUX.js';
+import { appToast, FormGuard } from './appUX.js';
 import { createFocusMode } from './focusMode.js';
 import { initTheme, getPreferredTheme, setTheme } from './theme.js';
 import { getCardStyle, toggleCardStyle, toF3CardStyle } from './cardStyle.js';
@@ -62,12 +62,16 @@ import { hydrateAvatarPreview, attachAvatarUpload } from './avatarUpload.js';
 import {
   createMediaLibraryPageState,
   renderMediaLibraryPageContent,
+  renderMediaLibraryFilterPills,
+  renderMediaLibraryActions,
   attachMediaLibraryPageListeners,
   loadMediaLibraryPage,
 } from './mediaLibraryPanel.js';
 import {
   createTimelinePageState,
   renderTimelinePageContent,
+  renderTimelineFilterPills,
+  renderTimelineActions,
   attachTimelinePageListeners,
   loadTimelinePage,
 } from './timelinePanel.js';
@@ -77,15 +81,18 @@ import { buildCsvText, SAMPLE_ROWS } from './csvTemplate.js';
 import {
   renderSidebarNav,
   renderMobileTopbar,
+  renderTopbar,
   renderPageHeader,
   renderCreateTreeCard,
+  renderTreesActionBar,
   renderTreesToolbarRow,
   renderTreeCard,
   renderEmptyState,
   renderSkeletonGrid,
-  renderTreeViewerHeader,
-  renderViewModeToggle,
+  renderAppHeader,
+  renderPrimaryTabSwitcher,
   renderCanvasFloatingControls,
+  renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
   renderContactPageMarkup,
@@ -102,7 +109,7 @@ import {
   renderMyRequestsPageMarkup,
   renderManageClaimsPageMarkup,
   renderMyClaimsPageMarkup,
-  renderSectionTabs,
+  renderTopbarTabs,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
@@ -261,6 +268,23 @@ const state = {
   ancestryDepth: DEFAULT_GENERATION_DEPTH,
   progenyDepth: DEFAULT_GENERATION_DEPTH,
   allNodesGraph: null,
+  // Set by state.editor's onChange (see renderChart()) whenever a card is
+  // added/edited/removed on the main canvas; drives the autosave status
+  // indicator alongside the relationshipBuilder/relationshipManager/
+  // duplicateManager dirty flags below (see hasUnsavedTreeChanges()).
+  treeDirty: false,
+  // Google-Docs-style Editing/Viewing override for owners/editors (see
+  // renderRoleModeControl in components.js and canEditSelectedTree below) -
+  // lets someone who *can* edit choose to browse read-only instead, without
+  // touching their actual role. Always false for viewers (they have no
+  // toggle to begin with) and reset on every loadTree()/clearSelectedTreeView()
+  // so it never leaks from one tree to the next.
+  treeViewOnly: false,
+  // Which segmented-control option the tree viewer toolbar shows as active
+  // ('tree' | 'media' | 'events') - a pure display concern, independent of
+  // viewMode/dashboardView (see renderPrimaryTabSwitcher in components.js
+  // and setupViewModeToggle below).
+  treeToolbarPrimaryTab: 'tree',
   relationshipBuilder: createRelationshipBuilderState(),
   relationshipManager: createRelationshipManagerState(),
   duplicateManager: createDuplicateManagerState(),
@@ -279,21 +303,18 @@ const state = {
   otpSent: false,
   otpResendAvailableAt: 0,
   dashboardView: 'trees',
-  // Which sub-panel of the Trees Dashboard is visible: 'active' (live,
-  // collaborative trees) or 'vault' (private Vault snapshots). Local to the
-  // trees landing view - toggling it only flips a CSS class via
-  // attachTreesTabListeners(), it never triggers a full renderDashboard().
-  treesTab: 'active',
-  // "Search before you create" step on the Create Tree page.
+  // My Trees toolbar's search-mode-select: 'trees' filters state.trees by
+  // name locally, 'members' switches the visible box to the join-search form
+  // below (searches the whole database by tree/member name) - see
+  // renderTreesToolbarRow's .search-box-group.
+  treeSearchMode: 'trees',
+  // "Search before you create" step on the Create Tree page, also reused as
+  // the Members-mode search on the My Trees toolbar.
   joinSearch: {
     query: '',
     loading: false,
     searched: false,
     results: [],
-    // Compact toolbar variant starts collapsed behind a text link so it
-    // doesn't compete visually with the primary "Search trees by name..."
-    // box; clicking the link swaps it for the actual search form.
-    expanded: false,
   },
   // "Pending Requests" dashboard view (incoming join requests for trees this
   // user owns).
@@ -445,31 +466,6 @@ document.addEventListener('click', (event) => {
   closeMemberSearchResults();
 });
 
-// Blurs the compact "Discover other family branches" box on any outside
-// click so it can collapse back to its idle text-link state (see
-// attachCompactJoinSearchCollapseListeners' blur handler) - clicking a
-// non-focusable element (e.g. plain page background) doesn't naturally blur
-// a focused input on its own. No d3-zoom canvas sits on this page (that's
-// only inside an open tree), so a plain bubble-phase click is enough here,
-// unlike the member-search capture-phase listener below.
-//
-// Also has to ignore clicks on #join-search-reveal-btn itself: that button's
-// own click handler synchronously expands the box and focuses the new input
-// (via renderTreeGrid's innerHTML swap) *before* this delegated listener
-// runs (it's still the same click event, bubbling from the button up to
-// document). Without this guard, this listener would see "click landed
-// outside #join-search-form" (true - the reveal button was never inside the
-// form) plus "the input is now focused" (also true, we just focused it) and
-// immediately blur it back off, collapsing the box before the user ever
-// sees it open.
-document.addEventListener('click', (event) => {
-  if (event.target.closest('#join-search-form') || event.target.closest('#join-search-reveal-btn')) return;
-  const joinSearchInput = document.querySelector('#join-search-input');
-  if (joinSearchInput && state.joinSearch.expanded && document.activeElement === joinSearchInput) {
-    joinSearchInput.blur();
-  }
-});
-
 // Blurs the member-search input on any outside pointer-down so it can
 // collapse back to its icon-only idle state (see attachMemberSearchListeners'
 // blur handler). This has to be a CAPTURE-phase mousedown, not a bubble-phase
@@ -493,6 +489,20 @@ document.addEventListener(
   },
   { capture: true }
 );
+
+// Global ⌘K/Ctrl+K shortcut into member search, same delegated/registered-
+// once pattern as the listeners above - #member-search-input only exists
+// while a tree is open (see renderTreeCanvasMarkup), so this is a no-op
+// everywhere else rather than needing its own mount/unmount lifecycle.
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    const input = document.querySelector('#member-search-input');
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+    input.select();
+  }
+});
 
 // Minimal SPA router for the public legal pages (no router library exists in
 // this app - see maybeOpenDeepLinkedTicket's note on the ?ticket= param).
@@ -590,21 +600,26 @@ function renderSupportPageAuthed() {
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       ${renderSidebarNav({
-        email: state.user.email,
         activeView: 'contact',
         isAdmin: Boolean(state.user.is_admin),
-        activeTheme: state.theme,
         collapsed: state.sidebarCollapsed,
       })}
       <div class="main-area">
         ${renderMobileTopbar()}
+        ${renderTopbar({
+          email: state.user.email,
+          activeTheme: state.theme,
+          leftLabel: 'Contact Us',
+        })}
         <main class="content">
           ${renderContactPageContent()}
         </main>
+        ${state.selectedTreeId ? renderFamilyFeedPanel() : ''}
       </div>
     </div>
   `;
   attachShellListeners();
+  if (state.selectedTreeId) attachFamilyFeedListeners();
   attachContactPageListeners();
 }
 
@@ -1541,13 +1556,25 @@ function confirmClaimMember(memberId) {
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
-  const isContactView = !isSecurityView && !isCreateTreeView && state.dashboardView === 'contact';
-  const isMyTicketsView = !isSecurityView && !isCreateTreeView && !isContactView && state.dashboardView === 'myTickets';
+  // Private Vault - reached via the My Trees/Private Vault tab switcher in
+  // the top bar (see renderDashboard's isTreesSection/topbarTabsHtml below).
+  // A plain dashboardView page like every sibling flag here, rather than a
+  // modal - see renderVaultPageMarkup's comment for why.
+  const isVaultView = !isSecurityView && !isCreateTreeView && state.dashboardView === 'vault';
+  const isContactView = !isSecurityView && !isCreateTreeView && !isVaultView && state.dashboardView === 'contact';
+  const isMyTicketsView =
+    !isSecurityView && !isCreateTreeView && !isVaultView && !isContactView && state.dashboardView === 'myTickets';
   const isTicketDetailView =
-    !isSecurityView && !isCreateTreeView && !isContactView && !isMyTicketsView && state.dashboardView === 'ticketDetail';
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isVaultView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    state.dashboardView === 'ticketDetail';
   const isPendingRequestsView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1555,6 +1582,7 @@ function renderDashboard() {
   const isMyRequestsView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1582,6 +1610,7 @@ function renderDashboard() {
   const isAdminView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1593,6 +1622,7 @@ function renderDashboard() {
   const isMediaLibraryView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1606,6 +1636,7 @@ function renderDashboard() {
   const isTimelineView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1617,24 +1648,25 @@ function renderDashboard() {
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
     Boolean(state.selectedTreeId);
-  const isRelationshipFinderView =
-    !isSecurityView &&
-    !isCreateTreeView &&
-    !isContactView &&
-    !isMyTicketsView &&
-    !isTicketDetailView &&
-    !isPendingRequestsView &&
-    !isMyRequestsView &&
-    !isManageClaimsView &&
-    !isMyClaimsView &&
-    !isAdminView &&
-    !isMediaLibraryView &&
-    !isTimelineView &&
-    state.dashboardView === 'relationshipFinder' &&
-    Boolean(state.selectedTreeId);
+  // The one tree-detail sub-view that keeps its own compact, self-contained
+  // header (breadcrumb with an event-title 4th segment + a Delete Event
+  // button - see eventDetail/eventStubDetail in timelinePanel.js) instead of
+  // the shared renderAppHeader/#primary-tab-switcher pair every other view uses.
+  // Threading that rich edit-forms/comments/participants view through the
+  // shared header wasn't worth the risk for this pass - it's a drill-in
+  // detail state, not a peer "view mode" of Tree View/Media/Events.
+  const isTimelineDetailView = isTimelineView && state.timeline.view === 'detail' && Boolean(state.timeline.detail);
+  // Relationship Finder used to be its own dashboardView (a standalone page
+  // like Media/Timeline), which is why it once needed a dedicated flag here.
+  // It's now just another viewMode nested under Tree View - same as
+  // Focused/All Nodes/Relationships/Duplicates/Settings - so it renders
+  // through isViewerView below like the rest of them (see renderChart's
+  // 'relationship-finder' branch), and gets the same shared header/breadcrumb
+  // for free instead of the bespoke ones it used to carry.
   const isViewerView =
     !isSecurityView &&
     !isCreateTreeView &&
+    !isVaultView &&
     !isContactView &&
     !isMyTicketsView &&
     !isTicketDetailView &&
@@ -1645,59 +1677,128 @@ function renderDashboard() {
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
-    !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
-  // "Requests" and "Support" are each a single sidebar nav item covering
-  // several sibling views - render the underline tab row above whichever one
-  // is active so the others stay reachable. Claims (My Claims/Manage Claims)
-  // live under the Requests nav item too, alongside join requests, since
-  // both are "asking the tree owner for something" flows. ticketDetail is a
-  // drill-in from My Support Tickets (it has its own back-link), so it
-  // doesn't get tabs.
+  // "My Trees"/"Requests"/"Support" are each a single sidebar nav item that
+  // actually covers several sibling views - render a tab switcher in the top
+  // bar's title slot for whichever one is active (see renderTopbar's
+  // tabsHtml) so the other views stay reachable without an extra header
+  // row. Claims (My Claims/Manage Claims) live under the Requests nav item
+  // too, alongside join requests, since both are "asking the tree owner for
+  // something" flows. ticketDetail (a drill-in from My Support Tickets, with
+  // its own back-link) and Create Tree (a drill-in from My Trees, ditto)
+  // don't get tabs - same reasoning as isVaultView not covering
+  // isCreateTreeView.
+  const isTreesSection = state.dashboardView === 'trees' || isVaultView;
   const isRequestsSection = isPendingRequestsView || isMyRequestsView || isManageClaimsView || isMyClaimsView;
   const isSupportSection = isContactView || isMyTicketsView;
-  const sectionTabs = isRequestsSection
-    ? renderSectionTabs({
-        idPrefix: 'requests-tab',
-        activeId: isPendingRequestsView
-          ? 'pendingRequests'
-          : isManageClaimsView
-            ? 'manageClaims'
-            : isMyClaimsView
-              ? 'myClaims'
-              : 'myRequests',
+  const topbarTabsHtml = isTreesSection
+    ? renderTopbarTabs({
+        idPrefix: 'trees-tab',
+        activeId: isVaultView ? 'vault' : 'trees',
         tabs: [
-          { id: 'myRequests', label: 'My Requests', icon: 'list' },
-          { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
-          { id: 'myClaims', label: 'My Claims', icon: 'list' },
-          { id: 'manageClaims', label: 'Manage Claims', icon: 'mail' },
+          { id: 'trees', label: 'My Trees', icon: 'trees', tooltip: 'Create, manage, and collaborate on your family trees' },
+          { id: 'vault', label: 'Private Vault', icon: 'lock' },
         ],
       })
-    : isSupportSection
-      ? renderSectionTabs({
-          idPrefix: 'support-tab',
-          activeId: isMyTicketsView ? 'myTickets' : 'contact',
+    : isRequestsSection
+      ? renderTopbarTabs({
+          idPrefix: 'requests-tab',
+          activeId: isPendingRequestsView
+            ? 'pendingRequests'
+            : isManageClaimsView
+              ? 'manageClaims'
+              : isMyClaimsView
+                ? 'myClaims'
+                : 'myRequests',
           tabs: [
-            { id: 'contact', label: 'Contact Us', icon: 'mail' },
-            { id: 'myTickets', label: 'My Support Tickets', icon: 'clock' },
+            { id: 'myRequests', label: 'My Requests', icon: 'list' },
+            { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
+            { id: 'myClaims', label: 'My Claims', icon: 'list' },
+            { id: 'manageClaims', label: 'Manage Claims', icon: 'mail' },
           ],
         })
-      : '';
+      : isSupportSection
+        ? renderTopbarTabs({
+            idPrefix: 'support-tab',
+            activeId: isMyTicketsView ? 'myTickets' : 'contact',
+            tabs: [
+              { id: 'contact', label: 'Contact Us', icon: 'mail' },
+              { id: 'myTickets', label: 'My Support Tickets', icon: 'clock' },
+            ],
+          })
+        : '';
+
+  // The tree-detail pages (Tree Canvas/Media Library/Timeline) show the
+  // current tree's breadcrumb + info popover + notification bell in the
+  // global renderTopbar instead of a plain title (see that function's
+  // `treeName`/`hasTree` params) - they used to render their own separate
+  // compact header row for this instead, see renderTopbar's comment for the
+  // history. isViewerView covers every Tree View sub-mode (Focused/All
+  // Nodes/Relationship Finder/Relationships/Duplicates/Settings) alike.
+  const isTreeDetailHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
+
+  // Every remaining page gets the same left-title/right-profile renderTopbar
+  // (see that function's comment) - keyed off which view is active rather
+  // than off state.selectedTreeId directly, since a tree can still be
+  // selected in state while browsing an unrelated page like Security or
+  // Admin (only "My Trees" clears it - see clearSelectedTreeView), and that
+  // page's title should never get clobbered by a stale tree name. Timeline's
+  // event-detail drill-in is the one tree-scoped view that keeps its own
+  // breadcrumb below this bar instead of using its `treeName` slot, so it
+  // still shows the tree name here as a plain title.
+  const topbarTitle = isSecurityView
+    ? 'Security Settings'
+    : isCreateTreeView
+      ? 'Create a Tree'
+      : isVaultView
+        ? 'Private Vault'
+        : isContactView
+          ? 'Contact Us'
+          : isMyTicketsView
+            ? 'My Support Tickets'
+            : isTicketDetailView
+              ? state.support.selectedTicket?.subject || 'Support Ticket'
+              : isPendingRequestsView
+                ? 'Pending Requests'
+                : isMyRequestsView
+                  ? 'My Requests'
+                  : isAdminView
+                    ? 'Admin'
+                    : isTimelineDetailView
+                      ? state.selectedTreeName
+                      : state.dashboardView === 'trees'
+                        ? 'My Trees'
+                        : null;
 
   app.innerHTML = `
     <div class="app-shell ${state.sidebarOpen ? 'sidebar-open' : ''} ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
-      ${renderSidebarNav({ email: state.user.email, activeView: isCreateTreeView ? 'trees' : state.dashboardView, isAdmin: Boolean(state.user.is_admin), activeTheme: state.theme, collapsed: state.sidebarCollapsed })}
+      ${renderSidebarNav({
+        activeView: isCreateTreeView || isVaultView ? 'trees' : state.dashboardView,
+        isAdmin: Boolean(state.user.is_admin),
+        collapsed: state.sidebarCollapsed,
+      })}
       <div class="main-area">
         ${renderMobileTopbar()}
+        ${renderTopbar({
+          email: state.user.email,
+          activeTheme: state.theme,
+          leftLabel: topbarTitle,
+          tabsHtml: topbarTabsHtml,
+          treeName: isTreeDetailHeaderView ? state.selectedTreeName : null,
+          memberCount: isTreeDetailHeaderView ? (state.selectedTreeData || []).length : null,
+          updatedAt: isTreeDetailHeaderView ? state.trees.find((t) => t.id === state.selectedTreeId)?.updated_at : null,
+          hasTree: isTreeDetailHeaderView,
+        })}
         <main class="content">
-          ${sectionTabs}
           ${
             isSecurityView
               ? renderSecuritySettingsMarkup()
               : isCreateTreeView
                 ? renderCreateTreePageMarkup()
-                : isContactView
+                : isVaultView
+                  ? renderVaultPageMarkup()
+                  : isContactView
                   ? renderContactPageContent()
                   : isMyTicketsView
                     ? renderMyTicketsPageContent()
@@ -1714,38 +1815,51 @@ function renderDashboard() {
                               : isAdminView
                             ? renderAdminPageContent()
                             : isMediaLibraryView
-                              ? renderMediaLibraryPageContent(state.mediaLibrary, {
-                                  readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+                              ? `
+                                ${renderTreeDetailHeader('media')}
+                                ${renderMediaLibraryPageContent(state.mediaLibrary, {
+                                  readOnly: !canEditSelectedTree(),
                                   currentUserId: state.user?.id,
-                                  treeName: state.selectedTreeName,
-                                })
+                                })}
+                              `
                               : isTimelineView
-                                ? renderTimelinePageContent(state.timeline, {
-                                    memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
-                                    memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
-                                    readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
-                                    currentUserId: state.user?.id,
-                                    treeName: state.selectedTreeName,
-                                  })
-                                : isRelationshipFinderView
-                                  ? renderRelationshipFinderPageContent({
-                                      data: state.selectedTreeData,
-                                      rootId: state.focusedMainId,
+                                ? isTimelineDetailView
+                                  ? // Self-contained: own breadcrumb + Delete Event button, no shared header/tabs - see isTimelineDetailView above.
+                                    renderTimelinePageContent(state.timeline, {
+                                      memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                      memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
+                                      readOnly: !canEditSelectedTree(),
+                                      currentUserId: state.user?.id,
                                       treeName: state.selectedTreeName,
                                     })
-                                  : isViewerView
-                                    ? renderTreeViewerMarkup()
-                                    : renderTreesLandingMarkup()
+                                  : `
+                                    ${renderTreeDetailHeader('events')}
+                                    ${renderTimelinePageContent(state.timeline, {
+                                      memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
+                                      memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
+                                      readOnly: !canEditSelectedTree(),
+                                      currentUserId: state.user?.id,
+                                      treeName: state.selectedTreeName,
+                                    })}
+                                  `
+                                : isViewerView
+                                  ? `
+                                    ${renderTreeDetailHeader(state.treeToolbarPrimaryTab)}
+                                    ${renderTreeCanvasMarkup()}
+                                  `
+                                  : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
+        ${state.selectedTreeId ? renderFamilyFeedPanel() : ''}
       </div>
     </div>
   `;
 
-  if (isRequestsSection || isSupportSection) attachSectionTabListeners();
+  if (isTreesSection || isRequestsSection || isSupportSection) attachSectionTabListeners();
 
   attachShellListeners();
+  if (state.selectedTreeId) attachFamilyFeedListeners();
 
   if (isSecurityView) {
     attachSecuritySettingsListeners();
@@ -1754,6 +1868,11 @@ function renderDashboard() {
 
   if (isCreateTreeView) {
     attachCreateTreePageListeners();
+    return;
+  }
+
+  if (isVaultView) {
+    attachVaultPageListeners();
     return;
   }
 
@@ -1800,6 +1919,9 @@ function renderDashboard() {
   }
 
   if (isMediaLibraryView) {
+    state.treeToolbarPrimaryTab = 'media';
+    setupViewModeToggle();
+    attachTreeViewerHeaderListeners();
     attachMediaLibraryPageListeners(
       state.mediaLibrary,
       {
@@ -1808,17 +1930,9 @@ function renderDashboard() {
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
         memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
-        readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+        readOnly: !canEditSelectedTree(),
       },
-      render,
-      () => {
-        state.dashboardView = 'trees';
-        render();
-      },
-      () => {
-        clearSelectedTreeView();
-        render();
-      }
+      render
     );
     if (!state.mediaLibrary.loaded) {
       loadMediaLibraryPage(state.mediaLibrary, { api, treeId: state.selectedTreeId }, render);
@@ -1827,6 +1941,14 @@ function renderDashboard() {
   }
 
   if (isTimelineView) {
+    state.treeToolbarPrimaryTab = 'events';
+    // The event-detail sub-view renders its own self-contained header
+    // instead of the shared one (see isTimelineDetailView above), so neither
+    // #primary-tab-switcher nor .app-tree-header exist in the DOM to wire up then.
+    if (!isTimelineDetailView) {
+      setupViewModeToggle();
+      attachTreeViewerHeaderListeners();
+    }
     attachTimelinePageListeners(
       state.timeline,
       {
@@ -1835,10 +1957,11 @@ function renderDashboard() {
         memberIndex: state.memberSearchIndex || buildMemberSearchIndex(state.selectedTreeData),
         memberById: new Map((state.selectedTreeData || []).map((d) => [d.id, d])),
         currentUserId: state.user?.id,
-        readOnly: !(state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor'),
+        readOnly: !canEditSelectedTree(),
       },
       render,
       () => {
+        state.treeToolbarPrimaryTab = 'tree';
         state.dashboardView = 'trees';
         render();
       },
@@ -1853,27 +1976,12 @@ function renderDashboard() {
     return;
   }
 
-  if (isRelationshipFinderView) {
-    attachRelationshipFinderPageListeners(
-      () => {
-        state.dashboardView = 'trees';
-        render();
-      },
-      () => {
-        clearSelectedTreeView();
-        render();
-      }
-    );
-    return;
-  }
-
   if (isViewerView) {
     attachTreeViewerListeners();
     renderChart();
     return;
   }
 
-  attachTreesLandingListeners();
   renderTreeGrid();
 }
 
@@ -1925,7 +2033,8 @@ function attachShellListeners() {
   document.querySelector('#sidebar-close-btn')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-overlay')?.addEventListener('click', () => setSidebarOpen(false));
   document.querySelector('#sidebar-collapse-btn')?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
-  bindDropdownTriggers(document.querySelector('.sidebar'));
+  document.querySelector('#feed-notification-btn')?.addEventListener('click', () => openFamilyFeed());
+  bindDropdownTriggers(document.querySelector('.app-topbar'));
   attachThemeToggleListeners();
 }
 
@@ -1935,7 +2044,7 @@ function attachShellListeners() {
 // only needs to flip state.dashboardView. Arrow-key roving tabindex mirrors
 // attachAuthMethodTabListeners' pattern above.
 function attachSectionTabListeners() {
-  const tabs = document.querySelectorAll('.section-tab');
+  const tabs = document.querySelectorAll('.topbar-tabs .segmented-option');
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
       const view = tab.dataset.tabId;
@@ -1944,7 +2053,7 @@ function attachSectionTabListeners() {
       render();
     });
   });
-  const tabList = document.querySelector('.section-tabs');
+  const tabList = document.querySelector('.topbar-tabs');
   tabList?.addEventListener('keydown', (event) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
@@ -2015,6 +2124,15 @@ function setSidebarCollapsed(collapsed) {
 function bindDropdownTriggers(scopeEl) {
   if (!scopeEl) return;
   scopeEl.querySelectorAll('[data-menu-trigger]').forEach((trigger) => {
+    // Guards against double-binding when a trigger's ancestor gets bound at
+    // more than one scope in the same mount pass without an intervening DOM
+    // replacement - e.g. #tree-view-mode-btn (see setupViewModeToggle, which
+    // always rebinds it directly) sitting inside .app-tree-header (which
+    // attachTreeViewerHeaderListeners also sweeps with bindDropdownTriggers).
+    // Without this, that button's open/close toggle would fire twice per
+    // click and net out to a no-op.
+    if (trigger.dataset.menuBound) return;
+    trigger.dataset.menuBound = 'true';
     trigger.addEventListener('click', (event) => {
       event.stopPropagation();
       const menuId = trigger.dataset.menuTrigger;
@@ -2031,141 +2149,37 @@ function bindDropdownTriggers(scopeEl) {
 // Trees landing (dashboard home)
 // ---------------------------------------------------------------------------
 
-// Sub-navigation for the Trees Dashboard landing view: "Active Trees" (the
-// live, collaborative tree directory) and "Private Vault" (owner-only
-// snapshot archive, formerly a section of Security Settings). Deliberately
-// NOT built on the isXView/renderDashboard() cascade + full render() that
-// .section-tab elsewhere uses (see attachSectionTabListeners) - both panels
-// are mounted once and switching tabs just toggles a hidden/active class, so
-// the live tree grid's DOM (search/sort state, in-flight renames, etc.)
-// isn't torn down and rebuilt on every tab click.
-const TREES_TABS = [
-  { id: 'active', label: 'Active Trees', icon: 'list' },
-  { id: 'vault', label: 'Private Vault', icon: 'lock' },
-];
-
-function renderTreesTabBar(activeId) {
-  return `
-    <div class="section-tabs trees-tabs" role="tablist">
-      ${TREES_TABS.map(
-        (tab) => `
-        <button
-          type="button"
-          class="section-tab"
-          role="tab"
-          id="trees-tab-${tab.id}"
-          data-tab-id="${tab.id}"
-          aria-selected="${tab.id === activeId}"
-          aria-controls="trees-panel-${tab.id}"
-          tabindex="${tab.id === activeId ? '0' : '-1'}"
-        >${icon(tab.icon)}<span>${tab.label}</span></button>
-      `
-      ).join('')}
-    </div>
-  `;
-}
-
-// Only the header/tab-bar chrome is static markup here - everything below it
-// (toolbar, discover-search, empty states, and the tree grid itself) is
-// owned by renderTreeGrid() into #trees-landing-body, since that's the
-// function every data-change call site (loadTrees, sort/filter, create,
-// delete, import...) already calls. That lets the empty-state vs
-// active-state layout swap happen automatically whenever the tree count
-// changes, without having to thread a full top-level render() through every
-// one of those call sites.
+// Trees Dashboard landing view. Row 1 (title/tabs + profile) is the global
+// renderTopbar above this (see renderDashboard's isTreesSection/
+// topbarTabsHtml) - Private Vault is the other tab there now, not a menu on
+// this page.
+// Everything here is owned by renderTreeGrid() into #trees-landing-body,
+// since that's the function every data-change call site (loadTrees,
+// sort/filter, create, delete, import...) already calls. That lets the
+// empty-state vs active-state layout swap happen automatically whenever the
+// tree count changes, without having to thread a full top-level render()
+// through every one of those call sites. The Download Template/Import/New
+// Tree actions (renderTreesActionButtons) live inline in the active state's
+// .trees-toolbar-right next to the sort trigger, and in their own
+// standalone renderTreesActionBar row for the empty state (which has no
+// sort control to sit next to) - see renderTreeGrid's two branches below.
 function renderTreesLandingMarkup() {
-  return `
-    ${renderTreesTabBar(state.treesTab)}
-    <div id="trees-panel-active" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-active" ${state.treesTab === 'active' ? '' : 'hidden'}>
-      ${renderPageHeader({
-        title: 'Family Trees',
-        subtitle: 'Create, manage, and collaborate on your family trees.',
-        primaryActionId: 'new-tree-cta',
-        primaryActionLabel: 'New Tree',
-        templateMenu: {
-          id: 'landing-template-options',
-          triggerId: 'download-template-btn',
-          label: 'Download Template',
-          items: [
-            { action: 'download-csv-template-blank', label: 'Blank CSV Template', icon: 'download' },
-            { action: 'download-csv-template-sample', label: 'Sample CSV Template', icon: 'download' },
-          ],
-        },
-        importMenu: {
-          id: 'landing-import-options',
-          triggerId: 'import-tree-cta',
-          label: 'Import',
-          items: [
-            { action: 'import-csv', label: 'Import CSV', icon: 'upload' },
-            { action: 'import-gedcom', label: 'Import GEDCOM', icon: 'upload' },
-          ],
-        },
-      })}
-      <div id="trees-landing-body"></div>
-    </div>
-    <div id="trees-panel-vault" class="trees-tab-panel" role="tabpanel" aria-labelledby="trees-tab-vault" ${state.treesTab === 'vault' ? '' : 'hidden'}>
-      <header class="page-header">
-        <div>
-          <h1 class="page-title">Private Vault</h1>
-          <p class="page-subtitle">Instant, owner-only snapshot backups of your trees.</p>
-        </div>
-      </header>
-      <section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>
-    </div>
-  `;
+  return `<div id="trees-landing-body"></div>`;
 }
 
-function attachTreesLandingListeners() {
-  attachTreesTabListeners();
-
-  document.querySelector('#new-tree-cta').addEventListener('click', () => {
-    state.dashboardView = 'createTree';
-    render();
-  });
-  bindDropdownTriggers(document.querySelector('#trees-panel-active .page-header'));
-  document.querySelectorAll('#trees-panel-active .page-header .dropdown-item').forEach((btn) => {
-    btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
-  });
-
-  attachVaultDrawerListeners();
-  if (!state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
-}
-
-// Toggles the Active Trees / Private Vault panels via a plain class swap -
-// no render() call, so the live tree grid (and its in-flight search/sort/
-// rename DOM state) is never torn down just from switching tabs. Mirrors
-// attachSectionTabListeners' roving-tabindex keyboard behavior.
-function attachTreesTabListeners() {
-  const tabs = document.querySelectorAll('.trees-tabs .section-tab');
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const tabId = tab.dataset.tabId;
-      if (tabId === state.treesTab) return;
-      state.treesTab = tabId;
-
-      tabs.forEach((t) => {
-        const selected = t === tab;
-        t.setAttribute('aria-selected', String(selected));
-        t.tabIndex = selected ? 0 : -1;
-      });
-      document.querySelectorAll('.trees-tab-panel').forEach((panel) => {
-        panel.hidden = panel.id !== `trees-panel-${tabId}`;
-      });
-
-      if (tabId === 'vault' && !state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
+// Wires the Download Template/Import/New Tree actions - rendered fresh into
+// #trees-landing-body by renderTreeGrid on every load/filter/sort/
+// create/delete, in both its empty-state and active-state branches, so this
+// is called from both rather than once per top-level render().
+function attachTreesActionButtonListeners() {
+  ['landing-template-options', 'landing-import-options'].forEach((menuId) => {
+    document.querySelectorAll(`[data-menu-id="${menuId}"] .dropdown-item`).forEach((btn) => {
+      btn.addEventListener('click', () => handleTreesLandingHeaderAction(btn.dataset.action));
     });
   });
-
-  const tabList = document.querySelector('.trees-tabs');
-  tabList?.addEventListener('keydown', (event) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    const list = Array.from(tabs);
-    const currentIndex = list.findIndex((t) => t.getAttribute('aria-selected') === 'true');
-    const delta = event.key === 'ArrowRight' ? 1 : -1;
-    const next = list[(currentIndex + delta + list.length) % list.length];
-    next.click();
-    next.focus();
+  document.querySelector('#new-tree-cta')?.addEventListener('click', () => {
+    state.dashboardView = 'createTree';
+    render();
   });
 }
 
@@ -2242,36 +2256,6 @@ function attachCreateTreePageListeners() {
 function attachJoinResultListeners() {
   document.querySelectorAll('.join-request-btn').forEach((btn) => {
     btn.addEventListener('click', () => openJoinRoleModal(Number(btn.dataset.treeId)));
-  });
-}
-
-// Collapses the compact "Discover other family branches" box back to its
-// idle text-link state (see renderCompactJoinSearch's `expanded` branch) -
-// only wired when state.joinSearch.expanded is true, i.e. only for the
-// compact toolbar variant on the active (non-empty) trees grid. The
-// full-page search on the zero-trees empty state (renderTreesEmptyStateMarkup)
-// reuses the same #join-search-input/#join-search-form ids but has no
-// expand/collapse concept at all, so this must never run there.
-function attachCompactJoinSearchCollapseListeners() {
-  const input = document.querySelector('#join-search-input');
-  if (!input) return;
-
-  const collapseIfIdle = () => {
-    if (!input.value.trim() && document.activeElement !== input) {
-      state.joinSearch.expanded = false;
-      renderTreeGrid();
-    }
-  };
-
-  input.addEventListener('blur', () => setTimeout(collapseIfIdle, 0));
-  input.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    event.preventDefault();
-    if (input.value) {
-      input.value = '';
-    } else {
-      input.blur();
-    }
   });
 }
 
@@ -2450,12 +2434,14 @@ function renderTreeGrid() {
     !state.discovery.dismissed && state.discovery.trees.length ? renderDiscoverySectionMarkup({ trees: state.discovery.trees }) : '';
 
   if (state.trees.length === 0) {
-    body.innerHTML = discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
+    body.innerHTML = renderTreesActionBar() + discoveryHtml + renderTreesEmptyStateMarkup(state.joinSearch);
     document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
     document.querySelector('#skip-search-create-btn').addEventListener('click', () => {
       state.dashboardView = 'createTree';
       render();
     });
+    bindDropdownTriggers(document.querySelector('.trees-action-bar'));
+    attachTreesActionButtonListeners();
     attachJoinResultListeners();
     attachDiscoverySectionListeners();
     return;
@@ -2465,7 +2451,8 @@ function renderTreeGrid() {
     ${renderTreesToolbarRow({
       search: state.treeSearch,
       sort: state.treeSort,
-      discoverSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query, expanded: state.joinSearch.expanded }),
+      searchMode: state.treeSearchMode,
+      joinSearchHtml: renderCompactJoinSearch({ query: state.joinSearch.query }),
     })}
     ${discoveryHtml}
     <div id="discover-search-results">${renderCompactJoinSearchResults(state.joinSearch)}</div>
@@ -2476,28 +2463,25 @@ function renderTreeGrid() {
     state.treeSearch = event.target.value;
     renderActiveTreeGrid();
   });
-  document.querySelector('#tree-sort-select').addEventListener('change', (event) => {
-    state.treeSort = event.target.value;
-    renderActiveTreeGrid();
+  // Both boxes stay mounted (see .search-box-group's hidden dance in
+  // renderTreesToolbarRow) - switching modes just swaps which one is
+  // visible and refocuses into it, instead of tearing the grid down.
+  document.querySelector('#tree-search-mode-select').addEventListener('change', (event) => {
+    state.treeSearchMode = event.target.value;
+    renderTreeGrid();
+    if (state.treeSearchMode === 'members') document.querySelector('#join-search-input')?.focus();
   });
 
-  if (state.joinSearch.expanded) {
-    document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
-    attachCompactJoinSearchCollapseListeners();
-    // The input's `autofocus` attribute (renderCompactJoinSearch) only fires
-    // reliably on elements present at initial page parse - browsers don't
-    // consistently honor it on markup injected later via innerHTML, which is
-    // exactly what happens here after clicking the reveal link. Focus it
-    // explicitly so the box doesn't render expanded-but-unfocused (which
-    // would then never collapse, since collapseIfIdle requires blur to fire
-    // and there was nothing focused to blur from).
-    document.querySelector('#join-search-input')?.focus();
-  } else {
-    document.querySelector('#join-search-reveal-btn').addEventListener('click', () => {
-      state.joinSearch.expanded = true;
+  bindDropdownTriggers(document.querySelector('.trees-toolbar-right'));
+  document.querySelectorAll('#tree-sort-menu .dropdown-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.treeSort = btn.dataset.action.replace('sort-', '');
       renderTreeGrid();
     });
-  }
+  });
+  attachTreesActionButtonListeners();
+
+  document.querySelector('#join-search-form').addEventListener('submit', handleJoinSearch);
   attachJoinResultListeners();
   attachDiscoverySectionListeners();
 
@@ -2544,9 +2528,9 @@ function renderActiveTreeGrid() {
 
 // Elements inside a tree card that must NOT trigger the card's own
 // open-tree click handler - the kebab menu/dropdown, the rename form and its
-// buttons, and the "Open" button (which already opens the tree itself).
-const TREE_CARD_INTERACTIVE_SELECTOR =
-  '.tree-card-menu-wrap, .tree-rename-form, .tree-open-btn, .tree-card-title';
+// buttons, and the title (which already opens the tree itself via its own
+// handler below).
+const TREE_CARD_INTERACTIVE_SELECTOR = '.tree-card-menu-wrap, .tree-rename-form, .tree-card-title';
 
 // A disabled tree stays visible (with a badge) so owners/collaborators know
 // why it vanished, but requireTreeRole rejects every role on the backend -
@@ -2561,7 +2545,7 @@ function openTreeIfEnabled(treeId, card) {
 }
 
 function bindTreeGridListeners(container) {
-  container.querySelectorAll('.tree-open-btn, .tree-card-title').forEach((el) => {
+  container.querySelectorAll('.tree-card-title').forEach((el) => {
     el.addEventListener('click', () => openTreeIfEnabled(Number(el.dataset.treeId), el.closest('.tree-card-clickable')));
   });
 
@@ -2786,20 +2770,96 @@ function bindGedcomExportOptionsListeners(modal, options, treeId, treeName) {
 // Tree viewer
 // ---------------------------------------------------------------------------
 
-function renderTreeViewerMarkup() {
+// The compact toolbar shared by the Tree Canvas/Media Library/Timeline pages
+// (renderDashboard and refreshTreeViewerHeader, the only two callers) -
+// contextual pills/mode toggle/actions (renderAppHeader). The breadcrumb/
+// info popover/bell/avatar that used to be a separate row above this one now
+// live in the persistent global renderTopbar instead (see that function's
+// `treeName`/`hasTree` params). `primaryTab` is passed in explicitly rather
+// than read from state.treeToolbarPrimaryTab: for the Media/Timeline
+// branches that state field is only updated in the post-render attach phase
+// (see isMediaLibraryView/isTimelineView below), so it can't be trusted yet
+// while this string is being built.
+function renderTreeDetailHeader(primaryTab) {
+  const { centerHtml, actionsHtml } =
+    primaryTab === 'media'
+      ? {
+          centerHtml: renderMediaLibraryFilterPills(state.mediaLibrary),
+          actionsHtml: renderMediaLibraryActions(state.mediaLibrary, { readOnly: !canEditSelectedTree() }),
+        }
+      : primaryTab === 'events'
+        ? {
+            centerHtml: renderTimelineFilterPills(state.timeline),
+            actionsHtml: renderTimelineActions(state.timeline, { readOnly: !canEditSelectedTree() }),
+          }
+        : { centerHtml: '', actionsHtml: '' }; // tree tab: renderPrimaryTabSwitcher builds its own view-mode dropdown
+
   return `
-    ${renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole })}
+    <header class="app-tree-header">
+      ${renderAppHeader({
+        role: state.selectedTreeRole,
+        viewMode: state.viewMode,
+        primaryTab,
+        viewOnly: state.treeViewOnly,
+        canEdit: canEditSelectedTree(),
+        isOwner: state.selectedTreeRole === 'owner',
+        centerHtml,
+        actionsHtml,
+      })}
+    </header>
+  `;
+}
+
+// The tree canvas alone (Row 1/Row 2 are rendered separately by
+// renderDashboard via renderTreeDetailHeader, shared with the Media
+// Library/Timeline pages). Member search floats top-left over the canvas
+// here (see renderMemberSearch) rather than living in the shared header, so
+// it's Tree-Canvas-only - unlike renderCanvasFloatingControls, it stays
+// mounted through Focus Mode for free since it's already inside
+// #tree-focus-target, no relocation needed.
+// Every other Tree View mode (Relationship Finder/Relationships/Duplicates/
+// Settings) replaces #FamilyChart's own innerHTML with its own panel (see
+// renderRelationshipFinderViewMode/renderRelationshipManagerViewMode/
+// renderDuplicateManagerViewMode/renderTreeSettingsViewMode) but is still
+// routed through this same markup. Both #member-search and
+// #canvas-floating-controls are always rendered here (unconditionally) -
+// their shown/hidden state is instead synced reactively by
+// syncCanvasChromeVisibility(), called from renderChart() on every viewMode
+// switch, not decided once here at markup time. That split matters:
+// switchTreeViewMode's fast path (already on the tree canvas page, e.g.
+// Focused -> Relationships) only replaces #FamilyChart's own innerHTML via
+// renderChart() and never re-runs this function, so a markup-time-only
+// condition would leave whichever chrome was showing when this wrapper was
+// last fully rendered stuck in place - visible on Relationships if you
+// arrived from Focused, hidden on Focused if you arrived from Relationships -
+// instead of always matching the *current* mode.
+function renderTreeCanvasMarkup() {
+  const shortcutLabel = /Mac|iPod|iPhone|iPad/.test(navigator.platform || '') ? '⌘K' : 'Ctrl+K';
+  return `
     <div id="tree-focus-target" class="tree-focus-target">
-      <div class="tree-toolbar-row">
-        <div id="view-mode-toggle"></div>
-      </div>
       <div class="chart-canvas-wrap">
         <div id="FamilyChart" class="f3 chart-container"></div>
+        ${renderMemberSearch({ shortcutLabel })}
         ${renderCanvasFloatingControls({ cardStyle: getCardStyle(), orientation: getTreeOrientation() })}
       </div>
     </div>
-    ${renderFamilyFeedPanel()}
   `;
+}
+
+// See renderTreeCanvasMarkup's comment above - the search box/floating
+// toolbar only make sense over the live Focused/All Nodes canvas, but they're
+// mounted once as part of the static wrapper markup, so their hidden state
+// has to be re-applied here on every renderChart() call (both the full-page
+// mount and switchTreeViewMode's in-place fast path) rather than decided once
+// when that markup is built. `hidden` alone doesn't hide
+// #canvas-floating-controls - its own `display: flex` (an author rule) beats
+// the UA stylesheet's `[hidden] { display: none }` at equal specificity, so
+// styles.css adds an explicit `.canvas-floating-controls[hidden]` override
+// (same pattern as .search-box[hidden] elsewhere in that file).
+function syncCanvasChromeVisibility() {
+  const showChrome = state.viewMode === 'focused' || state.viewMode === 'all-nodes';
+  document.querySelector('#member-search')?.toggleAttribute('hidden', !showChrome);
+  document.querySelector('#canvas-floating-controls')?.toggleAttribute('hidden', !showChrome);
 }
 
 // ---------------------------------------------------------------------------
@@ -2980,7 +3040,10 @@ function closeFamilyFeed() {
 }
 
 function attachFamilyFeedListeners() {
-  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
+  // The opening trigger (#feed-notification-btn, the bell icon in
+  // .app-topbar or .app-tree-header) is wired in attachShellListeners() since
+  // it's part of the global shell, not the tree viewer; only the panel's own
+  // controls (fixed markup, mounted once) are bound here.
   document.querySelector('#family-feed-close-btn')?.addEventListener('click', () => closeFamilyFeed());
   document.querySelector('#family-feed-backdrop')?.addEventListener('click', () => closeFamilyFeed());
 
@@ -3001,48 +3064,69 @@ function attachFamilyFeedListeners() {
   });
 }
 
-// Binds everything that lives inside .viewer-header (breadcrumb, save,
-// share/rename/import, the settings dropdown, and member search - which
-// renders inside the header markup). Split out from attachTreeViewerListeners
+// Binds everything that lives inside .app-tree-header (save status, the More
+// dropdown - Share/import/export/tools/tree actions, see renderManageDataMenu
+// - and the Editing/Viewing dropdown in Row 2, all rendered inside the header
+// markup). Split out from attachTreeViewerListeners
 // so a role change (e.g. after transferring ownership) can re-render just the
 // header and rebind it, without rebuilding the focus-mode controller or
-// re-attaching the family feed listeners (those live outside the header and
-// are only meant to be wired once per tree-viewer mount).
+// re-attaching the family feed/member-search listeners (those live outside
+// the header and are only meant to be wired once per tree-viewer mount -
+// member search in particular now lives inside #tree-focus-target, which a
+// header-only refresh never touches, so rebinding it here would double up
+// its event listeners on the same still-mounted input).
 function attachTreeViewerHeaderListeners() {
-  document.querySelector('#breadcrumb-trees-btn').addEventListener('click', () => {
+  document.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', () => {
+    navigateToDashboardView('trees');
     clearSelectedTreeView();
     render();
   });
-  document.querySelector('#save-btn').addEventListener('click', handleSaveTree);
-  document.querySelector('#share-tree-btn')?.addEventListener('click', () => openShareModal(state.selectedTreeId));
+  document.querySelector('#autosave-status')?.addEventListener('click', () => {
+    if (document.querySelector('#autosave-status')?.dataset.state === 'error') performAutoSave();
+  });
   document.querySelector('#request-role-change-btn')?.addEventListener('click', () => openRoleChangeModal());
-  document.querySelector('#rename-tree-inline-btn')?.addEventListener('click', () => openRenameTreeModal());
   document.querySelector('#import-tree-json-input')?.addEventListener('change', handleImportTree);
 
-  const header = document.querySelector('.viewer-header');
+  const header = document.querySelector('.app-tree-header');
   bindDropdownTriggers(header);
   header?.querySelectorAll('.dropdown-item').forEach((btn) => {
     btn.addEventListener('click', () => handleViewerSettingsAction(btn.dataset.action));
   });
-
-  attachMemberSearchListeners();
+  // Editing/Viewing mode dropdown (see renderRoleModeControl in
+  // components.js) - a full render() picks up the new state.treeViewOnly
+  // everywhere canEditSelectedTree() is checked, including re-wiring the
+  // tree canvas's editTree() config in renderChart().
+  header?.querySelectorAll('[data-role-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.treeViewOnly = btn.dataset.roleMode === 'view';
+      render();
+    });
+  });
 }
 
-// Re-renders .viewer-header from current state (used after an action that can
-// change the signed-in user's role on the currently open tree, e.g.
-// transferring ownership away) so owner-only controls (Share button, Delete
-// Tree, etc.) disappear immediately instead of staying visible until the next
-// full page load - clicking them afterwards would just 403 against the server,
-// which otherwise reads as "I lost access to my tree".
+// Re-renders .app-tree-header (both rows) from current state (used after an
+// action that can change the signed-in user's role on the currently open
+// tree, e.g. transferring ownership away) so owner-only controls (Share
+// button, Delete Tree, etc.) disappear immediately instead of staying
+// visible until the next full page load - clicking them afterwards would
+// just 403 against the server, which otherwise reads as "I lost access to my
+// tree". Works no matter which of the three pages sharing .app-tree-header
+// is currently open.
 function refreshTreeViewerHeader() {
-  const header = document.querySelector('.viewer-header');
+  const header = document.querySelector('.app-tree-header');
   if (!header) return;
-  header.outerHTML = renderTreeViewerHeader({ treeName: state.selectedTreeName, role: state.selectedTreeRole });
+  header.outerHTML = renderTreeDetailHeader(state.treeToolbarPrimaryTab);
   attachTreeViewerHeaderListeners();
+  // outerHTML above rebuilds #primary-tab-switcher (it's nested inside the
+  // header now, unlike the old sibling #view-mode-toggle row) - rebind its
+  // listeners too, or the segmented control goes dead until the next full
+  // render().
+  setupViewModeToggle();
 }
 
 function attachTreeViewerListeners() {
   attachTreeViewerHeaderListeners();
+  attachMemberSearchListeners();
   document.querySelector('#reset-view-btn')?.addEventListener('click', handleResetView);
   document.querySelector('#focus-mode-btn')?.addEventListener('click', () => focusModeController?.toggle());
   document.querySelector('#card-style-toggle-btn')?.addEventListener('click', () => {
@@ -3056,7 +3140,11 @@ function attachTreeViewerListeners() {
     updateTreeOrientationToggleButton();
   });
 
-  attachFamilyFeedListeners();
+  // Family feed panel/listeners are now mounted at the shell level (see
+  // render()) since attachShellListeners() already wires the bell trigger
+  // (#feed-notification-btn, queried unscoped so it works whether it's
+  // rendered in .app-topbar or .app-tree-header) whenever
+  // state.selectedTreeId is set.
   setupFocusMode();
 }
 
@@ -3064,7 +3152,7 @@ function attachTreeViewerListeners() {
 // whatever card style is currently stored (see cardStyle.js). Called right
 // after a toggle click - renderChart() rebuilds #FamilyChart itself but
 // never touches this button (it lives outside #FamilyChart, see
-// renderTreeViewerMarkup), so its icon would otherwise go stale.
+// renderTreeCanvasMarkup), so its icon would otherwise go stale.
 function updateCardStyleToggleButton() {
   const btn = document.querySelector('#card-style-toggle-btn');
   if (!btn) return;
@@ -3095,6 +3183,7 @@ function attachMemberSearchListeners() {
   const input = document.querySelector('#member-search-input');
   const resultsEl = document.querySelector('#member-search-results');
   const clearBtn = document.querySelector('#member-search-clear-btn');
+  const shortcutHint = document.querySelector('#member-search-shortcut');
   if (!container || !input || !resultsEl || !clearBtn) return;
 
   input.addEventListener('focus', () => {
@@ -3106,6 +3195,7 @@ function attachMemberSearchListeners() {
 
   input.addEventListener('input', () => {
     clearBtn.hidden = !input.value;
+    if (shortcutHint) shortcutHint.hidden = !!input.value;
     runMemberSearch(input.value);
   });
 
@@ -3125,6 +3215,7 @@ function attachMemberSearchListeners() {
       if (input.value) {
         input.value = '';
         clearBtn.hidden = true;
+        if (shortcutHint) shortcutHint.hidden = false;
         closeMemberSearchResults();
       } else {
         input.blur();
@@ -3135,6 +3226,7 @@ function attachMemberSearchListeners() {
   clearBtn.addEventListener('click', () => {
     input.value = '';
     clearBtn.hidden = true;
+    if (shortcutHint) shortcutHint.hidden = false;
     closeMemberSearchResults();
     input.focus();
   });
@@ -3231,6 +3323,20 @@ function selectSearchedMember(id) {
     input.value = '';
     const clearBtn = document.querySelector('#member-search-clear-btn');
     if (clearBtn) clearBtn.hidden = true;
+  }
+
+  // Member search is shown on the Media Library/Timeline pages too (see
+  // renderAppHeader), but selecting a result re-roots/pans the tree canvas,
+  // which only exists on the tree view - land there first, same as
+  // switchTreeViewMode.
+  if (state.dashboardView !== 'trees') {
+    state.treeToolbarPrimaryTab = 'tree';
+    state.dashboardView = 'trees';
+    state.focusedMainId = id;
+    state.viewMode = 'focused';
+    render();
+    highlightFocusedCard(id);
+    return;
   }
 
   if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager') {
@@ -3350,6 +3456,7 @@ function focusModeCenter() {
 function syncFocusModeToolbarState() {
   const disabled =
     state.viewMode === 'all-nodes' ||
+    state.viewMode === 'relationship-finder' ||
     state.viewMode === 'relationship-manager' ||
     state.viewMode === 'duplicate-manager' ||
     state.viewMode === 'settings';
@@ -3358,32 +3465,11 @@ function syncFocusModeToolbarState() {
   focusModeController?.setActionDisabled('center', disabled);
 }
 
-// Member search lives in Row 2 (.viewer-header) now, which Focus Mode hides
-// entirely along with the rest of the page chrome - so it has to physically
-// move into #tree-focus-target to stay usable while maximized, then move
-// back on exit rather than leaving a detached duplicate behind.
-let memberSearchHomeMarker = null;
-
-function relocateMemberSearchForFocusMode(active) {
-  const memberSearch = document.querySelector('#member-search');
-  if (!memberSearch) return;
-  if (active) {
-    memberSearchHomeMarker = document.createComment('member-search-home');
-    memberSearch.after(memberSearchHomeMarker);
-    document.querySelector('#tree-focus-target')?.prepend(memberSearch);
-  } else if (memberSearchHomeMarker) {
-    memberSearchHomeMarker.after(memberSearch);
-    memberSearchHomeMarker.remove();
-    memberSearchHomeMarker = null;
-  }
-}
-
 // Runs once the enter/exit CSS transition has finished (focusMode.js calls
 // onEnter/onExit after its own transition timer, so this never races a
 // refit against a container that's still mid-resize).
 function onFocusModeTransitionEnd(active) {
   document.querySelector('#focus-mode-btn')?.setAttribute('aria-pressed', String(active));
-  relocateMemberSearchForFocusMode(active);
   if (active) syncFocusModeToolbarState();
   refitActiveView(0);
 }
@@ -3412,6 +3498,16 @@ function setupFocusMode() {
 }
 
 function handleViewerSettingsAction(action) {
+  // Settings (in the Manage Data dropdown) swaps what's showing in place of
+  // the canvas rather than opening a modal/triggering a download - close
+  // whichever dropdown is still open first, since switchTreeViewMode()'s
+  // toolbar rebuild won't touch it (the Manage Data menu lives in Row 1 of
+  // .app-tree-header, outside #primary-tab-switcher entirely).
+  if (action === 'settings') {
+    document.querySelectorAll('.dropdown-menu.open').forEach((menu) => menu.classList.remove('open'));
+    return switchTreeViewMode(action);
+  }
+  if (action === 'share') return openShareModal(state.selectedTreeId);
   if (action === 'rename') return openRenameTreeModal();
   if (action === 'vault-snapshot') return handleCreateVaultSnapshotForTree(state.selectedTreeId);
   if (action === 'delete') return promptDeleteTree(state.selectedTreeId, state.selectedTreeName);
@@ -3438,6 +3534,15 @@ function handleViewerSettingsAction(action) {
 }
 
 function handleExportTreeImage() {
+  // Reachable from Manage Data on the Media Library/Timeline pages too (see
+  // renderAppHeader) - #FamilyChart only exists on the tree canvas, so land
+  // there first; the existing Focused-mode check below still applies once
+  // there (unrelated to which page the click came from).
+  if (state.dashboardView !== 'trees') {
+    state.treeToolbarPrimaryTab = 'tree';
+    state.dashboardView = 'trees';
+    render();
+  }
   if (state.viewMode !== 'focused') {
     showToast('Switch to Focused mode to export the tree as an image.', { type: 'error' });
     return;
@@ -3462,7 +3567,6 @@ function openRenameTreeModal() {
     try {
       const result = await api(`/api/trees/${treeId}`, { method: 'PATCH', body: JSON.stringify({ name }) });
       state.selectedTreeName = result.name;
-      document.querySelector('.viewer-title').textContent = result.name;
       document.querySelector('.breadcrumb-current').textContent = result.name;
       modal.close();
       loadTrees();
@@ -3474,27 +3578,74 @@ function openRenameTreeModal() {
   });
 }
 
-async function handleSaveTree() {
-  const saveBtn = document.querySelector('#save-btn');
-  const label = saveBtn.querySelector('span');
-  saveBtn.disabled = true;
-  if (label) label.textContent = 'Saving...';
+// ---------------------------------------------------------------------------
+// Autosave
+// ---------------------------------------------------------------------------
+// Replaces the old manual Save button: any edit anywhere in the tree viewer
+// (main canvas via state.editor.setOnChange, or one of the dirty flags below)
+// calls scheduleAutoSave(), which debounces a PUT to /api/trees/:id and
+// reflects Saving.../Saved/Unsaved changes/error via #autosave-status
+// (see renderAutoSaveStatus in components.js). A failed save leaves the
+// status in an "error" state that's clickable to retry immediately.
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+let autoSaveTimer = null;
+// Backstops autosave's debounce window with a native "leave site?" prompt if
+// the browser tab is closed before the pending save has a chance to fire.
+const autoSaveGuard = FormGuard.create({
+  id: 'tree-autosave',
+  message: 'Your latest tree edits are still saving. Leave without saving?',
+});
 
+function hasUnsavedTreeChanges() {
+  return Boolean(
+    state.treeDirty || state.relationshipBuilder.dirty || state.relationshipManager.dirty || state.duplicateManager.dirty
+  );
+}
+
+function setAutoSaveStatus(nextState, { message } = {}) {
+  const el = document.querySelector('#autosave-status');
+  if (!el) return;
+  el.dataset.state = nextState;
+  const labels = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed — click to retry' };
+  const text = message || labels[nextState] || '';
+  const textEl = el.querySelector('.autosave-status-text');
+  if (textEl) textEl.textContent = text;
+  el.title = nextState === 'saved' ? 'All changes saved' : text;
+}
+
+function scheduleAutoSave() {
+  const canEdit = canEditSelectedTree();
+  if (!canEdit || !state.selectedTreeId) return;
+  setAutoSaveStatus('unsaved');
+  autoSaveGuard.markDirty();
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(performAutoSave, AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function performAutoSave() {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (!hasUnsavedTreeChanges()) {
+    setAutoSaveStatus('saved');
+    return;
+  }
+  setAutoSaveStatus('saving');
   try {
     const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
     await api(`/api/trees/${state.selectedTreeId}`, {
       method: 'PUT',
       body: JSON.stringify({ json_data: dataToSave }),
     });
+    state.treeDirty = false;
     state.relationshipBuilder.dirty = false;
     state.relationshipManager.dirty = false;
     state.duplicateManager.dirty = false;
-    showToast('Tree saved successfully.');
+    autoSaveGuard.markClean();
+    setAutoSaveStatus('saved');
   } catch (error) {
-    showToast(error.message || 'Save failed.', { type: 'error' });
-  } finally {
-    syncSaveButtonAvailability();
-    if (label) label.textContent = 'Save';
+    setAutoSaveStatus('error', { message: error.message || 'Save failed — click to retry' });
   }
 }
 
@@ -3796,6 +3947,18 @@ async function handleContactSubmit(event) {
 }
 
 function clearSelectedTreeView() {
+  // A debounced autosave may still be sitting in its window when the user
+  // navigates away - flush it (fire-and-forget) before the tree/editor
+  // references below go away, so the edit isn't silently dropped.
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+    if (hasUnsavedTreeChanges() && state.selectedTreeId) {
+      const dataToSave = state.editor?.exportData ? state.editor.exportData() : state.selectedTreeData;
+      api(`/api/trees/${state.selectedTreeId}`, { method: 'PUT', body: JSON.stringify({ json_data: dataToSave }) }).catch(() => {});
+    }
+    autoSaveGuard.markClean();
+  }
   focusModeController?.destroy();
   focusModeController = null;
   cleanupAllNodesGraph();
@@ -3806,6 +3969,7 @@ function clearSelectedTreeView() {
   state.selectedTreeStatus = 'active';
   state.chart = null;
   state.editor = null;
+  state.treeViewOnly = false;
   state.viewMode = 'focused';
   state.focusedMainId = null;
   state.defaultMainId = null;
@@ -3817,6 +3981,17 @@ function clearSelectedTreeView() {
   state.mediaLibrary = createMediaLibraryPageState();
   state.timeline = createTimelinePageState();
   state.familyFeed = { open: false, loaded: false, loading: false, filter: 'all', items: [] };
+}
+
+// Whether the signed-in user can currently make edits to the selected tree -
+// role-gated (owner/editor) AND gated by the Editing/Viewing toggle in the
+// header (see renderRoleModeControl in components.js), which lets an
+// owner/editor browse read-only on purpose without touching their actual
+// role. Every readOnly/canEdit check across the tree viewer, Media Library,
+// and Timeline pages goes through this one function so flipping the toggle
+// can't miss a spot.
+function canEditSelectedTree() {
+  return (state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor') && !state.treeViewOnly;
 }
 
 // Appends one of the small circular hover-icon buttons tree cards use (e.g.
@@ -3852,9 +4027,15 @@ function addCardIcon(cardEl, horizontalPosition, iconHtml, onClick, tooltipLabel
     // letting the popover anchor to the icon instead of the whole card.
     .attr('class', `f3-svg-circle-hover${isCentered ? ' f3-svg-circle-hover-center' : ''} relative`)
     .attr('style', `cursor: pointer; width: 20px; height: 20px; position: absolute; top: ${topOffset}px; ${positionStyle}`)
-    .attr('data-tooltip', tooltipLabel)
-    .attr('data-tooltip-position', 'bottom')
     .html(iconHtml);
+  // Skip data-tooltip entirely when no label is given (see the "More" icon
+  // call site below) - its own popover already points back at it with an
+  // arrow, so a hover tooltip on top would be redundant.
+  if (tooltipLabel) {
+    iconSelection
+      .attr('data-tooltip', tooltipLabel)
+      .attr('data-tooltip-position', 'bottom');
+  }
   iconSelection
     .select('svg')
     .style('padding', '0')
@@ -3892,6 +4073,7 @@ function markMyNodeCard(cardEl, d) {
 
 function renderChart() {
   cleanupAllNodesGraph();
+  syncCanvasChromeVisibility();
   if (state.viewMode === 'duplicate-manager') {
     renderDuplicateManagerViewMode();
     setupViewModeToggle();
@@ -3899,6 +4081,11 @@ function renderChart() {
   }
   if (state.viewMode === 'relationship-manager') {
     renderRelationshipManagerViewMode();
+    setupViewModeToggle();
+    return;
+  }
+  if (state.viewMode === 'relationship-finder') {
+    renderRelationshipFinderViewMode();
     setupViewModeToggle();
     return;
   }
@@ -3964,14 +4151,14 @@ function renderChart() {
   // extra wiring needed.
   const card = state.chart
     .setCard(f3.CardHtml)
-    .setCardDisplay([['first name', 'last name'], ['birthday', 'location']])
+    .setCardDisplay([['first name', 'last name']])
     // Circle (examples/11-html-card-styling.html: photo in a gender-colored
     // circle, name label overlapping its bottom edge) or the library's
     // original wide rectangle - whichever this browser last picked via the
     // canvas-floating card-style toggle (see cardStyle.js / attachTreeViewerListeners).
     .setStyle(toF3CardStyle(getCardStyle()));
 
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  const canEdit = canEditSelectedTree();
   if (canEdit) {
     state.editor = state.chart
       .editTree()
@@ -3995,6 +4182,15 @@ function renderChart() {
         const datum = state.chart.store.getDatum(form_creator.datum_id);
         if (!datum) return;
         attachAvatarUpload({ cont, datum, api, treeId: state.selectedTreeId });
+      })
+      // Fires whenever a card is added, edited, or removed via the editor
+      // form - this is the only signal for main-canvas edits (unlike
+      // relationshipBuilder/relationshipManager/duplicateManager, which set
+      // their own .dirty flags), so it's what drives autosave for ordinary
+      // "click a card, edit a field" changes.
+      .setOnChange(() => {
+        state.treeDirty = true;
+        scheduleAutoSave();
       });
 
     // Canceling add-relative mode (EditTree's internal cancelCallback) always
@@ -4051,11 +4247,13 @@ function renderChart() {
       // More icon: opens a small popover with Edit and Add relative. Built
       // directly here (not the app's shared dropdownMenu()) since that
       // helper targets static page markup and app-icon set, not per-card
-      // D3-driven re-renders using f3.icons' inline SVGs.
+      // D3-driven re-renders using f3.icons' inline SVGs. No tooltip label -
+      // the popover it opens already has its own pointer arrow back at this
+      // icon (see .f3-card-more-menu.dropdown-menu in styles.css).
       const moreIconEl = addCardIcon(cardEl, 0, f3.icons.moreSvgIcon(), (e) => {
         e.stopPropagation();
         openCardMoreMenu(moreIconEl, d);
-      }, 'More');
+      });
     });
 
     // Popover for the "more" icon. Reuses the app's .dropdown-menu/.dropdown-item
@@ -4270,91 +4468,104 @@ function renderChart() {
   setupViewModeToggle();
 }
 
+// Shared by setupViewModeToggle's Focused/All Nodes chips, its Tree View
+// options menu's Manage Data (Relationships/Duplicates) items, and
+// handleViewerSettingsAction's gear-menu (Settings) item - anything that
+// swaps what's showing in place of the chart canvas goes through here so the
+// toolbar stays in sync.
+function switchTreeViewMode(mode) {
+  if (state.chart?.getMainDatum && state.viewMode === 'focused') {
+    const currentMain = state.chart.getMainDatum();
+    if (currentMain?.id) state.focusedMainId = currentMain.id;
+  }
+  state.viewMode = mode;
+  // Every viewMode (chart, all-nodes, relationship-finder, relationship-manager,
+  // duplicate-manager, settings) renders into #FamilyChart, which only exists
+  // on the tree canvas page - reachable here via the Tree View options menu's
+  // View/Manage Data groups or the gear menu's Settings item, all of which are
+  // also shown on the Media Library/Timeline pages (see renderAppHeader), so
+  // this can fire from there too and needs to route back to the canvas first.
+  if (state.dashboardView !== 'trees') {
+    state.treeToolbarPrimaryTab = 'tree';
+    state.dashboardView = 'trees';
+    render();
+    return;
+  }
+  renderChart();
+  setupViewModeToggle();
+}
+
+// Media/Events are their own full-page dashboardViews (not chart viewModes),
+// but the toggle itself is shared chrome that this page also renders (see
+// mediaLibraryPanel.js/timelinePanel.js), so the whole tree/media/events
+// navigation stays reachable in one click no matter which of the three pages
+// is currently showing - none of them requires backing out to the tree
+// canvas first. `tab` is 'media' or 'events'; navigating to whichever one is
+// already showing just refreshes the toggle instead of resetting its state
+// and reloading.
+function navigateToLibraryTab(tab) {
+  state.treeToolbarPrimaryTab = tab;
+  const targetView = tab === 'events' ? 'timeline' : 'mediaLibrary';
+  if (state.dashboardView === targetView) {
+    setupViewModeToggle();
+    return;
+  }
+  if (targetView === 'mediaLibrary') state.mediaLibrary = createMediaLibraryPageState();
+  else state.timeline = createTimelinePageState();
+  state.dashboardView = targetView;
+  render();
+}
+
+// Rebuilds the primary tab switcher (#primary-tab-switcher, in the primary
+// bar - Tree View/Media/Events, plus Tree View's own Focused/All
+// Nodes/Relationship Finder dropdown) from scratch on every call rather than
+// just toggling .disabled/.open in place, because which DOM nodes exist at
+// all changes with state.treeToolbarPrimaryTab/state.viewMode. Also rendered
+// by the standalone Media Library/Timeline pages
+// (mediaLibraryPanel.js/timelinePanel.js), so this may run with no chart
+// mounted at all - guard on the container missing entirely (event-detail
+// sub-view of Timeline doesn't render it). Rebinding the dropdown trigger
+// here (not just relying on attachTreeViewerHeaderListeners' header-wide
+// bindDropdownTriggers) matters because switchTreeViewMode's fast path calls
+// only this function, not a full header rebind - see bindDropdownTriggers'
+// data-menu-bound guard for why calling it from both places is still safe.
 function setupViewModeToggle() {
-  const cont = document.querySelector('#view-mode-toggle');
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  const isOwner = state.selectedTreeRole === 'owner';
-  cont.innerHTML = renderViewModeToggle({ viewMode: state.viewMode, canEdit, isOwner });
+  const switcherCont = document.querySelector('#primary-tab-switcher');
+  if (switcherCont) {
+    switcherCont.innerHTML = renderPrimaryTabSwitcher({
+      primaryTab: state.treeToolbarPrimaryTab,
+      viewMode: state.viewMode,
+      canEdit: canEditSelectedTree(),
+    });
+    bindDropdownTriggers(switcherCont);
+  }
 
-  const focusedBtn = document.querySelector('#focused-mode-btn');
-  const allNodesBtn = document.querySelector('#all-nodes-mode-btn');
-  const relationshipManagerBtn = document.querySelector('#relationship-manager-mode-btn');
-  const duplicateManagerBtn = document.querySelector('#duplicate-manager-mode-btn');
-  const treeSettingsBtn = document.querySelector('#tree-settings-mode-btn');
+  if (!switcherCont) return;
 
-  const syncModeButtons = () => {
-    focusedBtn.disabled = state.viewMode === 'focused';
-    allNodesBtn.disabled = state.viewMode === 'all-nodes';
-    if (relationshipManagerBtn) relationshipManagerBtn.disabled = state.viewMode === 'relationship-manager';
-    if (duplicateManagerBtn) duplicateManagerBtn.disabled = state.viewMode === 'duplicate-manager';
-    if (treeSettingsBtn) treeSettingsBtn.disabled = state.viewMode === 'settings';
-    syncSaveButtonAvailability();
-    syncFocusModeToolbarState();
-  };
-
-  const saveFocusedMainId = () => {
-    if (state.chart?.getMainDatum && state.viewMode === 'focused') {
-      const currentMain = state.chart.getMainDatum();
-      if (currentMain?.id) state.focusedMainId = currentMain.id;
+  document.querySelector('#primary-tab-tree-btn')?.addEventListener('click', () => {
+    state.treeToolbarPrimaryTab = 'tree';
+    if (state.dashboardView === 'mediaLibrary' || state.dashboardView === 'timeline') {
+      state.dashboardView = 'trees';
+      render();
+      return;
     }
-  };
+    if (state.viewMode !== 'focused' && state.viewMode !== 'all-nodes') switchTreeViewMode('focused');
+    else setupViewModeToggle();
+  });
+  document.querySelector('#primary-tab-media-btn')?.addEventListener('click', () => navigateToLibraryTab('media'));
+  document.querySelector('#primary-tab-events-btn')?.addEventListener('click', () => navigateToLibraryTab('events'));
 
-  focusedBtn.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'focused';
-    renderChart();
-    syncModeButtons();
-  });
+  document.querySelector('#focused-mode-btn')?.addEventListener('click', () => switchTreeViewMode('focused'));
+  document.querySelector('#all-nodes-mode-btn')?.addEventListener('click', () => switchTreeViewMode('all-nodes'));
+  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-finder'));
+  // Relationships/Duplicates are rendered `disabled` in view mode (see
+  // renderPrimaryTabSwitcher's canEdit param) - disabled buttons never fire
+  // click, so no extra guard is needed here.
+  document.querySelector('#relationship-manager-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-manager'));
+  document.querySelector('#duplicate-manager-btn')?.addEventListener('click', () => switchTreeViewMode('duplicate-manager'));
 
-  allNodesBtn.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'all-nodes';
-    renderChart();
-    syncModeButtons();
-  });
-
-  relationshipManagerBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'relationship-manager';
-    renderChart();
-    syncModeButtons();
-  });
-
-  duplicateManagerBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'duplicate-manager';
-    renderChart();
-    syncModeButtons();
-  });
-
-  treeSettingsBtn?.addEventListener('click', () => {
-    saveFocusedMainId();
-    state.viewMode = 'settings';
-    renderChart();
-    syncModeButtons();
-  });
-
-  // Media Library/Timeline/Family Feed chips are rendered inside #view-mode-toggle
-  // alongside the mode tabs (Row 3), so cont.innerHTML above just recreated
-  // their DOM nodes too - re-wire them every call rather than once in
-  // attachTreeViewerListeners(), which would only ever bind the first copy.
-  document.querySelector('#media-library-btn')?.addEventListener('click', () => {
-    state.mediaLibrary = createMediaLibraryPageState();
-    state.dashboardView = 'mediaLibrary';
-    render();
-  });
-  document.querySelector('#timeline-btn')?.addEventListener('click', () => {
-    state.timeline = createTimelinePageState();
-    state.dashboardView = 'timeline';
-    render();
-  });
-  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => {
-    state.dashboardView = 'relationshipFinder';
-    render();
-  });
-  document.querySelector('#family-feed-btn')?.addEventListener('click', () => openFamilyFeed());
-
-  syncModeButtons();
+  syncSaveButtonAvailability();
+  syncFocusModeToolbarState();
 }
 
 function authErrorMessage(error) {
@@ -4599,12 +4810,7 @@ function renderSecuritySettingsMarkup() {
       })();
 
   return `
-    <header class="page-header">
-      <div>
-        <h1 class="page-title">Security Settings</h1>
-        <p class="page-subtitle">Manage multi-factor authentication for your account.</p>
-      </div>
-    </header>
+    ${renderPageHeader({ subtitle: 'Manage multi-factor authentication for your account.' })}
     <section class="security-panel">${body}</section>
     <section class="security-panel danger-zone">
       <h2 class="danger-zone-title">Delete Account</h2>
@@ -4689,6 +4895,28 @@ function renderVaultDrawerMarkup() {
     ${createControls}
     <ul class="vault-snapshot-list">${vault.loading ? '<p class="muted">Loading archives...</p>' : snapshotRows}</ul>
   `;
+}
+
+// Private Vault used to be a permanently-mounted tab panel inside the trees
+// landing view; it's now its own dashboardView ('vault', reached via the My
+// Trees action bar's More Options menu - see handleTreesLandingHeaderAction)
+// rather than a showModal() dialog. The vault's own actions open further
+// modals of their own (restore picker, delete confirmation), and this app's
+// modal engine only ever keeps one <dialog> open at a time (see appUX.js's
+// closeActiveDialog) - a modal-based vault would silently close itself the
+// moment one of those child modals opened. A page sidesteps that entirely
+// and keeps every existing render()-based refresh call site below working
+// unchanged.
+// No breadcrumb here - the My Trees/Private Vault tab switcher in the top
+// bar (see renderDashboard's topbarTabsHtml/isTreesSection) already shows
+// "Private Vault" as current and lets you click back to "My Trees".
+function renderVaultPageMarkup() {
+  return `<section class="security-panel vault-panel">${renderVaultDrawerMarkup()}</section>`;
+}
+
+function attachVaultPageListeners() {
+  attachVaultDrawerListeners();
+  if (!state.vault.loaded && !state.vault.loading) loadVaultSnapshots();
 }
 
 function attachVaultDrawerListeners() {
@@ -5588,7 +5816,7 @@ async function handleSignOut() {
   state.dashboardView = 'trees';
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
   state.vault = { snapshots: [], loading: false, loaded: false, creatingTreeId: null };
-  state.treesTab = 'active';
+  state.treeSearchMode = 'trees';
   state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
   state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
   resetAuthCardEntrance();
@@ -5792,6 +6020,9 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
     state.treeDefaultMainId && payload.data.some((d) => d.id === state.treeDefaultMainId);
   state.focusedMainId = ownerDefaultStillExists ? state.treeDefaultMainId : pickDefaultMainId(payload.data);
   state.defaultMainId = state.focusedMainId;
+  state.treeDirty = false;
+  state.treeViewOnly = false;
+  state.treeToolbarPrimaryTab = 'tree';
   state.relationshipBuilder = createRelationshipBuilderState();
   state.relationshipManager = createRelationshipManagerState();
   state.duplicateManager = createDuplicateManagerState();
@@ -5804,7 +6035,7 @@ function renderAllNodesMode() {
   const graphData = buildAllNodesGraphData(state.selectedTreeData);
   state.chart = null;
   state.editor = null;
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  const canEdit = canEditSelectedTree();
   state.allNodesGraph = renderAllNodesGraph('#FamilyChart', graphData, {
     onConnectAttempt: canEdit
       ? (sourceId, targetId) => handleConnectAttempt(state, syncSaveButtonAvailability, sourceId, targetId)
@@ -5907,7 +6138,7 @@ function toAllNodesLabel(datum) {
 function renderRelationshipManagerViewMode() {
   state.chart = null;
   state.editor = null;
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  const canEdit = canEditSelectedTree();
   state.memberSearchIndex = buildMemberSearchIndex(state.selectedTreeData);
 
   const container = document.querySelector('#FamilyChart');
@@ -5954,7 +6185,7 @@ function renderRelationshipManagerViewMode() {
 function renderDuplicateManagerViewMode() {
   state.chart = null;
   state.editor = null;
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
+  const canEdit = canEditSelectedTree();
 
   // Selecting a row (or any other action here) redraws the whole view via
   // innerHTML, which would otherwise reset #dm-pair-list's scrollTop to 0 on
@@ -5975,6 +6206,26 @@ function renderDuplicateManagerViewMode() {
   }
 
   syncSaveButtonAvailability();
+}
+
+// Relationship Finder is a nested Tree View mode now (see the Tree View
+// options menu's View group in renderPrimaryTabSwitcher), same as
+// Focused/All Nodes - it used to be its own standalone dashboardView with a
+// bespoke header/breadcrumb (see relationshipFinder.js's history comment),
+// but that left it without the shared tabs/Editing dropdown every sibling
+// mode gets, so it's routed through #FamilyChart like
+// relationship-manager/duplicate-manager/settings instead.
+function renderRelationshipFinderViewMode() {
+  state.chart = null;
+  state.editor = null;
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderRelationshipFinderPageContent({
+    data: state.selectedTreeData,
+    rootId: state.focusedMainId,
+  });
+
+  attachRelationshipFinderPageListeners();
 }
 
 function renderTreeSettingsViewMode() {
@@ -6091,22 +6342,24 @@ async function handleSaveTreeSettings() {
 
 let relationshipManagerKeyboardCleanup = null;
 
-// Re-evaluates the Save button's disabled state from current role/view-mode/
-// dirty flags. Module-scoped (rather than nested inside setupViewModeToggle,
-// like the rest of that closure's button wiring) so relationshipBuilder's
-// onDirtyChange callback can call it directly after a relationship is applied.
+// Re-evaluates the autosave status from current role/dirty flags, arming the
+// debounced autosave whenever something's pending. Module-scoped (rather
+// than nested inside setupViewModeToggle, like the rest of that closure's
+// button wiring) so relationshipBuilder's onDirtyChange callback can call it
+// directly after a relationship is applied. Kept under its original name
+// since several other modules already call it as a "something may have
+// changed, reconcile the save UI" hook.
 function syncSaveButtonAvailability() {
-  const saveBtn = document.querySelector('#save-btn');
-  if (!saveBtn) return;
-  const canEdit = state.selectedTreeRole === 'owner' || state.selectedTreeRole === 'editor';
-  const allNodesBlocked = state.viewMode === 'all-nodes' && !state.relationshipBuilder.dirty;
-  const relationshipManagerBlocked = state.viewMode === 'relationship-manager' && !state.relationshipManager.dirty;
-  const duplicateManagerBlocked = state.viewMode === 'duplicate-manager' && !state.duplicateManager.dirty;
-  // Settings mode saves via its own button (handleSaveTreeDefaultFocus),
-  // straight to PATCH /:id/settings - it never has bulk json_data changes
-  // pending, so the main Save button has nothing to do there.
-  const settingsBlocked = state.viewMode === 'settings';
-  saveBtn.disabled = !canEdit || allNodesBlocked || relationshipManagerBlocked || duplicateManagerBlocked || settingsBlocked;
+  const canEdit = canEditSelectedTree();
+  if (!canEdit) return;
+  if (hasUnsavedTreeChanges()) {
+    scheduleAutoSave();
+    return;
+  }
+  // Nothing pending - reflect "Saved" unless a save is actively in flight or
+  // just failed, both of which own their own status transitions.
+  const el = document.querySelector('#autosave-status');
+  if (el && el.dataset.state !== 'saving' && el.dataset.state !== 'error') setAutoSaveStatus('saved');
 }
 
 function cleanupAllNodesGraph() {
