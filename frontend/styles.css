@@ -2330,7 +2330,13 @@ button.secondary:active,
   font-weight: 500;
 }
 
-.dropdown-item:hover {
+/* :not([disabled]) matches the .admin-nav-item convention elsewhere - the
+   generic `button[disabled]` reset (see "Buttons") already dims/cursor-locks
+   disabled items (e.g. Relationships/Duplicates in view mode, see
+   renderPrimaryTabSwitcher's canEdit param), but :hover's background isn't
+   suppressed by the disabled attribute on its own, so without this a
+   disabled item would still visibly "light up" on mouseover. */
+.dropdown-item:hover:not([disabled]) {
   background: var(--bg-surface-hover);
 }
 
@@ -3019,7 +3025,14 @@ button.secondary:active,
   font-weight: 500;
 }
 
+/* `background: transparent` repeated here (matching the rest-state value)
+   rather than left to inherit it: these are plain `<button>`s, and the
+   generic `button:hover` reset below (see "Buttons") sets an accent-colored
+   background at higher specificity than a bare `:hover` with no background
+   of its own would beat - without this, hovering an inactive pill flashes
+   that accent background with dark text on top, unreadable in light theme. */
 .segmented-option:hover {
+  background: transparent;
   color: var(--text-primary);
 }
 
@@ -3027,6 +3040,13 @@ button.secondary:active,
   background: var(--bg-surface-raised);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
+}
+
+/* Without this, hovering the *active* pill hits the same button:hover leak
+   described above and swaps its background for the accent color instead of
+   keeping the raised "selected" look. */
+.segmented-option-active:hover {
+  background: var(--bg-surface-raised);
 }
 
 /* Tree View's label+caret (see renderPrimaryTabSwitcher in components.js)
@@ -3065,6 +3085,16 @@ button.secondary:active,
   color: inherit;
   font-size: 0.83rem;
   font-weight: 500;
+}
+
+/* Same button:hover leak as .segmented-option above: these are plain
+   `<button>`s too, so without an explicit background here hovering either
+   one paints the generic accent-colored button hover over whatever
+   .segmented-option-group/.segmented-option-group.segmented-option-active
+   background is showing through from the wrapping div. */
+.segmented-option-label:hover,
+.segmented-option-caret:hover {
+  background: transparent;
 }
 
 .segmented-option-label {
@@ -3269,14 +3299,24 @@ button.secondary:active,
 /* Relationship Finder                                                 */
 /* ------------------------------------------------------------------ */
 
-/* Standalone tree-detail page (see relationshipFinder.js), same wrapper
-   convention as .media-library-page/.timeline-page. Reuses
-   .member-search-box/.member-search-results styling for the input and
-   dropdown - this block only adds the mobile-first wrapper and result card.
-   The breadcrumb that used to live here now renders in the persistent
-   .app-topbar instead (see renderTopbar's `breadcrumbActiveTab`). */
+/* A Tree View mode's panel (see relationshipFinder.js/
+   renderRelationshipFinderViewMode in main.js), rendered into #FamilyChart in
+   place of the chart canvas - same convention as .relationship-manager-shell/
+   the duplicate-manager markup. Reuses .member-search-box/.member-search-results
+   styling for the input and dropdown - this block only adds the mobile-first
+   wrapper and result card. The breadcrumb/tabs/Editing dropdown all live in
+   the shared chrome above this. */
 .relationship-finder-page {
   width: 100%;
+  /* #FamilyChart's wrapper (.chart-canvas-wrap) bleeds -var(--sp-10) past
+     .content's own horizontal padding so the tree canvas can run full-width -
+     see .chart-canvas-wrap above. This panel isn't a canvas though, so
+     without re-adding that padding here its subtitle/search box would start
+     flush with the bled edge instead of lining up under the Tree View/Media/
+     Events tabs above (.app-primary-bar), which still sit inside .content's
+     padding. Re-derived at the --sp-4 breakpoint below, same as
+     .canvas-floating-controls. */
+  padding: 0 var(--sp-10);
 }
 
 .relationship-finder {
@@ -3433,6 +3473,17 @@ button.secondary:active,
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-md);
+}
+
+/* .canvas-floating-controls sets its own `display: flex` above, which (being
+   an author rule) otherwise outranks the UA stylesheet's
+   `[hidden] { display: none }` - needed since main.js's
+   syncCanvasChromeVisibility toggles this element's `hidden` attribute on
+   every Tree View mode switch (see renderTreeCanvasMarkup's comment) rather
+   than only deciding it at markup time. Same pattern as .search-box[hidden]
+   above. */
+.canvas-floating-controls[hidden] {
+  display: none;
 }
 
 .canvas-floating-btn {
@@ -5578,6 +5629,13 @@ dialog.modal-overlay[open] {
 
   .chart-canvas-wrap {
     margin: 0 calc(-1 * var(--sp-4)) calc(-1 * var(--sp-5));
+  }
+
+  /* Re-derived from --sp-4 (not --sp-10) to match .content's own reduced
+     padding at this breakpoint, same reasoning as .canvas-floating-controls
+     below. */
+  .relationship-finder-page {
+    padding: 0 var(--sp-4);
   }
 
   /* .content's own padding drops to --sp-4 at this breakpoint, so re-derive

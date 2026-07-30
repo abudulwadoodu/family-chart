@@ -133,20 +133,20 @@ export function renderHeaderUserCluster({ email, activeTheme, hasTree }) {
 // sections, that section's tab switcher - see tabsHtml below) on the left,
 // user cluster on the right. Rendered once inside .main-area (above
 // .content), so it's present above every page, including every tree-scoped
-// page (Tree Canvas/Media Library/Timeline/Relationship Finder) - passing
-// `treeName` swaps the left slot to that tree's breadcrumb + a
-// member-count/last-updated info popover instead of a plain title, and
+// page (Tree Canvas/Media Library/Timeline/every Tree View mode - Focused/All
+// Nodes/Relationship Finder/Relationships/Duplicates/Settings) - passing
+// `treeName` swaps the left slot to that tree's breadcrumb (always just "My
+// Trees / <tree name>" - see renderTreeBreadcrumb's default `activeTab: null`)
+// + a member-count/last-updated info popover instead of a plain title, and
 // `hasTree` adds the family-feed notification bell next to the profile
 // avatar, so this one persistent bar now covers what those pages used to
 // render as their own separate first row (renderTreeDetailHeaderTop, since
-// removed - see main.js's renderDashboard). `breadcrumbActiveTab`/
-// `breadcrumbDetailLabel` pass straight through to renderTreeBreadcrumb for
-// pages that are a drill-in below the tree itself (Relationship Finder
-// passes `breadcrumbActiveTab: 'Relationship Finder'`) rather than the tree
-// view itself. `leftLabel` is that page's title - main.js's renderDashboard
-// computes it per-view (Security Settings, Create a Tree, etc.), falling
-// back to the selected tree's name only for Timeline's event-detail
-// drill-in, which keeps its own breadcrumb below this bar instead.
+// removed - see main.js's renderDashboard). `leftLabel` is that page's title -
+// main.js's renderDashboard computes it per-view (Security Settings, Create a
+// Tree, etc.), falling back to the selected tree's name only for Timeline's
+// event-detail drill-in, which keeps its own breadcrumb below this bar
+// instead (see renderTreeBreadcrumb's `activeTab`/`detailLabel`, used
+// directly there rather than through this component).
 // `tabsHtml` (see renderTopbarTabs) takes over the same left slot instead of
 // leftLabel for the three sections with sibling views (My Trees/Private
 // Vault, Requests, Support) - one wouldn't make sense next to the other,
@@ -160,8 +160,6 @@ export function renderTopbar({
   memberCount = null,
   updatedAt = null,
   hasTree = false,
-  breadcrumbActiveTab = null,
-  breadcrumbDetailLabel = null,
 }) {
   let leftHtml;
   if (treeName) {
@@ -173,7 +171,7 @@ export function renderTopbar({
       : '';
     leftHtml = `
       <div class="app-topbar-tree-title">
-        ${renderTreeBreadcrumb({ treeName, activeTab: breadcrumbActiveTab, detailLabel: breadcrumbDetailLabel })}
+        ${renderTreeBreadcrumb({ treeName })}
         ${infoHtml}
       </div>
     `;
@@ -747,21 +745,20 @@ export function renderSkeletonGrid(count = 6) {
   `;
 }
 
-// `activeTab` is null for the core chart tabs (Focused/All Nodes/Relationships/
-// Duplicates/Settings), or a label like 'Media Library'/'Timeline' when a
-// sibling full-page panel is open. In the latter case the tree name becomes a
-// clickable breadcrumb segment (id="breadcrumb-tree-btn") that routes back to
-// the core tree view, since "My Trees" alone no longer reaches it in one click.
-// `detailLabel` is an optional 4th segment (e.g. an event's title on the
-// Timeline detail view) - when present, `activeTab` itself becomes a
-// clickable link (id="breadcrumb-tab-btn") back to its list view, and
-// `detailLabel` becomes the new current (non-clickable) segment. Used both
-// by renderTopbar (Relationship Finder passes `activeTab: 'Relationship
-// Finder'` via its `breadcrumbActiveTab` prop) and directly by the Timeline
-// event-detail sub-view (timelinePanel.js), which still renders its own
-// compact header rather than going through renderTopbar/renderAppHeader
-// (see main.js's renderDashboard) - so the breadcrumb stays visually and
-// structurally identical between the two.
+// `activeTab` is null for every core Tree View mode (Focused/All Nodes/
+// Relationship Finder/Relationships/Duplicates/Settings - renderTopbar always
+// calls this with just `treeName`, see below), or a label like 'Media
+// Library'/'Timeline' when a sibling full-page panel is open. In the latter
+// case the tree name becomes a clickable breadcrumb segment
+// (id="breadcrumb-tree-btn") that routes back to the core tree view, since
+// "My Trees" alone no longer reaches it in one click. `detailLabel` is an
+// optional 4th segment (e.g. an event's title on the Timeline detail view) -
+// when present, `activeTab` itself becomes a clickable link
+// (id="breadcrumb-tab-btn") back to its list view, and `detailLabel` becomes
+// the new current (non-clickable) segment. Only used directly by the
+// Timeline event-detail sub-view (timelinePanel.js) today, which still
+// renders its own compact header rather than going through
+// renderTopbar/renderAppHeader (see main.js's renderDashboard).
 export function renderTreeBreadcrumb({ treeName, activeTab = null, detailLabel = null }) {
   return `
     <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -930,7 +927,7 @@ export function renderAppHeader({
     <header class="app-primary-bar">
       <div class="primary-bar-left">
         <div class="header-island header-island--pill">
-          <div id="primary-tab-switcher">${renderPrimaryTabSwitcher({ primaryTab, viewMode })}</div>
+          <div id="primary-tab-switcher">${renderPrimaryTabSwitcher({ primaryTab, viewMode, canEdit })}</div>
         </div>
         ${centerHtml ? `<div class="header-island header-island--tool">${centerHtml}</div>` : ''}
       </div>
@@ -959,8 +956,13 @@ export function renderAppHeader({
 // old Tools group so they're not duplicated across two menus) - reuses the
 // original #focused-mode-btn/#all-nodes-mode-btn/#relationship-finder-btn ids
 // so main.js's setupViewModeToggle wiring didn't need to change, just where
-// these buttons physically live.
-export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
+// these buttons physically live. `canEdit` (see renderAppHeader/
+// canEditSelectedTree - false for plain viewers and for owners/editors
+// currently toggled to "Viewing") disables the Manage Data group: Relationships/
+// Duplicates exist to merge/connect people, so they're pointless (and were
+// previously reachable but silently read-only) in view mode.
+export function renderPrimaryTabSwitcher({ primaryTab, viewMode, canEdit }) {
+  const manageDataDisabledAttrs = canEdit ? '' : 'disabled title="Available to editors only"';
   return `
     <div class="segmented-control" role="tablist" aria-label="Primary views">
       <div class="segmented-dropdown-wrap">
@@ -983,15 +985,15 @@ export function renderPrimaryTabSwitcher({ primaryTab, viewMode }) {
           <button type="button" id="all-nodes-mode-btn" class="dropdown-item ${viewMode === 'all-nodes' ? 'dropdown-item-active' : ''}">
             ${icon('list')}<span>All Nodes</span>
           </button>
-          <button type="button" id="relationship-finder-btn" class="dropdown-item" title="Find how two people in this tree are related">
+          <button type="button" id="relationship-finder-btn" class="dropdown-item ${viewMode === 'relationship-finder' ? 'dropdown-item-active' : ''}" title="Find how two people in this tree are related">
             ${icon('share')}<span>Relationship Finder</span>
           </button>
           <div class="dropdown-divider"></div>
           <div class="dropdown-group-label">Manage Data</div>
-          <button type="button" id="relationship-manager-btn" class="dropdown-item ${viewMode === 'relationship-manager' ? 'dropdown-item-active' : ''}">
+          <button type="button" id="relationship-manager-btn" class="dropdown-item ${viewMode === 'relationship-manager' ? 'dropdown-item-active' : ''}" ${manageDataDisabledAttrs}>
             ${icon('share')}<span>Relationships</span>
           </button>
-          <button type="button" id="duplicate-manager-btn" class="dropdown-item ${viewMode === 'duplicate-manager' ? 'dropdown-item-active' : ''}">
+          <button type="button" id="duplicate-manager-btn" class="dropdown-item ${viewMode === 'duplicate-manager' ? 'dropdown-item-active' : ''}" ${manageDataDisabledAttrs}>
             ${icon('unlink')}<span>Duplicates</span>
           </button>
         </div>

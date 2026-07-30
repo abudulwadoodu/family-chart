@@ -1,8 +1,9 @@
-// Relationship Finder - a standalone tree-detail page (alongside Media
-// Library and Timeline) that lets a user search any person in the tree and
-// see, in plain text, how that person relates to a chosen root person - both
-// "their relation to you" and "your relation to them" - without a tree
-// graph, just a simple high-contrast result card.
+// Relationship Finder - a Tree View mode (alongside Focused/All Nodes/
+// Relationships/Duplicates/Settings, reachable from the Tree View options
+// menu's View group - see renderPrimaryTabSwitcher) that lets a user search
+// any person in the tree and see, in plain text, how that person relates to
+// a chosen root person - both "their relation to you" and "your relation to
+// them" - without a tree graph, just a simple high-contrast result card.
 //
 // Mirrors memberSearch.js's index/search split so lookups stay fast on large
 // trees, and reuses the same BFS traversal as backend/utils/findRelationship.js
@@ -97,11 +98,12 @@ function relationshipCardHtml() {
 }
 
 /**
- * Full page content for the Relationship Finder tree-detail page, matching
- * the shape of renderMediaLibraryPageContent/renderTimelinePageContent. The
- * tree breadcrumb lives in the persistent .app-topbar instead (see
- * renderTopbar's `breadcrumbActiveTab` in main.js's renderDashboard), so
- * this only renders the tagline + search/result card below it.
+ * Full panel content for the Relationship Finder Tree View mode - rendered
+ * into #FamilyChart in place of the chart canvas, same as
+ * relationship-manager/duplicate-manager/settings (see
+ * renderRelationshipFinderViewMode in main.js). The tree breadcrumb/tabs/
+ * Editing dropdown all live in the shared chrome above this, so it only
+ * renders the tagline + search/result card.
  * @param {{ data: Array, rootId: string|number, rootLabel?: string }} options
  *   `data` is the full family tree array for the current tree; `rootId` is
  *   the person the relationship is described relative to (the tree's
@@ -150,19 +152,13 @@ export function renderRelationshipFinderPageContent({ data, rootId }) {
   `;
 }
 
-// `onBack` navigates back to the tree viewer (breadcrumb tree-name link);
-// `onExitTree` navigates all the way out to the My Trees list (breadcrumb
-// "My Trees" link) - same contract as attachMediaLibraryPageListeners /
-// attachTimelinePageListeners. The breadcrumb itself now lives in the
-// persistent .app-topbar (see renderTopbar's `breadcrumbActiveTab`), a
-// sibling of .relationship-finder-page rather than a descendant, so those
-// two listeners are bound unscoped from `document` instead of `root`.
-export function attachRelationshipFinderPageListeners(onBack, onExitTree) {
+// The breadcrumb/tabs/Editing dropdown are shared chrome owned by
+// attachTreeViewerHeaderListeners (see main.js) - same as
+// relationship-manager/duplicate-manager/settings, this only wires the
+// panel's own search input.
+export function attachRelationshipFinderPageListeners() {
   const root = document.querySelector('.relationship-finder-page');
   if (!root) return;
-
-  document.querySelector('#breadcrumb-tree-btn')?.addEventListener('click', onBack);
-  document.querySelector('#breadcrumb-trees-btn')?.addEventListener('click', onExitTree);
 
   const { input, clearBtn } = getEls();
   if (!input || !clearBtn) return;

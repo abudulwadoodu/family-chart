@@ -1521,20 +1521,13 @@ function renderDashboard() {
   // shared header wasn't worth the risk for this pass - it's a drill-in
   // detail state, not a peer "view mode" of Tree View/Media/Events.
   const isTimelineDetailView = isTimelineView && state.timeline.view === 'detail' && Boolean(state.timeline.detail);
-  const isRelationshipFinderView =
-    !isSecurityView &&
-    !isCreateTreeView &&
-    !isVaultView &&
-    !isContactView &&
-    !isMyTicketsView &&
-    !isTicketDetailView &&
-    !isPendingRequestsView &&
-    !isMyRequestsView &&
-    !isAdminView &&
-    !isMediaLibraryView &&
-    !isTimelineView &&
-    state.dashboardView === 'relationshipFinder' &&
-    Boolean(state.selectedTreeId);
+  // Relationship Finder used to be its own dashboardView (a standalone page
+  // like Media/Timeline), which is why it once needed a dedicated flag here.
+  // It's now just another viewMode nested under Tree View - same as
+  // Focused/All Nodes/Relationships/Duplicates/Settings - so it renders
+  // through isViewerView below like the rest of them (see renderChart's
+  // 'relationship-finder' branch), and gets the same shared header/breadcrumb
+  // for free instead of the bespoke ones it used to carry.
   const isViewerView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1547,7 +1540,6 @@ function renderDashboard() {
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
-    !isRelationshipFinderView &&
     Boolean(state.selectedTreeId);
 
   // "My Trees"/"Requests"/"Support" are each a single sidebar nav item that
@@ -1589,14 +1581,14 @@ function renderDashboard() {
           })
         : '';
 
-  // The tree-detail pages (Tree Canvas/Media Library/Timeline) plus
-  // Relationship Finder show the current tree's breadcrumb + info popover +
-  // notification bell in the global renderTopbar instead of a plain title
-  // (see that function's `treeName`/`hasTree` params) - they used to render
-  // their own separate compact header row for this instead, see
-  // renderTopbar's comment for the history.
-  const isTreeDetailHeaderView =
-    isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView || isRelationshipFinderView;
+  // The tree-detail pages (Tree Canvas/Media Library/Timeline) show the
+  // current tree's breadcrumb + info popover + notification bell in the
+  // global renderTopbar instead of a plain title (see that function's
+  // `treeName`/`hasTree` params) - they used to render their own separate
+  // compact header row for this instead, see renderTopbar's comment for the
+  // history. isViewerView covers every Tree View sub-mode (Focused/All
+  // Nodes/Relationship Finder/Relationships/Duplicates/Settings) alike.
+  const isTreeDetailHeaderView = isMediaLibraryView || (isTimelineView && !isTimelineDetailView) || isViewerView;
 
   // Every remaining page gets the same left-title/right-profile renderTopbar
   // (see that function's comment) - keyed off which view is active rather
@@ -1649,7 +1641,6 @@ function renderDashboard() {
           memberCount: isTreeDetailHeaderView ? (state.selectedTreeData || []).length : null,
           updatedAt: isTreeDetailHeaderView ? state.trees.find((t) => t.id === state.selectedTreeId)?.updated_at : null,
           hasTree: isTreeDetailHeaderView,
-          breadcrumbActiveTab: isRelationshipFinderView ? 'Relationship Finder' : null,
         })}
         <main class="content">
           ${
@@ -1699,17 +1690,12 @@ function renderDashboard() {
                                       treeName: state.selectedTreeName,
                                     })}
                                   `
-                                : isRelationshipFinderView
-                                  ? renderRelationshipFinderPageContent({
-                                      data: state.selectedTreeData,
-                                      rootId: state.focusedMainId,
-                                    })
-                                  : isViewerView
-                                    ? `
-                                      ${renderTreeDetailHeader(state.treeToolbarPrimaryTab)}
-                                      ${renderTreeCanvasMarkup()}
-                                    `
-                                    : renderTreesLandingMarkup()
+                                : isViewerView
+                                  ? `
+                                    ${renderTreeDetailHeader(state.treeToolbarPrimaryTab)}
+                                    ${renderTreeCanvasMarkup()}
+                                  `
+                                  : renderTreesLandingMarkup()
           }
         </main>
         ${renderFooter({ variant: 'dashboard' })}
@@ -1824,20 +1810,6 @@ function renderDashboard() {
     if (!state.timeline.loaded) {
       loadTimelinePage(state.timeline, { api, treeId: state.selectedTreeId }, render);
     }
-    return;
-  }
-
-  if (isRelationshipFinderView) {
-    attachRelationshipFinderPageListeners(
-      () => {
-        state.dashboardView = 'trees';
-        render();
-      },
-      () => {
-        clearSelectedTreeView();
-        render();
-      }
-    );
     return;
   }
 
@@ -2682,6 +2654,22 @@ function renderTreeDetailHeader(primaryTab) {
 // it's Tree-Canvas-only - unlike renderCanvasFloatingControls, it stays
 // mounted through Focus Mode for free since it's already inside
 // #tree-focus-target, no relocation needed.
+// Every other Tree View mode (Relationship Finder/Relationships/Duplicates/
+// Settings) replaces #FamilyChart's own innerHTML with its own panel (see
+// renderRelationshipFinderViewMode/renderRelationshipManagerViewMode/
+// renderDuplicateManagerViewMode/renderTreeSettingsViewMode) but is still
+// routed through this same markup. Both #member-search and
+// #canvas-floating-controls are always rendered here (unconditionally) -
+// their shown/hidden state is instead synced reactively by
+// syncCanvasChromeVisibility(), called from renderChart() on every viewMode
+// switch, not decided once here at markup time. That split matters:
+// switchTreeViewMode's fast path (already on the tree canvas page, e.g.
+// Focused -> Relationships) only replaces #FamilyChart's own innerHTML via
+// renderChart() and never re-runs this function, so a markup-time-only
+// condition would leave whichever chrome was showing when this wrapper was
+// last fully rendered stuck in place - visible on Relationships if you
+// arrived from Focused, hidden on Focused if you arrived from Relationships -
+// instead of always matching the *current* mode.
 function renderTreeCanvasMarkup() {
   const shortcutLabel = /Mac|iPod|iPhone|iPad/.test(navigator.platform || '') ? '⌘K' : 'Ctrl+K';
   return `
@@ -2693,6 +2681,22 @@ function renderTreeCanvasMarkup() {
       </div>
     </div>
   `;
+}
+
+// See renderTreeCanvasMarkup's comment above - the search box/floating
+// toolbar only make sense over the live Focused/All Nodes canvas, but they're
+// mounted once as part of the static wrapper markup, so their hidden state
+// has to be re-applied here on every renderChart() call (both the full-page
+// mount and switchTreeViewMode's in-place fast path) rather than decided once
+// when that markup is built. `hidden` alone doesn't hide
+// #canvas-floating-controls - its own `display: flex` (an author rule) beats
+// the UA stylesheet's `[hidden] { display: none }` at equal specificity, so
+// styles.css adds an explicit `.canvas-floating-controls[hidden]` override
+// (same pattern as .search-box[hidden] elsewhere in that file).
+function syncCanvasChromeVisibility() {
+  const showChrome = state.viewMode === 'focused' || state.viewMode === 'all-nodes';
+  document.querySelector('#member-search')?.toggleAttribute('hidden', !showChrome);
+  document.querySelector('#canvas-floating-controls')?.toggleAttribute('hidden', !showChrome);
 }
 
 // ---------------------------------------------------------------------------
@@ -3289,6 +3293,7 @@ function focusModeCenter() {
 function syncFocusModeToolbarState() {
   const disabled =
     state.viewMode === 'all-nodes' ||
+    state.viewMode === 'relationship-finder' ||
     state.viewMode === 'relationship-manager' ||
     state.viewMode === 'duplicate-manager' ||
     state.viewMode === 'settings';
@@ -3909,6 +3914,7 @@ function sortChildrenByBirthday(a, b) {
 
 function renderChart() {
   cleanupAllNodesGraph();
+  syncCanvasChromeVisibility();
   if (state.viewMode === 'duplicate-manager') {
     renderDuplicateManagerViewMode();
     setupViewModeToggle();
@@ -3916,6 +3922,11 @@ function renderChart() {
   }
   if (state.viewMode === 'relationship-manager') {
     renderRelationshipManagerViewMode();
+    setupViewModeToggle();
+    return;
+  }
+  if (state.viewMode === 'relationship-finder') {
+    renderRelationshipFinderViewMode();
     setupViewModeToggle();
     return;
   }
@@ -4249,12 +4260,12 @@ function switchTreeViewMode(mode) {
     if (currentMain?.id) state.focusedMainId = currentMain.id;
   }
   state.viewMode = mode;
-  // Every viewMode (chart, all-nodes, relationship-manager, duplicate-manager,
-  // settings) renders into #FamilyChart, which only exists on the tree
-  // canvas page - reachable here via the Tree View options menu's Manage Data
-  // group or the gear menu's Settings item, both of which are also shown on
-  // the Media Library/Timeline pages (see renderAppHeader), so this can fire
-  // from there too and needs to route back to the canvas first.
+  // Every viewMode (chart, all-nodes, relationship-finder, relationship-manager,
+  // duplicate-manager, settings) renders into #FamilyChart, which only exists
+  // on the tree canvas page - reachable here via the Tree View options menu's
+  // View/Manage Data groups or the gear menu's Settings item, all of which are
+  // also shown on the Media Library/Timeline pages (see renderAppHeader), so
+  // this can fire from there too and needs to route back to the canvas first.
   if (state.dashboardView !== 'trees') {
     state.treeToolbarPrimaryTab = 'tree';
     state.dashboardView = 'trees';
@@ -4302,7 +4313,11 @@ function navigateToLibraryTab(tab) {
 function setupViewModeToggle() {
   const switcherCont = document.querySelector('#primary-tab-switcher');
   if (switcherCont) {
-    switcherCont.innerHTML = renderPrimaryTabSwitcher({ primaryTab: state.treeToolbarPrimaryTab, viewMode: state.viewMode });
+    switcherCont.innerHTML = renderPrimaryTabSwitcher({
+      primaryTab: state.treeToolbarPrimaryTab,
+      viewMode: state.viewMode,
+      canEdit: canEditSelectedTree(),
+    });
     bindDropdownTriggers(switcherCont);
   }
 
@@ -4323,10 +4338,10 @@ function setupViewModeToggle() {
 
   document.querySelector('#focused-mode-btn')?.addEventListener('click', () => switchTreeViewMode('focused'));
   document.querySelector('#all-nodes-mode-btn')?.addEventListener('click', () => switchTreeViewMode('all-nodes'));
-  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => {
-    state.dashboardView = 'relationshipFinder';
-    render();
-  });
+  document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-finder'));
+  // Relationships/Duplicates are rendered `disabled` in view mode (see
+  // renderPrimaryTabSwitcher's canEdit param) - disabled buttons never fire
+  // click, so no extra guard is needed here.
   document.querySelector('#relationship-manager-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-manager'));
   document.querySelector('#duplicate-manager-btn')?.addEventListener('click', () => switchTreeViewMode('duplicate-manager'));
 
@@ -5967,6 +5982,26 @@ function renderDuplicateManagerViewMode() {
   }
 
   syncSaveButtonAvailability();
+}
+
+// Relationship Finder is a nested Tree View mode now (see the Tree View
+// options menu's View group in renderPrimaryTabSwitcher), same as
+// Focused/All Nodes - it used to be its own standalone dashboardView with a
+// bespoke header/breadcrumb (see relationshipFinder.js's history comment),
+// but that left it without the shared tabs/Editing dropdown every sibling
+// mode gets, so it's routed through #FamilyChart like
+// relationship-manager/duplicate-manager/settings instead.
+function renderRelationshipFinderViewMode() {
+  state.chart = null;
+  state.editor = null;
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderRelationshipFinderPageContent({
+    data: state.selectedTreeData,
+    rootId: state.focusedMainId,
+  });
+
+  attachRelationshipFinderPageListeners();
 }
 
 function renderTreeSettingsViewMode() {
