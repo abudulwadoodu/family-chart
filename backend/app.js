@@ -4,6 +4,7 @@ import cors from 'cors';
 import { initDb } from './db/index.js';
 import { authRouter } from './routes/auth.js';
 import { treesRouter } from './routes/trees.js';
+import { publicTreesRouter } from './routes/publicTrees.js';
 import { accountRouter } from './routes/account.js';
 import { vaultRouter } from './routes/vault.js';
 import { supportRouter } from './routes/support.js';
@@ -33,6 +34,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/public/trees', publicTreesRouter);
 app.use('/api/trees', treesRouter);
 app.use('/api/account', accountRouter);
 app.use('/api/vault', vaultRouter);

@@ -153,6 +153,11 @@ export const icons = {
   sort: svg(
     '<path d="M7 5v14"></path><path d="M4 8l3-3 3 3"></path><path d="M17 19V5"></path><path d="M14 16l3 3 3-3"></path>'
   ),
+  // Chain-link glyph for the Share modal's Copy Link button (distinct from
+  // `unlink` above, which represents breaking a relationship, not a URL).
+  link: svg(
+    '<path d="M9.5 14.5 14.5 9.5"></path><path d="M8.3 16.7l-1.6 1.6a3 3 0 0 1-4.24 0 3 3 0 0 1 0-4.24l3-3a3 3 0 0 1 4.24 0"></path><path d="M15.7 7.3l1.6-1.6a3 3 0 0 1 4.24 0 3 3 0 0 1 0 4.24l-3 3a3 3 0 0 1-4.24 0"></path>'
+  ),
 };
 
 export function icon(name) {

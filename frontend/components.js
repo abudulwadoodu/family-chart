@@ -1187,7 +1187,43 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing }) {
+// General Link Access control: Restricted (default) vs. anyone holding the
+// link can view read-only. Only rendered for the owner - editors/viewers see
+// the Share modal's collaborator list but never the raw share_token, since
+// holding it grants read access (see backend/routes/trees.js's /share-link
+// routes, all owner-only).
+function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
+  if (!shareLink) return '';
+
+  const isViewAccess = shareLink.link_access === 'view';
+  const linkUrl = shareLink.share_token ? `${window.location.origin}/tree/t/${shareLink.share_token}` : '';
+  const errorHtml = shareLinkError ? `<p class="error">${escapeHtml(shareLinkError)}</p>` : '';
+
+  return `
+    <div class="share-link-section">
+      <label class="share-link-access-label" for="share-link-access-select">General Link Access</label>
+      <select id="share-link-access-select" ${shareLinkBusy ? 'disabled' : ''}>
+        <option value="restricted" ${!isViewAccess ? 'selected' : ''}>Restricted (invited people only)</option>
+        <option value="view" ${isViewAccess ? 'selected' : ''}>Anyone with the link can View</option>
+      </select>
+      ${
+        isViewAccess
+          ? `
+        <div class="share-link-row">
+          <input type="text" id="share-link-url-input" class="share-link-url-input" value="${escapeHtml(linkUrl)}" readonly />
+          <button type="button" id="copy-share-link-btn" class="btn btn-secondary btn-sm">${icon('link')}<span>Copy Link</span></button>
+          <button type="button" id="reset-share-link-btn" class="btn btn-ghost btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Reset Link</button>
+        </div>
+      `
+          : ''
+      }
+      ${errorHtml}
+    </div>
+    <div class="modal-divider"></div>
+  `;
+}
+
+export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing, shareLink, shareLinkBusy, shareLinkError }) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -1198,6 +1234,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
 
   const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
   const formErrorHtml = formError ? `<p class="error">${escapeHtml(formError)}</p>` : '';
+  const shareLinkSectionHtml = isOwnerViewing ? renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) : '';
 
   const rows = permissions
     .map((permission) => {
@@ -1260,6 +1297,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   return `
     ${modalCloseButton()}
     <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
+    ${shareLinkSectionHtml}
     <p class="modal-message">Invite someone by email and choose what they can do.</p>
     <form id="share-form" class="share-form">
       <input type="email" id="share-email-input" name="email" placeholder="name@example.com" required />

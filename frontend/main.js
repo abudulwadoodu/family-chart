@@ -113,6 +113,7 @@ import {
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
+import { renderShareLinkPage as renderShareLinkPageView, PENDING_SHARE_ACCESS_REQUEST_KEY } from './shareLinkView.js';
 import { renderMyTicketsPageMarkup, renderTicketDetailPageMarkup } from './support/components.js';
 import {
   loadMyTickets,
@@ -510,7 +511,19 @@ document.addEventListener('keydown', (event) => {
 // falls through to the normal auth/dashboard flow.
 const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy', '/support': 'support' };
 
+// Shareable tree links (/tree/t/:shareToken) are the one *parameterized*
+// public route, so they can't live in the flat PUBLIC_ROUTES map above - the
+// token itself has to be captured out of the path, not just matched against it.
+const SHARE_LINK_PATTERN = /^\/tree\/t\/([A-Za-z0-9_-]+)$/;
+
 function syncRouteFromLocation() {
+  const shareMatch = SHARE_LINK_PATTERN.exec(window.location.pathname);
+  if (shareMatch) {
+    state.publicView = 'share-link';
+    state.publicShareToken = shareMatch[1];
+    return;
+  }
+  state.publicShareToken = null;
   state.publicView = PUBLIC_ROUTES[window.location.pathname] || null;
 }
 
@@ -579,6 +592,11 @@ Hub.listen('auth', ({ payload }) => {
 const DEFAULT_TITLE = 'Secure Family Chart';
 
 function render() {
+  // Checked before state.user, same as /support below - a share link must
+  // render identically whether or not the visitor happens to be signed in
+  // elsewhere in this browser, since the whole point is that no account is
+  // required to view it.
+  if (state.publicView === 'share-link') return renderShareLinkPageView(state.publicShareToken);
   // Checked before state.user so /support renders the same shell-choice logic
   // regardless of sign-in state - this is what makes it a "public" route in
   // an app with no router/middleware layer to bypass.
@@ -3679,14 +3697,28 @@ function bindShareModalClose(modal) {
   modal.root.querySelector('#share-modal-close-btn')?.addEventListener('click', modal.close);
 }
 
-async function refreshShareModal(modal, treeId, treeName, formError = '') {
+async function refreshShareModal(modal, treeId, treeName, formError = '', shareLinkError = '') {
   try {
     const payload = await api(`/api/trees/${treeId}/permissions`);
     const isOwnerViewing = payload.permissions.some(
       (permission) => permission.role === 'owner' && permission.user_id === state.user.id
     );
+    // The raw share_token is owner-only (see GET /:id/share-link) - only
+    // fetched at all when this viewer is the owner, mirroring how the
+    // transfer-ownership menu item is also gated on isOwnerViewing above.
+    const shareLink = isOwnerViewing ? await api(`/api/trees/${treeId}/share-link`) : null;
     modal.setBody(
-      renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError, isOwnerViewing })
+      renderShareModalBody({
+        treeName,
+        permissions: payload.permissions,
+        loading: false,
+        error: '',
+        formError,
+        isOwnerViewing,
+        shareLink,
+        shareLinkBusy: false,
+        shareLinkError,
+      })
     );
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
@@ -3702,6 +3734,52 @@ async function refreshShareModal(modal, treeId, treeName, formError = '') {
     );
     bindShareModalClose(modal);
   }
+}
+
+// General Link Access controls (restricted/view toggle, Copy Link, Reset
+// Link) - split out from bindShareModalActions since renderShareLinkSection
+// only renders these elements for the owner, and this keeps that gating in
+// one place instead of every listener below needing its own null-check.
+function bindShareLinkSectionListeners(modal, treeId, treeName) {
+  modal.root.querySelector('#share-link-access-select')?.addEventListener('change', async (event) => {
+    const linkAccess = event.target.value;
+    event.target.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, { method: 'PATCH', body: JSON.stringify({ link_access: linkAccess }) });
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update link access.');
+    }
+  });
+
+  modal.root.querySelector('#copy-share-link-btn')?.addEventListener('click', async () => {
+    const input = modal.root.querySelector('#share-link-url-input');
+    if (!input?.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      showToast('Link copied.');
+    } catch (_error) {
+      input.select();
+      showToast('Could not copy automatically - link is selected, press Ctrl+C.', { type: 'error' });
+    }
+  });
+
+  modal.root.querySelector('#reset-share-link-btn')?.addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Reset Link',
+      message: 'Anyone using the current link will lose access immediately. Continue?',
+      confirmLabel: 'Reset Link',
+      onConfirm: async () => {
+        try {
+          await api(`/api/trees/${treeId}/share-link/reset`, { method: 'POST' });
+          showToast('Link reset.');
+          await refreshShareModal(modal, treeId, treeName);
+        } catch (error) {
+          await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not reset the link.');
+        }
+      },
+    });
+  });
 }
 
 function bindShareModalActions(modal, treeId, treeName) {
@@ -3725,6 +3803,7 @@ function bindShareModalActions(modal, treeId, treeName) {
     }
   });
 
+  bindShareLinkSectionListeners(modal, treeId, treeName);
   bindDropdownTriggers(modal.root);
 
   modal.root.querySelectorAll('[data-role-option]').forEach((btn) => {
@@ -5908,6 +5987,7 @@ async function loadSession() {
     ]);
     render();
     await maybeOpenDeepLinkedTicket();
+    await maybeResumeShareLinkAccessRequest();
   } catch (error) {
     state.user = null;
     render();
@@ -5917,6 +5997,27 @@ async function loadSession() {
     // real message the caller (handleSignIn/handleAuthNextStep) should show,
     // so it's the one case worth re-throwing instead of swallowing.
     if (error?.status === 403) throw error;
+  }
+}
+
+// Re-entry point for "Request Edit Access" on a public share-link page
+// (shareLinkView.js): a signed-out visitor's click there stashes
+// { treeId } in sessionStorage and sends them through the normal sign-in/
+// sign-up flow rather than duplicating auth UI on the public page. Every
+// successful sign-in (password, OTP, or Google redirect) funnels through
+// this same loadSession(), so checking here once covers all of them.
+async function maybeResumeShareLinkAccessRequest() {
+  const raw = sessionStorage.getItem(PENDING_SHARE_ACCESS_REQUEST_KEY);
+  if (!raw) return;
+  sessionStorage.removeItem(PENDING_SHARE_ACCESS_REQUEST_KEY);
+
+  try {
+    const { treeId } = JSON.parse(raw);
+    if (!treeId) return;
+    await api(`/api/trees/${treeId}/request-join-via-link`, { method: 'POST', body: JSON.stringify({}) });
+    showToast('Request sent to the tree owner.');
+  } catch (error) {
+    showToast(error.message || 'Could not send your edit access request.', { type: 'error' });
   }
 }
 

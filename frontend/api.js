@@ -36,6 +36,26 @@ export async function api(path, options = {}) {
   return payload;
 }
 
+// For the public share-link viewer: a logged-out visitor has no Cognito
+// session, so this deliberately skips getAuthHeader() entirely rather than
+// relying on it silently returning {} - keeps it explicit that this path
+// must never depend on auth state (see backend/routes/publicTrees.js, the
+// one route this ever calls).
+export async function apiPublic(path, options = {}) {
+  const response = await fetch(apiUrl(path), {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Request failed');
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
 // Attachment endpoints return the raw file (not JSON), so they need their own
 // fetch wrapper instead of the JSON-decoding api() helper above.
 export async function fetchAttachment(path) {

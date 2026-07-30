@@ -27,6 +27,7 @@ import {
 } from '../utils/joinRequestEmail.js';
 import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 import { MemberClaimError, proposeClaim, getPendingClaimsForOwner, getSentClaimsForUser, decideClaim } from '../models/memberClaimModel.js';
+import { generateShareToken } from '../utils/shareToken.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -526,6 +527,67 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
   }
 });
 
+const LINK_ACCESS_VALUES = ['restricted', 'view'];
+
+// Owner-only read of the current link-sharing config, kept separate from the
+// public GET /:id (reachable by every role incl. viewers) since the raw
+// share_token must stay owner-only - anyone holding it gets read access.
+treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { rows } = await query('SELECT share_token, link_access FROM trees WHERE id = $1', [treeId]);
+    return res.json({ share_token: rows[0].share_token, link_access: rows[0].link_access });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Toggles anonymous read-only link access on/off. Turning it on lazily
+// generates share_token the first time (it starts NULL - see migration 014)
+// rather than requiring a separate provisioning step; turning it back off
+// leaves the token in place (unused while restricted) so re-enabling later
+// doesn't silently change a link someone may have already been given.
+treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { link_access: linkAccess } = req.body || {};
+    if (!LINK_ACCESS_VALUES.includes(linkAccess)) {
+      return res.status(400).json({ error: "link_access must be either 'restricted' or 'view'" });
+    }
+
+    const { rows: treeRows } = await query('SELECT share_token FROM trees WHERE id = $1', [treeId]);
+    const needsToken = linkAccess === 'view' && !treeRows[0].share_token;
+    const shareToken = needsToken ? generateShareToken() : treeRows[0].share_token;
+
+    const { rows } = await query(
+      `UPDATE trees SET link_access = $1, share_token = COALESCE(share_token, $2) WHERE id = $3
+       RETURNING share_token, link_access`,
+      [linkAccess, shareToken, treeId]
+    );
+
+    return res.json({ ok: true, share_token: rows[0].share_token, link_access: rows[0].link_access });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Regenerates share_token, immediately invalidating any previously-shared
+// link (the public GET below looks up trees by share_token, so the old value
+// simply stops matching anything once overwritten).
+treesRouter.post('/:id/share-link/reset', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const shareToken = generateShareToken();
+    const { rows } = await query('UPDATE trees SET share_token = $1 WHERE id = $2 RETURNING share_token, link_access', [
+      shareToken,
+      treeId,
+    ]);
+    return res.json({ ok: true, share_token: rows[0].share_token, link_access: rows[0].link_access });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // Owner self-service disable/enable, mirroring the admin moderation action at
 // PATCH /api/admin/trees/:id/status (same trees.status column, same
 // 'active'/'disabled' values). Deliberately does NOT use requireTreeRole -
@@ -739,6 +801,53 @@ treesRouter.post('/:id/request-join', async (req, res, next) => {
         senderEmail: req.user.email,
         treeName: tree.name,
         roleRequested: role,
+        message: trimmedMessage,
+      });
+    } catch (emailError) {
+      console.error('Failed to send join request email:', emailError);
+    }
+
+    return res.status(201).json({ ok: true, request: joinRequest });
+  } catch (error) {
+    return handleJoinRequestError(error, res, next);
+  }
+});
+
+// A visitor who opened a tree via its public share link, then signed in/up
+// to ask for real (editor) access. Deliberately does NOT check
+// is_discoverable like /request-join above - a link-shared tree may never be
+// listed in search at all. Instead it checks link_access = 'view', which
+// proves the requester could only have reached this tree by holding a valid
+// share link (or already being a member/owner) in the first place. Reuses
+// the same createJoinRequest model call as /request-join, so link-originated
+// requests land in the owner's existing Pending Requests view for free.
+treesRouter.post('/:id/request-join-via-link', async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { message } = req.body || {};
+
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const { rows: treeRows } = await query(
+      `SELECT t.id, t.name, t.link_access, u.email AS owner_email
+       FROM trees t JOIN users u ON u.id = t.owner_id
+       WHERE t.id = $1`,
+      [treeId]
+    );
+    const tree = treeRows[0];
+    if (!tree || tree.link_access !== 'view') return res.status(404).json({ error: 'Tree not found' });
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const joinRequest = await createJoinRequest(treeId, req.user.id, 'editor', trimmedMessage || null);
+
+    try {
+      await sendJoinRequestCreatedEmail({
+        ownerEmail: tree.owner_email,
+        senderEmail: req.user.email,
+        treeName: tree.name,
+        roleRequested: 'editor',
         message: trimmedMessage,
       });
     } catch (emailError) {
