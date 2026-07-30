@@ -3780,6 +3780,72 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
       },
     });
   });
+
+  const passcodeForm = modal.root.querySelector('#share-link-passcode-form');
+  const passcodeInput = modal.root.querySelector('#share-link-passcode-input');
+
+  modal.root.querySelector('#share-link-passcode-toggle')?.addEventListener('change', async (event) => {
+    if (event.target.checked) {
+      // Turning it on needs an actual passcode first, so just reveal the
+      // input instead of PATCHing yet; the checkbox reflects committed state
+      // once the form below is submitted (or reverts to unchecked on Cancel).
+      passcodeForm.hidden = false;
+      passcodeInput?.focus();
+      return;
+    }
+
+    event.target.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', passcode: '' }),
+      });
+      showToast('Passcode removed.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not remove the passcode.');
+    }
+  });
+
+  modal.root.querySelector('#change-share-link-passcode-btn')?.addEventListener('click', () => {
+    passcodeForm.hidden = false;
+    passcodeInput?.focus();
+  });
+
+  modal.root.querySelector('#cancel-share-link-passcode-btn')?.addEventListener('click', () => {
+    passcodeForm.hidden = true;
+    if (passcodeInput) passcodeInput.value = '';
+    // The form is only reachable via the toggle (unchecked -> checked reveals
+    // it) or "Change Passcode" (already-enabled case, toggle stays checked
+    // either way) - so Cancel only ever needs to walk the toggle back off
+    // when a passcode isn't already saved server-side.
+    const toggle = modal.root.querySelector('#share-link-passcode-toggle');
+    const alreadyEnabled = Boolean(modal.root.querySelector('#change-share-link-passcode-btn'));
+    if (toggle && !alreadyEnabled) toggle.checked = false;
+  });
+
+  passcodeForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const passcode = passcodeInput?.value || '';
+    if (passcode.length < 4) {
+      await refreshShareModal(modal, treeId, treeName, '', 'Passcode must be at least 4 characters.');
+      return;
+    }
+
+    const submitBtn = passcodeForm.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', passcode }),
+      });
+      showToast('Passcode saved.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      submitBtn.disabled = false;
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not save the passcode.');
+    }
+  });
 }
 
 function bindShareModalActions(modal, treeId, treeName) {

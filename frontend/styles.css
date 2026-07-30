@@ -5240,6 +5240,29 @@ dialog.modal-overlay[open] {
   font-size: 0.82rem;
 }
 
+.share-link-passcode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.share-link-passcode-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.share-link-passcode-input {
+  flex: 1;
+  min-width: 160px;
+}
+
 .modal-divider {
   border-top: 1px solid var(--border-subtle);
   margin: var(--sp-4) 0;
@@ -7252,6 +7275,19 @@ button.admin-stat-card {
 
 .share-link-message p {
   color: var(--text-secondary);
+}
+
+.share-link-passcode-gate-form {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+.share-link-passcode-gate-form input {
+  flex: 1;
+  min-width: 200px;
 }
 
 .share-link-tree-name {

@@ -28,6 +28,7 @@ import {
 import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 import { MemberClaimError, proposeClaim, getPendingClaimsForOwner, getSentClaimsForUser, decideClaim } from '../models/memberClaimModel.js';
 import { generateShareToken } from '../utils/shareToken.js';
+import { hashPasscode } from '../utils/passcode.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -535,8 +536,12 @@ const LINK_ACCESS_VALUES = ['restricted', 'view'];
 treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { rows } = await query('SELECT share_token, link_access FROM trees WHERE id = $1', [treeId]);
-    return res.json({ share_token: rows[0].share_token, link_access: rows[0].link_access });
+    const { rows } = await query('SELECT share_token, link_access, link_passcode_hash FROM trees WHERE id = $1', [treeId]);
+    return res.json({
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+    });
   } catch (error) {
     return next(error);
   }
@@ -547,25 +552,46 @@ treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, 
 // rather than requiring a separate provisioning step; turning it back off
 // leaves the token in place (unused while restricted) so re-enabling later
 // doesn't silently change a link someone may have already been given.
+//
+// passcode is optional and independent of link_access: omitting it from the
+// body leaves whatever's already stored untouched, an empty string clears
+// it, and a non-empty string (re)hashes and replaces it (see
+// backend/utils/passcode.js - only the hash is ever persisted).
 treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { link_access: linkAccess } = req.body || {};
+    const { link_access: linkAccess, passcode } = req.body || {};
     if (!LINK_ACCESS_VALUES.includes(linkAccess)) {
       return res.status(400).json({ error: "link_access must be either 'restricted' or 'view'" });
     }
+    if (passcode !== undefined && typeof passcode !== 'string') {
+      return res.status(400).json({ error: 'passcode must be a string' });
+    }
+    if (typeof passcode === 'string' && passcode.length > 0 && (passcode.length < 4 || passcode.length > 64)) {
+      return res.status(400).json({ error: 'passcode must be between 4 and 64 characters' });
+    }
 
-    const { rows: treeRows } = await query('SELECT share_token FROM trees WHERE id = $1', [treeId]);
+    const { rows: treeRows } = await query('SELECT share_token, link_passcode_hash FROM trees WHERE id = $1', [treeId]);
     const needsToken = linkAccess === 'view' && !treeRows[0].share_token;
     const shareToken = needsToken ? generateShareToken() : treeRows[0].share_token;
 
+    let passcodeHash = treeRows[0].link_passcode_hash;
+    if (passcode !== undefined) {
+      passcodeHash = passcode.length > 0 ? hashPasscode(passcode) : null;
+    }
+
     const { rows } = await query(
-      `UPDATE trees SET link_access = $1, share_token = COALESCE(share_token, $2) WHERE id = $3
-       RETURNING share_token, link_access`,
-      [linkAccess, shareToken, treeId]
+      `UPDATE trees SET link_access = $1, share_token = COALESCE(share_token, $2), link_passcode_hash = $3 WHERE id = $4
+       RETURNING share_token, link_access, link_passcode_hash`,
+      [linkAccess, shareToken, passcodeHash, treeId]
     );
 
-    return res.json({ ok: true, share_token: rows[0].share_token, link_access: rows[0].link_access });
+    return res.json({
+      ok: true,
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+    });
   } catch (error) {
     return next(error);
   }
@@ -578,11 +604,16 @@ treesRouter.post('/:id/share-link/reset', requireTreeRole(['owner']), async (req
   try {
     const treeId = Number(req.params.id);
     const shareToken = generateShareToken();
-    const { rows } = await query('UPDATE trees SET share_token = $1 WHERE id = $2 RETURNING share_token, link_access', [
-      shareToken,
-      treeId,
-    ]);
-    return res.json({ ok: true, share_token: rows[0].share_token, link_access: rows[0].link_access });
+    const { rows } = await query(
+      'UPDATE trees SET share_token = $1 WHERE id = $2 RETURNING share_token, link_access, link_passcode_hash',
+      [shareToken, treeId]
+    );
+    return res.json({
+      ok: true,
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+    });
   } catch (error) {
     return next(error);
   }

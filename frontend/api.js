@@ -51,6 +51,7 @@ export async function apiPublic(path, options = {}) {
   if (!response.ok) {
     const error = new Error(payload.error || 'Request failed');
     error.status = response.status;
+    error.payload = payload;
     throw error;
   }
   return payload;

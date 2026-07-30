@@ -1187,7 +1187,7 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-// General Link Access control: Restricted (default) vs. anyone holding the
+// General Link Access control: link disabled (default) vs. anyone holding the
 // link can view read-only. Only rendered for the owner - editors/viewers see
 // the Share modal's collaborator list but never the raw share_token, since
 // holding it grants read access (see backend/routes/trees.js's /share-link
@@ -1198,12 +1198,13 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
   const isViewAccess = shareLink.link_access === 'view';
   const linkUrl = shareLink.share_token ? `${window.location.origin}/tree/t/${shareLink.share_token}` : '';
   const errorHtml = shareLinkError ? `<p class="error">${escapeHtml(shareLinkError)}</p>` : '';
+  const passcodeEnabled = Boolean(shareLink.passcode_enabled);
 
   return `
     <div class="share-link-section">
       <label class="share-link-access-label" for="share-link-access-select">General Link Access</label>
       <select id="share-link-access-select" ${shareLinkBusy ? 'disabled' : ''}>
-        <option value="restricted" ${!isViewAccess ? 'selected' : ''}>Restricted (invited people only)</option>
+        <option value="restricted" ${!isViewAccess ? 'selected' : ''}>Link sharing off (invited people only)</option>
         <option value="view" ${isViewAccess ? 'selected' : ''}>Anyone with the link can View</option>
       </select>
       ${
@@ -1214,6 +1215,30 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
           <button type="button" id="copy-share-link-btn" class="btn btn-secondary btn-sm">${icon('link')}<span>Copy Link</span></button>
           <button type="button" id="reset-share-link-btn" class="btn btn-ghost btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Reset Link</button>
         </div>
+        <div class="share-link-passcode-row">
+          <label class="share-link-passcode-toggle">
+            <input type="checkbox" id="share-link-passcode-toggle" ${passcodeEnabled ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+            <span>Require a passcode to view</span>
+          </label>
+          ${
+            passcodeEnabled
+              ? `<button type="button" id="change-share-link-passcode-btn" class="btn btn-ghost btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Change Passcode</button>`
+              : ''
+          }
+        </div>
+        <form id="share-link-passcode-form" class="share-link-row" hidden>
+          <input
+            type="text"
+            id="share-link-passcode-input"
+            class="share-link-passcode-input"
+            placeholder="Passcode (4-64 characters)"
+            autocomplete="off"
+            minlength="4"
+            maxlength="64"
+          />
+          <button type="submit" class="btn btn-primary btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Save</button>
+          <button type="button" id="cancel-share-link-passcode-btn" class="btn btn-ghost btn-sm">Cancel</button>
+        </form>
       `
           : ''
       }

@@ -23,6 +23,8 @@ const shareLinkState = {
   loading: true,
   error: '',
   notFound: false,
+  passcodeRequired: false,
+  passcodeError: '',
   tree: null,
   data: [],
   requestSent: false,
@@ -33,9 +35,19 @@ export function resetShareLinkState() {
   shareLinkState.loading = true;
   shareLinkState.error = '';
   shareLinkState.notFound = false;
+  shareLinkState.passcodeRequired = false;
+  shareLinkState.passcodeError = '';
   shareLinkState.tree = null;
   shareLinkState.data = [];
   shareLinkState.requestSent = false;
+}
+
+// A verified passcode is remembered only for this tab's session (not
+// persisted to localStorage/cookies) so a visitor isn't re-prompted on every
+// reload within the same visit, but the passcode isn't silently retained
+// forever on a shared machine either.
+function sessionKeyForToken(shareToken) {
+  return `family-chart-share-link-verified-${shareToken}`;
 }
 
 function renderShareLinkShell(bodyHtml) {
@@ -85,6 +97,12 @@ export async function renderShareLinkPage(shareToken) {
     return;
   }
 
+  if (shareLinkState.passcodeRequired) {
+    renderShareLinkShell(renderPasscodeGate());
+    attachPasscodeFormListener(shareToken);
+    return;
+  }
+
   if (shareLinkState.error) {
     renderShareLinkShell(renderShareLinkMessage('Something went wrong', shareLinkState.error));
     return;
@@ -102,6 +120,16 @@ export async function renderShareLinkPage(shareToken) {
 }
 
 async function loadShareLinkTree(shareToken) {
+  // A passcode verified earlier this tab session is cached client-side only
+  // (see sessionKeyForToken) - re-send it to /verify rather than the plain
+  // GET so a reload doesn't re-prompt; the server still re-checks it, it's
+  // just not re-typed by the visitor.
+  const cachedPasscode = sessionStorage.getItem(sessionKeyForToken(shareToken));
+  if (cachedPasscode !== null) {
+    await verifyAndLoad(shareToken, cachedPasscode);
+    return;
+  }
+
   try {
     const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}`);
     shareLinkState.tree = payload.tree;
@@ -109,13 +137,79 @@ async function loadShareLinkTree(shareToken) {
     shareLinkState.loading = false;
   } catch (error) {
     shareLinkState.loading = false;
-    if (error.status === 404) {
+    if (error.status === 401 && error.payload?.passcode_required) {
+      shareLinkState.passcodeRequired = true;
+    } else if (error.status === 404) {
       shareLinkState.notFound = true;
     } else {
       shareLinkState.error = error.message || 'Could not load this family tree.';
     }
   }
   await renderShareLinkPage(shareToken);
+}
+
+async function verifyAndLoad(shareToken, passcode) {
+  try {
+    const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ passcode }),
+    });
+    shareLinkState.tree = payload.tree;
+    shareLinkState.data = payload.data || [];
+    shareLinkState.loading = false;
+    shareLinkState.passcodeRequired = false;
+    shareLinkState.passcodeError = '';
+    sessionStorage.setItem(sessionKeyForToken(shareToken), passcode);
+  } catch (error) {
+    shareLinkState.loading = false;
+    sessionStorage.removeItem(sessionKeyForToken(shareToken));
+    if (error.status === 403) {
+      shareLinkState.passcodeRequired = true;
+      shareLinkState.passcodeError = 'Incorrect passcode. Please try again.';
+    } else if (error.status === 404) {
+      shareLinkState.notFound = true;
+    } else {
+      shareLinkState.error = error.message || 'Could not load this family tree.';
+    }
+  }
+  await renderShareLinkPage(shareToken);
+}
+
+function renderPasscodeGate() {
+  const errorHtml = shareLinkState.passcodeError ? `<p class="error">${escapeHtml(shareLinkState.passcodeError)}</p>` : '';
+  return `
+    <div class="share-link-message share-link-passcode-gate">
+      <h1>Passcode required</h1>
+      <p>This family tree is protected. Enter the passcode to view it.</p>
+      <form id="share-link-passcode-gate-form" class="share-link-passcode-gate-form">
+        <input
+          type="password"
+          id="share-link-passcode-gate-input"
+          placeholder="Passcode"
+          autocomplete="off"
+          autofocus
+          required
+        />
+        <button type="submit" class="btn btn-primary">Continue</button>
+      </form>
+      ${errorHtml}
+    </div>
+  `;
+}
+
+function attachPasscodeFormListener(shareToken) {
+  const form = document.querySelector('#share-link-passcode-gate-form');
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector('#share-link-passcode-gate-input');
+    const passcode = input?.value || '';
+    if (!passcode) return;
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    shareLinkState.loading = true;
+    await verifyAndLoad(shareToken, passcode);
+  });
 }
 
 function renderAccessBanner() {

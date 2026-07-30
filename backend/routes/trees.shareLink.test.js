@@ -47,7 +47,7 @@ describe('share-link configuration', () => {
 
     const res = await request(app).get(`/api/trees/${treeId}/share-link`).set('Authorization', owner);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ share_token: null, link_access: 'restricted' });
+    expect(res.body).toEqual({ share_token: null, link_access: 'restricted', passcode_enabled: false });
   });
 
   it('generates a share token the first time link access is turned on', async () => {
@@ -113,6 +113,17 @@ describe('share-link configuration', () => {
       .patch(`/api/trees/${treeId}/share-link`)
       .set('Authorization', owner)
       .send({ link_access: 'public' });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a passcode shorter than 4 characters', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+
+    const res = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'abc' });
     expect(res.status).toBe(400);
   });
 
@@ -189,6 +200,100 @@ describe('public share-link viewer', () => {
 
     const publicRes = await request(app).get(`/api/public/trees/${token}`);
     expect(publicRes.status).toBe(404);
+  });
+});
+
+describe('public share-link passcode', () => {
+  it('flags passcode_required on the plain GET once a passcode is set, without leaking data', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'letmein' });
+    expect(enableRes.body.passcode_enabled).toBe(true);
+    const token = enableRes.body.share_token;
+
+    const publicRes = await request(app).get(`/api/public/trees/${token}`);
+    expect(publicRes.status).toBe(401);
+    expect(publicRes.body.passcode_required).toBe(true);
+    expect(publicRes.body.data).toBeUndefined();
+  });
+
+  it('rejects an incorrect passcode on /verify', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'letmein' });
+    const token = enableRes.body.share_token;
+
+    const res = await request(app).post(`/api/public/trees/${token}/verify`).send({ passcode: 'wrong' });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns tree data from /verify with the correct passcode', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+    await request(app)
+      .put(`/api/trees/${treeId}`)
+      .set('Authorization', owner)
+      .send({ json_data: [{ id: 'p1', data: { 'first name': 'Ada', 'last name': 'Lovelace' }, rels: {} }] });
+
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'letmein' });
+    const token = enableRes.body.share_token;
+
+    const res = await request(app).post(`/api/public/trees/${token}/verify`).send({ passcode: 'letmein' });
+    expect(res.status).toBe(200);
+    expect(res.body.tree).toEqual(expect.objectContaining({ id: treeId, name: 'Family A' }));
+    expect(res.body.data).toEqual([expect.objectContaining({ id: 'p1' })]);
+  });
+
+  it('clears the passcode when an empty string is sent, restoring plain GET access', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'letmein' });
+    const token = enableRes.body.share_token;
+
+    const clearRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: '' });
+    expect(clearRes.body.passcode_enabled).toBe(false);
+
+    const publicRes = await request(app).get(`/api/public/trees/${token}`);
+    expect(publicRes.status).toBe(200);
+  });
+
+  it('leaves the passcode untouched when the field is omitted', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const treeId = (await request(app).post('/api/trees').set('Authorization', owner).send({ name: 'Family A' })).body.id;
+
+    const enableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view', passcode: 'letmein' });
+    const token = enableRes.body.share_token;
+
+    await request(app).patch(`/api/trees/${treeId}/share-link`).set('Authorization', owner).send({ link_access: 'restricted' });
+    const reEnableRes = await request(app)
+      .patch(`/api/trees/${treeId}/share-link`)
+      .set('Authorization', owner)
+      .send({ link_access: 'view' });
+    expect(reEnableRes.body.passcode_enabled).toBe(true);
+
+    const res = await request(app).post(`/api/public/trees/${token}/verify`).send({ passcode: 'letmein' });
+    expect(res.status).toBe(200);
   });
 });
 
