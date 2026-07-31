@@ -37,7 +37,11 @@ export function renderThemeToggle({ activeTheme, idPrefix = 'theme-toggle' }) {
 }
 
 export function renderSidebarNav({ activeView, isAdmin, collapsed }) {
-  const isRequestsActive = activeView === 'myRequests' || activeView === 'pendingRequests';
+  const isRequestsActive =
+    activeView === 'myRequests' ||
+    activeView === 'pendingRequests' ||
+    activeView === 'myClaims' ||
+    activeView === 'manageClaims';
   const isSupportActive = activeView === 'contact' || activeView === 'myTickets' || activeView === 'ticketDetail';
 
   return `
@@ -484,6 +488,91 @@ function renderPendingRequestRow(request) {
       <div class="pending-request-actions">
         <button type="button" class="btn btn-secondary btn-sm pending-request-reject-btn" data-request-id="${request.id}">Reject</button>
         <button type="button" class="btn btn-primary btn-sm pending-request-approve-btn" data-request-id="${request.id}">Approve</button>
+      </div>
+    </div>
+  `;
+}
+
+// "Manage Claims" dashboard view: incoming "this is me" member claims across
+// every tree the current user owns - same markup shape as
+// renderPendingRequestsPageMarkup (reuses the pending-request-* classes)
+// since it's the identity-claim analog of a join request.
+export function renderManageClaimsPageMarkup({ loading, claims }) {
+  const body = loading
+    ? `<p class="muted">Loading claims...</p>`
+    : claims.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('user')}</div>
+          <h2 class="empty-state-title">No Pending Claims</h2>
+          <p class="empty-state-desc">When someone claims a person in one of your family trees as themselves, it'll show up here.</p>
+        </div>`
+      : `<div class="pending-request-list">${claims.map(renderPendingClaimRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'Manage Claims', subtitle: 'Review "this is me" claims on your family trees.' })}
+    ${body}
+  `;
+}
+
+function renderPendingClaimRow(claim) {
+  const memberLabel = claim.member_name ? escapeHtml(claim.member_name) : 'a person';
+
+  return `
+    <div class="pending-request-row" data-claim-id="${claim.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${escapeHtml(claim.user_email)} <span class="muted">claims to be</span> ${memberLabel} <span class="muted">in</span> ${escapeHtml(claim.tree_name)}</p>
+        <p class="pending-request-meta">
+          <span class="muted">${escapeHtml(formatRelativeTime(claim.created_at))}</span>
+        </p>
+      </div>
+      <div class="pending-request-actions">
+        <button type="button" class="btn btn-secondary btn-sm pending-claim-reject-btn" data-claim-id="${claim.id}">Reject</button>
+        <button type="button" class="btn btn-primary btn-sm pending-claim-approve-btn" data-claim-id="${claim.id}">Approve</button>
+      </div>
+    </div>
+  `;
+}
+
+const SENT_CLAIM_STATUS_LABELS = {
+  pending: { label: 'Pending', className: 'badge-role-viewer' },
+  approved: { label: 'Approved', className: 'badge-role-owner' },
+  rejected: { label: 'Rejected', className: 'badge-role-editor' },
+  withdrawn: { label: 'Withdrawn', className: 'badge-role-editor' },
+};
+
+// "My Claims" dashboard view: every member claim the current user has
+// proposed (any status) - mirrors renderMyRequestsPageMarkup.
+export function renderMyClaimsPageMarkup({ loading, claims }) {
+  const body = loading
+    ? `<p class="muted">Loading your claims...</p>`
+    : claims.length === 0
+      ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">${icon('user')}</div>
+          <h2 class="empty-state-title">No Claims Sent</h2>
+          <p class="empty-state-desc">Open a family tree and use "This is me" on your own person card to claim it.</p>
+        </div>`
+      : `<div class="pending-request-list">${claims.map(renderSentClaimRow).join('')}</div>`;
+
+  return `
+    ${renderPageHeader({ title: 'My Claims', subtitle: 'Track the status of people you have claimed as yourself.' })}
+    ${body}
+  `;
+}
+
+function renderSentClaimRow(claim) {
+  const status = SENT_CLAIM_STATUS_LABELS[claim.status] || SENT_CLAIM_STATUS_LABELS.pending;
+  const memberLabel = claim.member_name ? escapeHtml(claim.member_name) : 'a person';
+
+  return `
+    <div class="pending-request-row" data-claim-id="${claim.id}">
+      <div class="pending-request-info">
+        <p class="pending-request-title">${memberLabel} <span class="muted">in</span> ${escapeHtml(claim.tree_name)}</p>
+        <p class="pending-request-meta">
+          <span class="badge ${status.className}">${escapeHtml(status.label)}</span>
+          <span class="muted">${escapeHtml(formatRelativeTime(claim.updated_at))}</span>
+        </p>
       </div>
     </div>
   `;
@@ -1098,7 +1187,163 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing }) {
+// General Link Access control: link disabled (default) vs. anyone holding the
+// link can view read-only. Only rendered for the owner - editors/viewers see
+// the Share modal's collaborator list but never the raw share_token, since
+// holding it grants read access (see backend/routes/trees.js's /share-link
+// routes, all owner-only).
+function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError, passcodeDrawerOpen }) {
+  if (!shareLink) return '';
+
+  const isViewAccess = shareLink.link_access === 'view';
+  const linkUrl = shareLink.share_token ? `${window.location.origin}/tree/t/${shareLink.share_token}` : '';
+  const errorHtml = shareLinkError ? `<p class="error">${escapeHtml(shareLinkError)}</p>` : '';
+  const passcodeEnabled = Boolean(shareLink.passcode_enabled);
+  const emailVerificationRequired = Boolean(shareLink.email_verification_required);
+  // The drawer's open/close intent is tracked client-side (shareModalState.passcodeDrawerOpen
+  // in main.js) rather than derived purely from passcodeEnabled - every other checkbox/button
+  // in this modal triggers a full refreshShareModal() re-render, which would otherwise wipe out
+  // an in-progress (not-yet-saved) passcode entry and flip the checkbox back off.
+  const passcodeDrawerVisible = Boolean(passcodeDrawerOpen);
+  const passcodeChecked = passcodeEnabled || passcodeDrawerVisible;
+
+  return `
+    <div class="share-link-section">
+      <p class="share-link-access-label" id="share-link-access-label">General Link Access</p>
+      <div class="share-link-access-group" role="radiogroup" aria-labelledby="share-link-access-label">
+        <label class="share-link-access-card ${!isViewAccess ? 'share-link-access-card-selected' : ''}">
+          <input type="radio" name="share-link-access" value="restricted" ${!isViewAccess ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+          <span class="share-link-access-card-body">
+            <span class="share-link-access-card-title">Restricted (Link Sharing Off)</span>
+            <span class="share-link-access-card-desc">Only explicitly invited people can access.</span>
+          </span>
+        </label>
+        <label class="share-link-access-card ${isViewAccess ? 'share-link-access-card-selected' : ''}">
+          <input type="radio" name="share-link-access" value="view" ${isViewAccess ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+          <span class="share-link-access-card-body">
+            <span class="share-link-access-card-title">Anyone with the link can View</span>
+            <span class="share-link-access-card-desc">Anyone with the share URL can view read-only data.</span>
+          </span>
+        </label>
+      </div>
+      ${
+        isViewAccess
+          ? `
+        <div class="share-link-row">
+          <input type="text" id="share-link-url-input" class="share-link-url-input" value="${escapeHtml(linkUrl)}" readonly />
+          <div class="share-link-row-actions">
+            <button type="button" id="copy-share-link-btn" class="btn btn-secondary btn-sm" aria-label="Copy link" title="Copy link">${icon('link')}<span>Copy</span></button>
+            <button type="button" id="reset-share-link-btn" class="btn btn-secondary btn-sm" aria-label="Reset link" title="Reset link" ${shareLinkBusy ? 'disabled' : ''}>${icon('refresh')}<span>Reset</span></button>
+          </div>
+        </div>
+        <div class="share-link-security-section">
+          <p class="share-link-security-header">Security Guardrails</p>
+          <div class="share-link-passcode-row">
+            <label class="share-link-passcode-toggle">
+              <input type="checkbox" id="share-link-passcode-toggle" ${passcodeChecked ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+              <span>Require Passcode to View</span>
+            </label>
+            ${
+              passcodeEnabled
+                ? `<button type="button" id="change-share-link-passcode-btn" class="btn-link" ${shareLinkBusy ? 'disabled' : ''}>Change Passcode</button>`
+                : ''
+            }
+          </div>
+          <form id="share-link-passcode-form" class="share-link-passcode-drawer" ${passcodeDrawerVisible ? '' : 'hidden'}>
+            <p class="share-link-passcode-drawer-title">${passcodeEnabled ? 'Update Passcode' : 'Set Passcode'}</p>
+            <div class="share-link-row">
+              <input
+                type="text"
+                id="share-link-passcode-input"
+                class="share-link-passcode-input"
+                placeholder="Passcode (4-64 characters)"
+                autocomplete="off"
+                minlength="4"
+                maxlength="64"
+              />
+              <button type="submit" class="btn btn-primary btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Save</button>
+              <button type="button" id="cancel-share-link-passcode-btn" class="btn btn-ghost btn-sm">Cancel</button>
+            </div>
+          </form>
+          <div class="share-link-passcode-row">
+            <label class="share-link-passcode-toggle">
+              <input type="checkbox" id="share-link-email-verification-toggle" ${emailVerificationRequired ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+              <span>Require Email Verification to View</span>
+            </label>
+          </div>
+        </div>
+      `
+          : ''
+      }
+      ${errorHtml}
+    </div>
+    <div class="modal-divider"></div>
+  `;
+}
+
+// Distinct verified-viewer rows for the owner-only "Access History" tab (see
+// GET /:id/access-log). A blocked row still shows here (it isn't hidden or
+// removed - blocking is forward-looking only, see design.md open question 4)
+// so the owner can see who they've blocked and reverse it.
+function renderAccessHistoryTab({ accessLog, accessLogLoading, accessLogError }) {
+  if (accessLogLoading) {
+    return '<p class="modal-message">Loading access history...</p>';
+  }
+
+  const errorHtml = accessLogError ? `<p class="error">${escapeHtml(accessLogError)}</p>` : '';
+
+  if (!accessLog || accessLog.length === 0) {
+    return `<p class="muted">No verified views yet.</p>${errorHtml}`;
+  }
+
+  const rows = accessLog
+    .map((entry) => {
+      const viewCount = Number(entry.view_count) || 0;
+      const lastViewed = entry.last_viewed_at ? new Date(entry.last_viewed_at).toLocaleString() : 'Unknown';
+      const actionAttr = entry.blocked
+        ? `data-access-log-unblock-email="${escapeHtml(entry.viewer_email)}"`
+        : `data-access-log-block-email="${escapeHtml(entry.viewer_email)}"`;
+      const actionLabel = entry.blocked ? 'Unblock' : 'Block';
+
+      return `
+        <div class="member-row">
+          <div class="member-info">
+            <span class="user-avatar user-avatar-sm">${escapeHtml((entry.viewer_email || '?').charAt(0).toUpperCase())}</span>
+            <div>
+              <p class="member-email">${escapeHtml(entry.viewer_email)}</p>
+              <p class="member-meta">
+                Last viewed ${escapeHtml(lastViewed)} &middot; ${viewCount} view${viewCount === 1 ? '' : 's'}
+                ${entry.blocked ? '<span class="badge badge-role-viewer">Blocked</span>' : ''}
+              </p>
+            </div>
+          </div>
+          <div class="member-actions">
+            <button type="button" class="btn btn-ghost btn-sm" ${actionAttr}>${actionLabel}</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `<div class="member-list">${rows}</div>${errorHtml}`;
+}
+
+export function renderShareModalBody({
+  treeName,
+  permissions,
+  loading,
+  error,
+  formError,
+  isOwnerViewing,
+  shareLink,
+  shareLinkBusy,
+  shareLinkError,
+  passcodeDrawerOpen = false,
+  shareModalTab = 'members',
+  accessLog = [],
+  accessLogLoading = false,
+  accessLogError = '',
+}) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -1109,6 +1354,28 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
 
   const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
   const formErrorHtml = formError ? `<p class="error">${escapeHtml(formError)}</p>` : '';
+
+  // Only the owner can manage link sharing / see who has viewed via the link
+  // (same gating as the raw share_token below).
+  const tabsHtml = isOwnerViewing
+    ? `
+    <div class="share-modal-tabs" role="tablist">
+      <button type="button" class="share-modal-tab ${shareModalTab !== 'link-sharing' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="members" role="tab" aria-selected="${shareModalTab !== 'link-sharing'}">Invited People</button>
+      <button type="button" class="share-modal-tab ${shareModalTab === 'link-sharing' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="link-sharing" role="tab" aria-selected="${shareModalTab === 'link-sharing'}">Link Sharing</button>
+    </div>
+  `
+    : '';
+
+  if (isOwnerViewing && shareModalTab === 'link-sharing') {
+    return `
+      ${modalCloseButton()}
+      <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
+      ${tabsHtml}
+      ${renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError, passcodeDrawerOpen })}
+      <p class="share-link-access-label">Access History</p>
+      ${renderAccessHistoryTab({ accessLog, accessLogLoading, accessLogError })}
+    `;
+  }
 
   const rows = permissions
     .map((permission) => {
@@ -1171,6 +1438,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   return `
     ${modalCloseButton()}
     <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
+    ${tabsHtml}
     <p class="modal-message">Invite someone by email and choose what they can do.</p>
     <form id="share-form" class="share-form">
       <input type="email" id="share-email-input" name="email" placeholder="name@example.com" required />

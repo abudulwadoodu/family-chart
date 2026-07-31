@@ -36,8 +36,12 @@ export async function findTreesMatchingUserEmail(userEmail, requestingUserId) {
 // for each. Idempotent (ON CONFLICT DO UPDATE, same idiom as
 // joinRequestModel.decideJoinRequest's approval path). Never downgrades an
 // existing editor/owner - the WHERE clause only considers trees where the
-// user has no row yet or is already exactly 'viewer'. Returns the tree ids
-// granted/reaffirmed this call.
+// user has no row yet or is already exactly 'viewer'. Also skips any tree
+// where this user already has an approved member claim (see
+// 013_member_claims.sql/memberClaimModel.js) - once identity is established
+// explicitly, this purely-email-based path must never touch that row again,
+// even if a different node's email happens to match later. Returns the tree
+// ids granted/reaffirmed this call.
 export async function autoGrantEmailVisibility(userId, userEmail) {
   return withTransaction(async (client) => {
     const { rows: matchingTrees } = await client.query(
@@ -46,7 +50,7 @@ export async function autoGrantEmailVisibility(userId, userEmail) {
        JOIN family_data fd ON fd.tree_id = t.id
        LEFT JOIN tree_permissions tp ON tp.tree_id = t.id AND tp.user_id = $2
        WHERE t.email_auto_visibility = true
-         AND (tp.id IS NULL OR tp.role = 'viewer')
+         AND (tp.id IS NULL OR (tp.role = 'viewer' AND tp.claim_status IS DISTINCT FROM 'approved'))
          AND EXISTS (
            SELECT 1 FROM jsonb_array_elements(fd.json_data) AS person
            WHERE person->'data'->>'email' <> ''

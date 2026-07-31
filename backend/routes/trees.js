@@ -26,6 +26,11 @@ import {
   sendRoleChangeRequestCreatedEmail,
 } from '../utils/joinRequestEmail.js';
 import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
+import { MemberClaimError, proposeClaim, getPendingClaimsForOwner, getSentClaimsForUser, decideClaim } from '../models/memberClaimModel.js';
+import { generateShareToken } from '../utils/shareToken.js';
+import { hashPasscode } from '../utils/passcode.js';
+import { listAccessLogForTree } from '../models/treeAccessLogModel.js';
+import { blockViewer, unblockViewer } from '../models/treeBlockedViewersModel.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -41,6 +46,27 @@ const JOIN_REQUEST_ERROR_RESPONSES = {
 function handleJoinRequestError(error, res, next) {
   if (error instanceof JoinRequestError) {
     const mapped = JOIN_REQUEST_ERROR_RESPONSES[error.code];
+    if (mapped) return res.status(mapped.status).json({ error: mapped.message });
+  }
+  return next(error);
+}
+
+const MEMBER_CLAIM_ERROR_RESPONSES = {
+  MEMBER_NOT_FOUND: { status: 404, message: 'That person is not part of this tree' },
+  ALREADY_APPROVED: { status: 409, message: 'You already have an approved claim on this person' },
+  ALREADY_CLAIMED_ELSEWHERE_IN_TREE: { status: 409, message: 'You already have an approved claim on a different person in this tree' },
+  ALREADY_PENDING: { status: 409, message: 'You already have a pending claim on this person' },
+  NOT_FOUND: { status: 404, message: 'Claim not found' },
+  FORBIDDEN: { status: 403, message: 'You do not own this tree' },
+  ALREADY_DECIDED: { status: 409, message: 'This claim has already been decided' },
+  MEMBER_NO_LONGER_EXISTS: { status: 410, message: 'This person no longer exists in the tree' },
+  MEMBER_ALREADY_CLAIMED: { status: 409, message: 'Someone else has already been approved as this person' },
+  USER_ALREADY_CLAIMED_ELSEWHERE: { status: 409, message: 'This user already has an approved claim on a different person in this tree' },
+};
+
+function handleMemberClaimError(error, res, next) {
+  if (error instanceof MemberClaimError) {
+    const mapped = MEMBER_CLAIM_ERROR_RESPONSES[error.code];
     if (mapped) return res.status(mapped.status).json({ error: mapped.message });
   }
   return next(error);
@@ -280,6 +306,72 @@ treesRouter.patch('/requests/:id', async (req, res, next) => {
   }
 });
 
+// Pending member claims across every tree this user owns - "who wants to be
+// linked as a specific person in my tree". Must also be registered before
+// GET /:id for the same reason as /search above.
+treesRouter.get('/manage-claims', async (req, res, next) => {
+  try {
+    const claims = await getPendingClaimsForOwner(req.user.id);
+    return res.json({ claims });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Every claim this user has proposed (any status) - mirrors /my-requests.
+// Must also be registered before GET /:id for the same reason as /search above.
+treesRouter.get('/my-claims', async (req, res, next) => {
+  try {
+    const claims = await getSentClaimsForUser(req.user.id);
+    return res.json({ claims });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// A tree member proposes "this person is me" on a node they don't yet have
+// an approved claim on. Requires existing tree access (any role) - this is
+// about identity within a tree the caller can already see, not about
+// gaining access (that's /:id/request-join). Always lands 'pending'; only
+// an owner's decision below can approve it.
+treesRouter.post('/:id/claims', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { member_id: memberId, message } = req.body || {};
+    if (!isNonEmptyString(memberId, 200)) {
+      return res.status(400).json({ error: 'member_id is required' });
+    }
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const claim = await proposeClaim(treeId, req.user.id, memberId, trimmedMessage || null);
+    return res.status(201).json({ ok: true, claim });
+  } catch (error) {
+    return handleMemberClaimError(error, res, next);
+  }
+});
+
+// Owner decision on a member claim (approve/reject). Scoped at the top
+// level (not under /:id) since the claim id alone is enough to resolve the
+// tree and ownership check happens inside decideClaim - same shape as
+// PATCH /requests/:id above.
+treesRouter.patch('/claims/:claimId', async (req, res, next) => {
+  try {
+    const claimId = Number(req.params.claimId);
+    const { status } = req.body || {};
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be either approved or rejected' });
+    }
+
+    const updated = await decideClaim(claimId, req.user.id, status);
+    return res.json({ ok: true, claim: updated });
+  } catch (error) {
+    return handleMemberClaimError(error, res, next);
+  }
+});
+
 treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
@@ -295,6 +387,8 @@ treesRouter.get('/:id', requireTreeRole(['owner', 'editor', 'viewer']), async (r
     return res.json({
       tree,
       role: req.treePermission.role,
+      memberId: req.treePermission.member_id,
+      claimStatus: req.treePermission.claim_status,
       data: familyDataRows[0]?.json_data ?? [],
     });
   } catch (error) {
@@ -431,6 +525,190 @@ treesRouter.patch('/:id/settings', requireTreeRole(['owner']), async (req, res, 
     );
 
     return res.json({ ok: true, ...rows[0] });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const LINK_ACCESS_VALUES = ['restricted', 'view'];
+
+// Owner-only read of the current link-sharing config, kept separate from the
+// public GET /:id (reachable by every role incl. viewers) since the raw
+// share_token must stay owner-only - anyone holding it gets read access.
+treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { rows } = await query(
+      'SELECT share_token, link_access, link_passcode_hash, require_passcode, require_email_verification FROM trees WHERE id = $1',
+      [treeId]
+    );
+    return res.json({
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Toggles anonymous read-only link access on/off. Turning it on lazily
+// generates share_token the first time (it starts NULL - see migration 014)
+// rather than requiring a separate provisioning step; turning it back off
+// leaves the token in place (unused while restricted) so re-enabling later
+// doesn't silently change a link someone may have already been given.
+//
+// passcode is optional and independent of link_access: omitting it from the
+// body leaves whatever's already stored untouched, an empty string clears
+// it, and a non-empty string (re)hashes and replaces it (see
+// backend/utils/passcode.js - only the hash is ever persisted).
+//
+// require_passcode/require_email_verification (see migration 016) are the
+// explicit enforcement flags: link_passcode_hash presence is still "a
+// passcode exists", require_passcode is "it's currently enforced". Setting a
+// non-empty passcode implicitly turns enforcement on (matching the existing
+// single-checkbox UI) unless requirePasscode is explicitly given in the same
+// request; require_passcode can never end up true without a hash.
+treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { link_access: linkAccess, passcode, requirePasscode, requireEmailVerification } = req.body || {};
+    if (!LINK_ACCESS_VALUES.includes(linkAccess)) {
+      return res.status(400).json({ error: "link_access must be either 'restricted' or 'view'" });
+    }
+    if (passcode !== undefined && typeof passcode !== 'string') {
+      return res.status(400).json({ error: 'passcode must be a string' });
+    }
+    if (typeof passcode === 'string' && passcode.length > 0 && (passcode.length < 4 || passcode.length > 64)) {
+      return res.status(400).json({ error: 'passcode must be between 4 and 64 characters' });
+    }
+    if (requirePasscode !== undefined && typeof requirePasscode !== 'boolean') {
+      return res.status(400).json({ error: 'requirePasscode must be a boolean' });
+    }
+    if (requireEmailVerification !== undefined && typeof requireEmailVerification !== 'boolean') {
+      return res.status(400).json({ error: 'requireEmailVerification must be a boolean' });
+    }
+
+    const { rows: treeRows } = await query(
+      'SELECT share_token, link_passcode_hash, require_passcode FROM trees WHERE id = $1',
+      [treeId]
+    );
+    const needsToken = linkAccess === 'view' && !treeRows[0].share_token;
+    const shareToken = needsToken ? generateShareToken() : treeRows[0].share_token;
+
+    let passcodeHash = treeRows[0].link_passcode_hash;
+    let requirePasscodeValue = treeRows[0].require_passcode;
+    if (passcode !== undefined) {
+      if (passcode.length > 0) {
+        passcodeHash = hashPasscode(passcode);
+        requirePasscodeValue = requirePasscode !== undefined ? requirePasscode : true;
+      } else {
+        passcodeHash = null;
+        requirePasscodeValue = false;
+      }
+    } else if (requirePasscode !== undefined) {
+      requirePasscodeValue = requirePasscode;
+    }
+
+    if (requirePasscodeValue && !passcodeHash) {
+      return res.status(400).json({ error: 'Cannot require a passcode without setting one first' });
+    }
+
+    const { rows } = await query(
+      `UPDATE trees
+       SET link_access = $1, share_token = COALESCE(share_token, $2), link_passcode_hash = $3,
+           require_passcode = $4, require_email_verification = COALESCE($5, require_email_verification)
+       WHERE id = $6
+       RETURNING share_token, link_access, link_passcode_hash, require_passcode, require_email_verification`,
+      [linkAccess, shareToken, passcodeHash, requirePasscodeValue, requireEmailVerification ?? null, treeId]
+    );
+
+    return res.json({
+      ok: true,
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Regenerates share_token, immediately invalidating any previously-shared
+// link (the public GET below looks up trees by share_token, so the old value
+// simply stops matching anything once overwritten).
+treesRouter.post('/:id/share-link/reset', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const shareToken = generateShareToken();
+    const { rows } = await query(
+      `UPDATE trees SET share_token = $1 WHERE id = $2
+       RETURNING share_token, link_access, link_passcode_hash, require_passcode, require_email_verification`,
+      [shareToken, treeId]
+    );
+    return res.json({
+      ok: true,
+      share_token: rows[0].share_token,
+      link_access: rows[0].link_access,
+      passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Distinct verified viewer emails + last-viewed timestamp for this tree's
+// share link (see backend/models/treeAccessLogModel.js) - owner-only, same
+// reasoning as the raw share_token being owner-only above.
+treesRouter.get('/:id/access-log', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const [entries, blockedRows] = await Promise.all([
+      listAccessLogForTree(treeId),
+      query('SELECT lower(email) AS email FROM tree_blocked_viewers WHERE tree_id = $1', [treeId]),
+    ]);
+    const blockedEmails = new Set(blockedRows.rows.map((row) => row.email));
+    return res.json({
+      entries: entries.map((entry) => ({
+        viewer_email: entry.viewer_email,
+        last_viewed_at: entry.last_viewed_at,
+        view_count: Number(entry.view_count),
+        blocked: blockedEmails.has(entry.viewer_email.toLowerCase()),
+      })),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Blocking only prevents *future* OTP verification (see design.md open
+// question 4 / resolution) - it does not retroactively touch tree_access_log
+// or kill an already-verified guest's live sessionStorage session.
+treesRouter.post('/:id/access-log/block', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'A valid email address is required' });
+    await blockViewer({ treeId, email, blockedBy: req.user.id });
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+treesRouter.post('/:id/access-log/unblock', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'A valid email address is required' });
+    await unblockViewer({ treeId, email });
+    return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }
@@ -649,6 +927,53 @@ treesRouter.post('/:id/request-join', async (req, res, next) => {
         senderEmail: req.user.email,
         treeName: tree.name,
         roleRequested: role,
+        message: trimmedMessage,
+      });
+    } catch (emailError) {
+      console.error('Failed to send join request email:', emailError);
+    }
+
+    return res.status(201).json({ ok: true, request: joinRequest });
+  } catch (error) {
+    return handleJoinRequestError(error, res, next);
+  }
+});
+
+// A visitor who opened a tree via its public share link, then signed in/up
+// to ask for real (editor) access. Deliberately does NOT check
+// is_discoverable like /request-join above - a link-shared tree may never be
+// listed in search at all. Instead it checks link_access = 'view', which
+// proves the requester could only have reached this tree by holding a valid
+// share link (or already being a member/owner) in the first place. Reuses
+// the same createJoinRequest model call as /request-join, so link-originated
+// requests land in the owner's existing Pending Requests view for free.
+treesRouter.post('/:id/request-join-via-link', async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { message } = req.body || {};
+
+    if (typeof message !== 'undefined' && message !== null && !isNonEmptyString(message, 500) && message !== '') {
+      return res.status(400).json({ error: 'Message must be 500 characters or fewer' });
+    }
+
+    const { rows: treeRows } = await query(
+      `SELECT t.id, t.name, t.link_access, u.email AS owner_email
+       FROM trees t JOIN users u ON u.id = t.owner_id
+       WHERE t.id = $1`,
+      [treeId]
+    );
+    const tree = treeRows[0];
+    if (!tree || tree.link_access !== 'view') return res.status(404).json({ error: 'Tree not found' });
+
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+    const joinRequest = await createJoinRequest(treeId, req.user.id, 'editor', trimmedMessage || null);
+
+    try {
+      await sendJoinRequestCreatedEmail({
+        ownerEmail: tree.owner_email,
+        senderEmail: req.user.email,
+        treeName: tree.name,
+        roleRequested: 'editor',
         message: trimmedMessage,
       });
     } catch (emailError) {

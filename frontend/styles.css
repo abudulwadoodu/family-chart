@@ -1606,11 +1606,11 @@ button.secondary:active,
 /*                                                                      */
 /* Tab switcher between the sibling views merged under one sidebar nav  */
 /* item (My Trees/Private Vault; Requests: My Requests/Pending          */
-/* Requests; Support: Contact Us/My Support Tickets) - fills            */
-/* renderTopbar's title slot (see its tabsHtml/renderTopbarTabs in      */
-/* components.js) instead of an extra row, reusing                      */
-/* .segmented-control/.segmented-option's pill look (below) so it       */
-/* matches the Tree View/Media/Events switcher's header placement.      */
+/* Requests/My Claims/Manage Claims; Support: Contact Us/My Support     */
+/* Tickets) - fills renderTopbar's title slot (see its                  */
+/* tabsHtml/renderTopbarTabs in components.js) instead of an extra row, */
+/* reusing .segmented-control/.segmented-option's pill look (below) so  */
+/* it matches the Tree View/Media/Events switcher's header placement.   */
 /* ------------------------------------------------------------------ */
 
 .topbar-tabs .segmented-option {
@@ -5209,6 +5209,217 @@ dialog.modal-overlay[open] {
   margin-top: var(--sp-2);
 }
 
+.share-link-section {
+  margin-top: var(--sp-3);
+}
+
+.share-link-access-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-1);
+}
+
+.share-link-access-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.share-link-access-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.share-link-access-card:hover {
+  background: var(--bg-surface-hover);
+}
+
+.share-link-access-card-selected {
+  border-color: var(--accent);
+}
+
+.share-link-access-card input[type='radio'] {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.share-link-access-card input[type='radio']:disabled {
+  cursor: default;
+}
+
+.share-link-access-card:has(input:disabled) {
+  cursor: default;
+}
+
+.share-link-access-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.share-link-access-card-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.share-link-access-card-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.share-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.share-link-url-input {
+  flex: 1;
+  min-width: 160px;
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+.share-link-row-actions {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.share-link-security-section {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.share-link-security-header {
+  margin: 0 0 var(--sp-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.share-link-passcode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.share-link-passcode-row:first-of-type {
+  margin-top: 0;
+}
+
+.share-link-passcode-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.share-link-passcode-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.btn-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+  text-decoration: none;
+}
+
+@keyframes share-link-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.share-link-passcode-drawer {
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-hover);
+  animation: share-link-drawer-in 0.15s ease;
+}
+
+.share-link-passcode-drawer .share-link-row {
+  margin-top: var(--sp-2);
+}
+
+.share-link-passcode-drawer-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.share-modal-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  margin-top: var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.share-modal-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-2) var(--sp-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.share-modal-tab-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.modal-divider {
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--sp-4) 0;
+}
+
 .share-form {
   display: flex;
   flex-wrap: wrap;
@@ -5276,6 +5487,56 @@ dialog.modal-overlay[open] {
   flex-wrap: wrap;
   gap: var(--sp-2);
   flex-shrink: 0;
+}
+
+.modal-dialog.modal-sort-children {
+  width: min(90vw, 420px);
+}
+
+.sort-children-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sort-children-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: grab;
+}
+
+.sort-children-row.dragging {
+  opacity: 0.4;
+}
+
+.sort-children-handle {
+  display: flex;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.sort-children-info {
+  min-width: 0;
+}
+
+.sort-children-name {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.sort-children-meta {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .member-role-menu-wrap {
@@ -7096,6 +7357,126 @@ button.admin-stat-card {
   margin: 0 auto;
 }
 
+/* Public share-link viewer (/tree/t/:shareToken) - same header shape as
+   .legal-shell above, but the main area hosts the read-only chart canvas
+   instead of prose, so it gets its own flex/height rules rather than
+   .legal-shell-main's max-width prose padding. */
+.share-link-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-page);
+}
+
+.share-link-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-10);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-page);
+}
+
+.share-link-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 700;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.share-link-brand-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+}
+
+.share-link-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.share-link-loading {
+  margin: auto;
+  color: var(--text-secondary);
+}
+
+.share-link-message {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-8);
+}
+
+.share-link-message h1 {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+.share-link-message p {
+  color: var(--text-secondary);
+}
+
+.share-link-passcode-gate-form {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+.share-link-passcode-gate-form input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.share-link-tree-name {
+  padding: var(--sp-4) var(--sp-10) 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.share-link-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+}
+
+/* Bottom-pinned bar (per the requirements' "floating banner on the canvas"),
+   distinct from .canvas-floating-controls (top-right, icon-only chrome) -
+   this is a full-width message + single primary action, so it reads as a
+   dismissable notice bar rather than another toolbar. */
+.share-link-banner {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-6);
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 .legal-progress-track {
   position: fixed;
   top: 0;
@@ -8539,6 +8920,52 @@ button.admin-stat-card {
   padding: var(--sp-1);
   transform-origin: top right;
   transform: none !important;
+}
+
+/* Marks the card matching the logged-in user's own approved claim (see
+   markMyNodeCard in main.js) - selectedTreeMemberId is only ever populated
+   once a claim is approved, so this never lights up for a pending one.
+   Ring on .card-inner (not .card) so it hugs the actual visible shape,
+   whether that's the rectangle or circle avatar card style. The "You" badge
+   sits top-left, opposite the drilldown/more icons' top-right corner, so
+   the two don't normally overlap - but on narrow cards the "more" menu's
+   min-width can still overhang into that corner, so this deliberately has
+   no z-index of its own: markMyNodeCard appends it to `.card` before the
+   drilldown/more icons, so plain DOM-order stacking already paints it below
+   them. An explicit z-index here previously outranked the popover menu
+   whenever hovering the card gave the icon wrapper its own stacking context
+   (via the hover transform on .f3-svg-circle-hover, below) - that trapped
+   the menu's z-index:40 inside the wrapper's local context, letting this
+   badge's z-index float above the whole icon+menu unit and cover part of
+   the open menu. */
+.f3 div.card.f3-card-mine .card-inner {
+  box-shadow: 0 0 0 3px var(--accent-soft-strong), 0 0 0 1.5px var(--accent);
+}
+
+.f3-card-you-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.f3-card-you-badge svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* Pointer arrow anchoring the popover to the "..." icon it opened from.

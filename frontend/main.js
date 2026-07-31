@@ -25,6 +25,8 @@ import f3 from '../src/index.ts';
 import { buildAllNodesGraphData, renderAllNodesGraph, pickDefaultMainId } from './allNodesGraph.js';
 import { createRelationshipBuilderState, handleConnectAttempt } from './relationshipBuilder.js';
 import { removeAllRelations, deleteNode } from './relationshipMutations.js';
+import { sortChildren } from './siblingOrder.js';
+import { openSortChildrenDialog } from './sortChildrenDialog.js';
 import { createRelationshipManagerState } from './relationshipManager/state.js';
 import { renderRelationshipManagerMode } from './relationshipManager/components.js';
 import { attachDisconnectedListListeners } from './relationshipManager/disconnectedListPanel.js';
@@ -106,10 +108,13 @@ import {
   renderRoleChangeModalBody,
   renderPendingRequestsPageMarkup,
   renderMyRequestsPageMarkup,
+  renderManageClaimsPageMarkup,
+  renderMyClaimsPageMarkup,
   renderTopbarTabs,
 } from './components.js';
 import { LEGAL_DOCS } from './legal/content.js';
 import { renderLegalPageMarkup, attachLegalPageListeners, clearLegalSeo } from './legal/legalPageLayout.js';
+import { renderShareLinkPage as renderShareLinkPageView, PENDING_SHARE_ACCESS_REQUEST_KEY } from './shareLinkView.js';
 import { renderMyTicketsPageMarkup, renderTicketDetailPageMarkup } from './support/components.js';
 import {
   loadMyTickets,
@@ -326,6 +331,20 @@ const state = {
     loaded: false,
     requests: [],
   },
+  // "Manage Claims" dashboard view (incoming "this is me" member claims for
+  // trees this user owns) - same shape as pendingRequests, but for identity
+  // claims rather than access requests.
+  manageClaims: {
+    loading: false,
+    loaded: false,
+    claims: [],
+  },
+  // "My Claims" dashboard view (member claims this user has proposed, any status).
+  myClaims: {
+    loading: false,
+    loaded: false,
+    claims: [],
+  },
   // "Trees you may belong to" - discovery matches by email, shown on the
   // tree-list landing page. Recomputed every time loadDiscoveryMatches() runs
   // (see loadSession()), not a one-time modal. `dismissed` reflects whether
@@ -493,7 +512,19 @@ document.addEventListener('keydown', (event) => {
 // falls through to the normal auth/dashboard flow.
 const PUBLIC_ROUTES = { '/terms': 'terms', '/privacy': 'privacy', '/support': 'support' };
 
+// Shareable tree links (/tree/t/:shareToken) are the one *parameterized*
+// public route, so they can't live in the flat PUBLIC_ROUTES map above - the
+// token itself has to be captured out of the path, not just matched against it.
+const SHARE_LINK_PATTERN = /^\/tree\/t\/([A-Za-z0-9_-]+)$/;
+
 function syncRouteFromLocation() {
+  const shareMatch = SHARE_LINK_PATTERN.exec(window.location.pathname);
+  if (shareMatch) {
+    state.publicView = 'share-link';
+    state.publicShareToken = shareMatch[1];
+    return;
+  }
+  state.publicShareToken = null;
   state.publicView = PUBLIC_ROUTES[window.location.pathname] || null;
 }
 
@@ -567,6 +598,11 @@ function render() {
   // loadSession()'s catch block, which swallows the 503 as "no session yet")
   // clobbers it with the normal login screen a moment after it appears.
   if (isMaintenanceActive()) return;
+  // Checked before state.user, same as /support below - a share link must
+  // render identically whether or not the visitor happens to be signed in
+  // elsewhere in this browser, since the whole point is that no account is
+  // required to view it.
+  if (state.publicView === 'share-link') return renderShareLinkPageView(state.publicShareToken);
   // Checked before state.user so /support renders the same shell-choice logic
   // regardless of sign-in state - this is what makes it a "public" route in
   // an app with no router/middleware layer to bypass.
@@ -1449,6 +1485,98 @@ async function loadMyRequests() {
   }
 }
 
+function renderManageClaimsPageContent() {
+  return renderManageClaimsPageMarkup({ ...state.manageClaims });
+}
+
+async function loadManageClaims() {
+  if (state.manageClaims.loading) return;
+  state.manageClaims.loading = true;
+  render();
+  try {
+    const { claims } = await api('/api/trees/manage-claims');
+    state.manageClaims.claims = claims;
+  } catch (error) {
+    showToast(error.message || 'Could not load pending claims.', { type: 'error' });
+  } finally {
+    state.manageClaims.loading = false;
+    state.manageClaims.loaded = true;
+    render();
+  }
+}
+
+function attachManageClaimsListeners() {
+  document.querySelectorAll('.pending-claim-approve-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideClaim(Number(btn.dataset.claimId), 'approved'));
+  });
+  document.querySelectorAll('.pending-claim-reject-btn').forEach((btn) => {
+    btn.addEventListener('click', () => handleDecideClaim(Number(btn.dataset.claimId), 'rejected'));
+  });
+}
+
+async function handleDecideClaim(claimId, status) {
+  try {
+    await api(`/api/trees/claims/${claimId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.manageClaims.claims = state.manageClaims.claims.filter((c) => c.id !== claimId);
+    render();
+    showToast(status === 'approved' ? 'Claim approved.' : 'Claim rejected.');
+  } catch (error) {
+    showToast(error.message || 'Could not update the claim.', { type: 'error' });
+  }
+}
+
+function renderMyClaimsPageContent() {
+  return renderMyClaimsPageMarkup({ ...state.myClaims });
+}
+
+async function loadMyClaims() {
+  if (state.myClaims.loading) return;
+  state.myClaims.loading = true;
+  render();
+  try {
+    const { claims } = await api('/api/trees/my-claims');
+    state.myClaims.claims = claims;
+  } catch (error) {
+    showToast(error.message || 'Could not load your claims.', { type: 'error' });
+  } finally {
+    state.myClaims.loading = false;
+    state.myClaims.loaded = true;
+    render();
+  }
+}
+
+// A tree member proposes "this person is me" from the tree view's per-card
+// menu (see openCardMoreMenu). Always lands 'pending' - the tree's owner
+// must approve it via Manage Claims. Refreshes the current tree's
+// memberId/claimStatus immediately so the card menu reflects the new
+// pending state without a full reload, and marks myClaims stale so it
+// refetches next visit.
+async function handleClaimMember(memberId) {
+  const treeId = state.selectedTreeId;
+  if (!treeId || !memberId) return;
+  try {
+    await api(`/api/trees/${treeId}/claims`, { method: 'POST', body: JSON.stringify({ member_id: memberId }) });
+    state.selectedTreeClaimStatus = 'pending';
+    state.myClaims.loaded = false;
+    render();
+    showToast('Claim sent. The tree owner needs to approve it.');
+  } catch (error) {
+    showToast(error.message || 'Could not send that claim.', { type: 'error' });
+  }
+}
+
+// Gates handleClaimMember behind a confirmation, since claiming an identity
+// sends a request the tree owner has to act on and isn't something to
+// trigger on a stray click.
+function confirmClaimMember(memberId) {
+  showConfirmDialog({
+    title: 'Link this member to my profile',
+    message: 'This will send a request to the tree owner to link this family member to your account as you. Continue?',
+    confirmLabel: 'Send request',
+    onConfirm: () => handleClaimMember(memberId),
+  });
+}
+
 function renderDashboard() {
   const isSecurityView = state.dashboardView === 'security';
   const isCreateTreeView = !isSecurityView && state.dashboardView === 'createTree';
@@ -1484,6 +1612,25 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     state.dashboardView === 'myRequests';
+  const isManageClaimsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    state.dashboardView === 'manageClaims';
+  const isMyClaimsView =
+    !isSecurityView &&
+    !isCreateTreeView &&
+    !isContactView &&
+    !isMyTicketsView &&
+    !isTicketDetailView &&
+    !isPendingRequestsView &&
+    !isMyRequestsView &&
+    !isManageClaimsView &&
+    state.dashboardView === 'myClaims';
   const isAdminView =
     !isSecurityView &&
     !isCreateTreeView &&
@@ -1493,6 +1640,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     state.dashboardView === 'admin';
   const isMediaLibraryView =
     !isSecurityView &&
@@ -1503,6 +1652,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     state.dashboardView === 'mediaLibrary' &&
     Boolean(state.selectedTreeId);
@@ -1515,6 +1666,8 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     state.dashboardView === 'timeline' &&
@@ -1543,20 +1696,25 @@ function renderDashboard() {
     !isTicketDetailView &&
     !isPendingRequestsView &&
     !isMyRequestsView &&
+    !isManageClaimsView &&
+    !isMyClaimsView &&
     !isAdminView &&
     !isMediaLibraryView &&
     !isTimelineView &&
     Boolean(state.selectedTreeId);
 
   // "My Trees"/"Requests"/"Support" are each a single sidebar nav item that
-  // actually covers two sibling views - render a tab switcher in the top
+  // actually covers several sibling views - render a tab switcher in the top
   // bar's title slot for whichever one is active (see renderTopbar's
-  // tabsHtml) so the other view stays reachable without an extra header
-  // row. ticketDetail (a drill-in from My Support Tickets, with its own
-  // back-link) and Create Tree (a drill-in from My Trees, ditto) don't get
-  // tabs - same reasoning as isVaultView not covering isCreateTreeView.
+  // tabsHtml) so the other views stay reachable without an extra header
+  // row. Claims (My Claims/Manage Claims) live under the Requests nav item
+  // too, alongside join requests, since both are "asking the tree owner for
+  // something" flows. ticketDetail (a drill-in from My Support Tickets, with
+  // its own back-link) and Create Tree (a drill-in from My Trees, ditto)
+  // don't get tabs - same reasoning as isVaultView not covering
+  // isCreateTreeView.
   const isTreesSection = state.dashboardView === 'trees' || isVaultView;
-  const isRequestsSection = isPendingRequestsView || isMyRequestsView;
+  const isRequestsSection = isPendingRequestsView || isMyRequestsView || isManageClaimsView || isMyClaimsView;
   const isSupportSection = isContactView || isMyTicketsView;
   const topbarTabsHtml = isTreesSection
     ? renderTopbarTabs({
@@ -1570,10 +1728,18 @@ function renderDashboard() {
     : isRequestsSection
       ? renderTopbarTabs({
           idPrefix: 'requests-tab',
-          activeId: isPendingRequestsView ? 'pendingRequests' : 'myRequests',
+          activeId: isPendingRequestsView
+            ? 'pendingRequests'
+            : isManageClaimsView
+              ? 'manageClaims'
+              : isMyClaimsView
+                ? 'myClaims'
+                : 'myRequests',
           tabs: [
             { id: 'myRequests', label: 'My Requests', icon: 'list' },
             { id: 'pendingRequests', label: 'Pending Requests', icon: 'mail' },
+            { id: 'myClaims', label: 'My Claims', icon: 'list' },
+            { id: 'manageClaims', label: 'Manage Claims', icon: 'mail' },
           ],
         })
       : isSupportSection
@@ -1666,7 +1832,11 @@ function renderDashboard() {
                         ? renderPendingRequestsPageContent()
                         : isMyRequestsView
                           ? renderMyRequestsPageContent()
-                          : isAdminView
+                          : isManageClaimsView
+                            ? renderManageClaimsPageContent()
+                            : isMyClaimsView
+                              ? renderMyClaimsPageContent()
+                              : isAdminView
                             ? renderAdminPageContent()
                             : isMediaLibraryView
                               ? `
@@ -1753,6 +1923,17 @@ function renderDashboard() {
 
   if (isMyRequestsView) {
     if (!state.myRequests.loaded) loadMyRequests();
+    return;
+  }
+
+  if (isManageClaimsView) {
+    attachManageClaimsListeners();
+    if (!state.manageClaims.loaded) loadManageClaims();
+    return;
+  }
+
+  if (isMyClaimsView) {
+    if (!state.myClaims.loaded) loadMyClaims();
     return;
   }
 
@@ -3507,8 +3688,23 @@ function handleExportCurrentTree(format) {
 // Share modal (built on the tree_permissions API)
 // ---------------------------------------------------------------------------
 
+// Tracks which tab is open and the fetched access-log rows across
+// refreshShareModal() re-renders (every mutation in this modal re-fetches
+// and re-renders the whole body, same pattern as shareLinkBusy/shareLinkError
+// above) - reset each time the modal is (re)opened.
+const shareModalState = {
+  tab: 'members',
+  accessLog: [],
+  accessLogError: '',
+  passcodeDrawerOpen: false,
+};
+
 async function openShareModal(treeId) {
   const treeName = state.trees.find((t) => t.id === treeId)?.name || state.selectedTreeName || '';
+  shareModalState.tab = 'members';
+  shareModalState.accessLog = [];
+  shareModalState.accessLogError = '';
+  shareModalState.passcodeDrawerOpen = false;
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
@@ -3522,14 +3718,44 @@ function bindShareModalClose(modal) {
   modal.root.querySelector('#share-modal-close-btn')?.addEventListener('click', modal.close);
 }
 
-async function refreshShareModal(modal, treeId, treeName, formError = '') {
+async function refreshShareModal(modal, treeId, treeName, formError = '', shareLinkError = '') {
   try {
     const payload = await api(`/api/trees/${treeId}/permissions`);
     const isOwnerViewing = payload.permissions.some(
       (permission) => permission.role === 'owner' && permission.user_id === state.user.id
     );
+    // The raw share_token is owner-only (see GET /:id/share-link) - only
+    // fetched at all when this viewer is the owner, mirroring how the
+    // transfer-ownership menu item is also gated on isOwnerViewing above.
+    const shareLink = isOwnerViewing ? await api(`/api/trees/${treeId}/share-link`) : null;
+
+    if (isOwnerViewing && shareModalState.tab === 'link-sharing') {
+      try {
+        const accessLogPayload = await api(`/api/trees/${treeId}/access-log`);
+        shareModalState.accessLog = accessLogPayload.entries;
+        shareModalState.accessLogError = '';
+      } catch (error) {
+        shareModalState.accessLogError = error.message || 'Could not load access history.';
+      }
+    }
+
     modal.setBody(
-      renderShareModalBody({ treeName, permissions: payload.permissions, loading: false, error: '', formError, isOwnerViewing })
+      renderShareModalBody({
+        treeName,
+        permissions: payload.permissions,
+        loading: false,
+        error: '',
+        formError,
+        isOwnerViewing,
+        shareLink,
+        shareLinkBusy: false,
+        shareLinkError,
+        passcodeDrawerOpen: shareModalState.passcodeDrawerOpen,
+        shareModalTab: shareModalState.tab,
+        accessLog: shareModalState.accessLog,
+        accessLogLoading: false,
+        accessLogError: shareModalState.accessLogError,
+      })
     );
     bindShareModalClose(modal);
     bindShareModalActions(modal, treeId, treeName);
@@ -3545,6 +3771,159 @@ async function refreshShareModal(modal, treeId, treeName, formError = '') {
     );
     bindShareModalClose(modal);
   }
+}
+
+// General Link Access controls (restricted/view toggle, Copy Link, Reset
+// Link) - split out from bindShareModalActions since renderShareLinkSection
+// only renders these elements for the owner, and this keeps that gating in
+// one place instead of every listener below needing its own null-check.
+function bindShareLinkSectionListeners(modal, treeId, treeName) {
+  modal.root.querySelectorAll('input[name="share-link-access"]').forEach((radio) => {
+    radio.addEventListener('change', async (event) => {
+      const linkAccess = event.target.value;
+      shareModalState.passcodeDrawerOpen = false;
+      modal.root.querySelectorAll('input[name="share-link-access"]').forEach((r) => (r.disabled = true));
+      try {
+        await api(`/api/trees/${treeId}/share-link`, { method: 'PATCH', body: JSON.stringify({ link_access: linkAccess }) });
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update link access.');
+      }
+    });
+  });
+
+  modal.root.querySelector('#copy-share-link-btn')?.addEventListener('click', async () => {
+    const input = modal.root.querySelector('#share-link-url-input');
+    if (!input?.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      showToast('Link copied.');
+    } catch (_error) {
+      input.select();
+      showToast('Could not copy automatically - link is selected, press Ctrl+C.', { type: 'error' });
+    }
+  });
+
+  modal.root.querySelector('#reset-share-link-btn')?.addEventListener('click', () => {
+    showConfirmDialog({
+      title: 'Reset Link',
+      message: 'Anyone using the current link will lose access immediately. Continue?',
+      confirmLabel: 'Reset Link',
+      onConfirm: async () => {
+        try {
+          await api(`/api/trees/${treeId}/share-link/reset`, { method: 'POST' });
+          showToast('Link reset.');
+          await refreshShareModal(modal, treeId, treeName);
+        } catch (error) {
+          await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not reset the link.');
+        }
+      },
+    });
+  });
+
+  const passcodeForm = modal.root.querySelector('#share-link-passcode-form');
+  const passcodeInput = modal.root.querySelector('#share-link-passcode-input');
+
+  modal.root.querySelector('#share-link-passcode-toggle')?.addEventListener('change', async (event) => {
+    // Whether a passcode is already committed server-side - mirrors the same
+    // DOM check the Cancel handler below uses, since this listener has no
+    // direct access to the shareLink object refreshShareModal fetched it from.
+    const alreadySaved = Boolean(modal.root.querySelector('#change-share-link-passcode-btn'));
+
+    if (event.target.checked) {
+      // Turning it on needs an actual passcode first, so just reveal the
+      // input instead of PATCHing yet; the checkbox reflects committed state
+      // once the form below is submitted (or reverts to unchecked on Cancel).
+      // passcodeDrawerOpen is tracked outside the DOM so it survives the next
+      // refreshShareModal() re-render, even if that re-render was triggered
+      // by an unrelated control (e.g. the email verification toggle) before
+      // this passcode gets saved - see renderShareLinkSection's comment.
+      shareModalState.passcodeDrawerOpen = true;
+      passcodeForm.hidden = false;
+      passcodeInput?.focus();
+      return;
+    }
+
+    if (!alreadySaved) {
+      // Nothing was ever saved server-side - just collapse the drawer locally,
+      // no PATCH needed.
+      shareModalState.passcodeDrawerOpen = false;
+      passcodeForm.hidden = true;
+      if (passcodeInput) passcodeInput.value = '';
+      return;
+    }
+
+    event.target.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', passcode: '' }),
+      });
+      shareModalState.passcodeDrawerOpen = false;
+      showToast('Passcode removed.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not remove the passcode.');
+    }
+  });
+
+  modal.root.querySelector('#change-share-link-passcode-btn')?.addEventListener('click', () => {
+    shareModalState.passcodeDrawerOpen = true;
+    passcodeForm.hidden = false;
+    passcodeInput?.focus();
+  });
+
+  modal.root.querySelector('#cancel-share-link-passcode-btn')?.addEventListener('click', () => {
+    shareModalState.passcodeDrawerOpen = false;
+    passcodeForm.hidden = true;
+    if (passcodeInput) passcodeInput.value = '';
+    // The form is only reachable via the toggle (unchecked -> checked reveals
+    // it) or "Change Passcode" (already-enabled case, toggle stays checked
+    // either way) - so Cancel only ever needs to walk the toggle back off
+    // when a passcode isn't already saved server-side.
+    const toggle = modal.root.querySelector('#share-link-passcode-toggle');
+    const alreadyEnabled = Boolean(modal.root.querySelector('#change-share-link-passcode-btn'));
+    if (toggle && !alreadyEnabled) toggle.checked = false;
+  });
+
+  passcodeForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const passcode = passcodeInput?.value || '';
+    if (passcode.length < 4) {
+      await refreshShareModal(modal, treeId, treeName, '', 'Passcode must be at least 4 characters.');
+      return;
+    }
+
+    const submitBtn = passcodeForm.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', passcode }),
+      });
+      shareModalState.passcodeDrawerOpen = false;
+      showToast('Passcode saved.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      submitBtn.disabled = false;
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not save the passcode.');
+    }
+  });
+
+  modal.root.querySelector('#share-link-email-verification-toggle')?.addEventListener('change', async (event) => {
+    const requireEmailVerification = event.target.checked;
+    event.target.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', requireEmailVerification }),
+      });
+      showToast(requireEmailVerification ? 'Email verification required.' : 'Email verification no longer required.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update email verification.');
+    }
+  });
 }
 
 function bindShareModalActions(modal, treeId, treeName) {
@@ -3568,6 +3947,7 @@ function bindShareModalActions(modal, treeId, treeName) {
     }
   });
 
+  bindShareLinkSectionListeners(modal, treeId, treeName);
   bindDropdownTriggers(modal.root);
 
   modal.root.querySelectorAll('[data-role-option]').forEach((btn) => {
@@ -3622,6 +4002,45 @@ function bindShareModalActions(modal, treeId, treeName) {
         loadTrees();
       } catch (error) {
         showToast(error.message || 'Could not remove access.', { type: 'error' });
+        btn.disabled = false;
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-share-modal-tab]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const tab = btn.dataset.shareModalTab;
+      if (tab === shareModalState.tab) return;
+      shareModalState.tab = tab;
+      await refreshShareModal(modal, treeId, treeName);
+    });
+  });
+
+  modal.root.querySelectorAll('[data-access-log-block-email]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const email = btn.dataset.accessLogBlockEmail;
+      btn.disabled = true;
+      try {
+        await api(`/api/trees/${treeId}/access-log/block`, { method: 'POST', body: JSON.stringify({ email }) });
+        showToast(`Blocked ${email}.`);
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        showToast(error.message || 'Could not block this email.', { type: 'error' });
+        btn.disabled = false;
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-access-log-unblock-email]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const email = btn.dataset.accessLogUnblockEmail;
+      btn.disabled = true;
+      try {
+        await api(`/api/trees/${treeId}/access-log/unblock`, { method: 'POST', body: JSON.stringify({ email }) });
+        showToast(`Unblocked ${email}.`);
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        showToast(error.message || 'Could not unblock this email.', { type: 'error' });
         btn.disabled = false;
       }
     });
@@ -3893,29 +4312,25 @@ function closeCardMoreMenu() {
   document.querySelectorAll('.f3-card-more-menu').forEach((m) => m.remove());
 }
 
-// Birthdays are free-text (often just a bare year, or blank - see
-// docs/data-format.md) rather than a strict ISO date, so this can't just
-// subtract `new Date(...)` values: an unparseable/missing birthday must sort
-// after known ones instead of corrupting the comparison with NaN.
-function parseBirthdayForSort(birthday) {
-  if (!birthday || typeof birthday !== 'string') return null;
-  const trimmed = birthday.trim();
-  if (!trimmed || trimmed.toLowerCase() === 'unknown') return null;
-  const time = new Date(trimmed).getTime();
-  return Number.isNaN(time) ? null : time;
-}
-
-// Receives raw Datum records (see src/layout/calculate-tree.ts's
-// `children.sort(sortChildrenFunction)`), not TreeDatum tree nodes - so
-// birthday lives at a.data.birthday, one level shallower than card-rendering
-// code that walks TreeDatum.data.data.
-function sortChildrenByBirthday(a, b) {
-  const aTime = parseBirthdayForSort(a.data?.birthday);
-  const bTime = parseBirthdayForSort(b.data?.birthday);
-  if (aTime === null && bTime === null) return 0;
-  if (aTime === null) return 1; // unknown birthdays last
-  if (bTime === null) return -1;
-  return aTime - bTime;
+// Highlights the card matching the logged-in user's own linked identity - a
+// ring around the card plus a small "You" badge - so they can spot
+// themselves at a glance in a large tree. selectedTreeMemberId is only ever
+// populated once a claim is approved (tree_permissions.member_id stays null
+// while pending - see memberClaimModel.js's decideClaim), so this never
+// fires for a claim that's still awaiting the owner's decision. Safe to call
+// on every card update: CardHtml rebuilds each card's innerHTML from scratch
+// per render (see src/renderers/card-html.ts), so there's no stale badge to
+// clean up first.
+function markMyNodeCard(cardEl, d) {
+  const isMine = !!state.selectedTreeMemberId && d.data.id === state.selectedTreeMemberId;
+  cardEl.classList.toggle('f3-card-mine', isMine);
+  if (!isMine) return;
+  d3.select(cardEl)
+    .append('div')
+    .attr('class', 'f3-card-you-badge')
+    .attr('data-tooltip', 'This is you')
+    .attr('data-tooltip-position', 'bottom')
+    .html(`${icon('check')}<span>You</span>`);
 }
 
 function renderChart() {
@@ -3956,7 +4371,7 @@ function renderChart() {
     .setTransitionTime(1000)
     .setCardXSpacing(250)
     .setCardYSpacing(150)
-    .setSortChildrenFunction(sortChildrenByBirthday)
+    .setSortChildrenFunction(sortChildren)
     // Without this, siblings of the focused person are invisible until you
     // re-root onto a parent (which shows that parent's children - your
     // siblings - as a side effect). This shows them directly on whoever is
@@ -4077,6 +4492,8 @@ function renderChart() {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
 
+      markMyNodeCard(cardEl, d);
+
       // Drilldown icon: pure navigation, re-root the tree on this person.
       // Only shown when there's actually a subtree left to reveal - hidden
       // entirely (not just a no-op click) once everything about this person
@@ -4164,6 +4581,50 @@ function renderChart() {
       menu.appendChild(editBtn);
       menu.appendChild(addRelativeBtn);
       menu.appendChild(linkExistingBtn);
+
+      // "This is me": proposes a member claim on this node (see
+      // handleClaimMember). Hidden once the logged-in user already has an
+      // approved claim somewhere in this tree (on this node or another -
+      // one identity per tree, see 013_member_claims.sql) or a pending one
+      // in flight, since either way a new claim would just be rejected
+      // server-side.
+      if (state.selectedTreeClaimStatus !== 'approved' && state.selectedTreeClaimStatus !== 'pending') {
+        const claimBtn = document.createElement('button');
+        claimBtn.type = 'button';
+        claimBtn.className = 'dropdown-item';
+        claimBtn.innerHTML = `${icon('user')}<span>This is me</span>`;
+        claimBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeCardMoreMenu();
+          confirmClaimMember(d.data.id);
+        });
+        menu.appendChild(claimBtn);
+      }
+
+      // Sort children: only offered once this person actually has 2+
+      // children to put in order. Opens a drag-to-reorder dialog
+      // (sortChildrenDialog.js) rather than per-child move buttons here -
+      // reordering a large family one click at a time was too slow, and this
+      // also lets the new order override birthday entirely when the parent
+      // knows the real age order but not exact birthdates (see
+      // siblingOrder.js's sortChildren).
+      if ((d.data.rels.children || []).length >= 2) {
+        const sortChildrenBtn = document.createElement('button');
+        sortChildrenBtn.type = 'button';
+        sortChildrenBtn.className = 'dropdown-item';
+        sortChildrenBtn.innerHTML = `${icon('list')}<span>Sort children</span>`;
+        sortChildrenBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeCardMoreMenu();
+          openSortChildrenDialog({
+            data: state.selectedTreeData,
+            parentId: d.data.id,
+            onSave: () => state.chart.updateTree(),
+          });
+        });
+        menu.appendChild(sortChildrenBtn);
+      }
+
       anchorEl.appendChild(menu);
     }
 
@@ -4226,6 +4687,20 @@ function renderChart() {
     card.setOnCardUpdate(function cardUpdate(d) {
       const cardEl = this.querySelector('.card');
       if (!cardEl) return;
+
+      markMyNodeCard(cardEl, d);
+
+      // Viewers have no edit menu at all today, but claiming an identity is
+      // exactly the action a viewer (not yet an editor) is most likely to
+      // need - a single dedicated icon rather than a whole popover, since
+      // "This is me" is the only viewer-facing card action that exists.
+      // Same visibility rule as the editor branch's menu item above.
+      if (state.selectedTreeClaimStatus !== 'approved' && state.selectedTreeClaimStatus !== 'pending') {
+        addCardIcon(cardEl, 0, icon('user'), (e) => {
+          e.stopPropagation();
+          confirmClaimMember(d.data.id);
+        }, 'This is me');
+      }
 
       if (!d.all_rels_displayed) {
         addCardIcon(cardEl, 'center', f3.icons.drilldownSvgIcon(), (e) => {
@@ -5695,6 +6170,7 @@ async function loadSession() {
     ]);
     render();
     await maybeOpenDeepLinkedTicket();
+    await maybeResumeShareLinkAccessRequest();
   } catch (error) {
     state.user = null;
     render();
@@ -5704,6 +6180,27 @@ async function loadSession() {
     // real message the caller (handleSignIn/handleAuthNextStep) should show,
     // so it's the one case worth re-throwing instead of swallowing.
     if (error?.status === 403) throw error;
+  }
+}
+
+// Re-entry point for "Request Edit Access" on a public share-link page
+// (shareLinkView.js): a signed-out visitor's click there stashes
+// { treeId } in sessionStorage and sends them through the normal sign-in/
+// sign-up flow rather than duplicating auth UI on the public page. Every
+// successful sign-in (password, OTP, or Google redirect) funnels through
+// this same loadSession(), so checking here once covers all of them.
+async function maybeResumeShareLinkAccessRequest() {
+  const raw = sessionStorage.getItem(PENDING_SHARE_ACCESS_REQUEST_KEY);
+  if (!raw) return;
+  sessionStorage.removeItem(PENDING_SHARE_ACCESS_REQUEST_KEY);
+
+  try {
+    const { treeId } = JSON.parse(raw);
+    if (!treeId) return;
+    await api(`/api/trees/${treeId}/request-join-via-link`, { method: 'POST', body: JSON.stringify({}) });
+    showToast('Request sent to the tree owner.');
+  } catch (error) {
+    showToast(error.message || 'Could not send your edit access request.', { type: 'error' });
   }
 }
 
@@ -5778,6 +6275,11 @@ async function loadTree(treeId, { viewMode = 'focused' } = {}) {
   const payload = await api(`/api/trees/${treeId}`);
   state.selectedTreeId = treeId;
   state.selectedTreeRole = payload.role;
+  // Which person-node (if any) is a confirmed/pending identity claim for the
+  // logged-in user in this tree - drives the "This is me" card menu item
+  // (see openCardMoreMenu/handleClaimMember).
+  state.selectedTreeMemberId = payload.memberId ?? null;
+  state.selectedTreeClaimStatus = payload.claimStatus ?? 'unclaimed';
   state.selectedTreeData = payload.data;
   state.selectedTreeName = payload.tree.name;
   state.selectedTreeStatus = payload.tree.status || 'active';
@@ -6020,6 +6522,7 @@ function renderTreeSettingsViewMode() {
     currentGenerationDepth: state.treeDefaultGenerationDepth,
     currentEmailAutoVisibility: state.treeEmailAutoVisibility,
     currentStatus: state.selectedTreeStatus,
+    currentUserMemberId: state.selectedTreeMemberId,
   });
 
   const unlimitedCheckbox = document.querySelector('#tree-settings-unlimited-depth-checkbox');

@@ -37,12 +37,13 @@ export async function resetDb() {
   const { query } = await import('../db/index.js');
   await query(`
     TRUNCATE TABLE
-      users, trees, tree_permissions, special_access_overrides, tree_join_requests, family_data,
+      users, trees, tree_permissions, special_access_overrides, tree_join_requests, member_claims, family_data,
       user_account_archives,
       contact_submissions, support_tickets, support_messages,
       settings, audit_logs, media, media_tags, media_shares, albums, album_media,
       events, event_participants, event_media, event_shares,
-      comments, reactions
+      comments, reactions,
+      tree_access_log, tree_blocked_viewers, otp_codes
     CASCADE
   `);
 }
