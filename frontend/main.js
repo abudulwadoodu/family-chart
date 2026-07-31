@@ -3690,6 +3690,7 @@ const shareModalState = {
   tab: 'members',
   accessLog: [],
   accessLogError: '',
+  passcodeDrawerOpen: false,
 };
 
 async function openShareModal(treeId) {
@@ -3697,6 +3698,7 @@ async function openShareModal(treeId) {
   shareModalState.tab = 'members';
   shareModalState.accessLog = [];
   shareModalState.accessLogError = '';
+  shareModalState.passcodeDrawerOpen = false;
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
@@ -3721,7 +3723,7 @@ async function refreshShareModal(modal, treeId, treeName, formError = '', shareL
     // transfer-ownership menu item is also gated on isOwnerViewing above.
     const shareLink = isOwnerViewing ? await api(`/api/trees/${treeId}/share-link`) : null;
 
-    if (isOwnerViewing && shareModalState.tab === 'access-history') {
+    if (isOwnerViewing && shareModalState.tab === 'link-sharing') {
       try {
         const accessLogPayload = await api(`/api/trees/${treeId}/access-log`);
         shareModalState.accessLog = accessLogPayload.entries;
@@ -3742,6 +3744,7 @@ async function refreshShareModal(modal, treeId, treeName, formError = '', shareL
         shareLink,
         shareLinkBusy: false,
         shareLinkError,
+        passcodeDrawerOpen: shareModalState.passcodeDrawerOpen,
         shareModalTab: shareModalState.tab,
         accessLog: shareModalState.accessLog,
         accessLogLoading: false,
@@ -3769,15 +3772,18 @@ async function refreshShareModal(modal, treeId, treeName, formError = '', shareL
 // only renders these elements for the owner, and this keeps that gating in
 // one place instead of every listener below needing its own null-check.
 function bindShareLinkSectionListeners(modal, treeId, treeName) {
-  modal.root.querySelector('#share-link-access-select')?.addEventListener('change', async (event) => {
-    const linkAccess = event.target.value;
-    event.target.disabled = true;
-    try {
-      await api(`/api/trees/${treeId}/share-link`, { method: 'PATCH', body: JSON.stringify({ link_access: linkAccess }) });
-      await refreshShareModal(modal, treeId, treeName);
-    } catch (error) {
-      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update link access.');
-    }
+  modal.root.querySelectorAll('input[name="share-link-access"]').forEach((radio) => {
+    radio.addEventListener('change', async (event) => {
+      const linkAccess = event.target.value;
+      shareModalState.passcodeDrawerOpen = false;
+      modal.root.querySelectorAll('input[name="share-link-access"]').forEach((r) => (r.disabled = true));
+      try {
+        await api(`/api/trees/${treeId}/share-link`, { method: 'PATCH', body: JSON.stringify({ link_access: linkAccess }) });
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update link access.');
+      }
+    });
   });
 
   modal.root.querySelector('#copy-share-link-btn')?.addEventListener('click', async () => {
@@ -3813,12 +3819,31 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
   const passcodeInput = modal.root.querySelector('#share-link-passcode-input');
 
   modal.root.querySelector('#share-link-passcode-toggle')?.addEventListener('change', async (event) => {
+    // Whether a passcode is already committed server-side - mirrors the same
+    // DOM check the Cancel handler below uses, since this listener has no
+    // direct access to the shareLink object refreshShareModal fetched it from.
+    const alreadySaved = Boolean(modal.root.querySelector('#change-share-link-passcode-btn'));
+
     if (event.target.checked) {
       // Turning it on needs an actual passcode first, so just reveal the
       // input instead of PATCHing yet; the checkbox reflects committed state
       // once the form below is submitted (or reverts to unchecked on Cancel).
+      // passcodeDrawerOpen is tracked outside the DOM so it survives the next
+      // refreshShareModal() re-render, even if that re-render was triggered
+      // by an unrelated control (e.g. the email verification toggle) before
+      // this passcode gets saved - see renderShareLinkSection's comment.
+      shareModalState.passcodeDrawerOpen = true;
       passcodeForm.hidden = false;
       passcodeInput?.focus();
+      return;
+    }
+
+    if (!alreadySaved) {
+      // Nothing was ever saved server-side - just collapse the drawer locally,
+      // no PATCH needed.
+      shareModalState.passcodeDrawerOpen = false;
+      passcodeForm.hidden = true;
+      if (passcodeInput) passcodeInput.value = '';
       return;
     }
 
@@ -3828,6 +3853,7 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
         method: 'PATCH',
         body: JSON.stringify({ link_access: 'view', passcode: '' }),
       });
+      shareModalState.passcodeDrawerOpen = false;
       showToast('Passcode removed.');
       await refreshShareModal(modal, treeId, treeName);
     } catch (error) {
@@ -3836,11 +3862,13 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
   });
 
   modal.root.querySelector('#change-share-link-passcode-btn')?.addEventListener('click', () => {
+    shareModalState.passcodeDrawerOpen = true;
     passcodeForm.hidden = false;
     passcodeInput?.focus();
   });
 
   modal.root.querySelector('#cancel-share-link-passcode-btn')?.addEventListener('click', () => {
+    shareModalState.passcodeDrawerOpen = false;
     passcodeForm.hidden = true;
     if (passcodeInput) passcodeInput.value = '';
     // The form is only reachable via the toggle (unchecked -> checked reveals
@@ -3867,6 +3895,7 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
         method: 'PATCH',
         body: JSON.stringify({ link_access: 'view', passcode }),
       });
+      shareModalState.passcodeDrawerOpen = false;
       showToast('Passcode saved.');
       await refreshShareModal(modal, treeId, treeName);
     } catch (error) {

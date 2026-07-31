@@ -5221,8 +5221,60 @@ dialog.modal-overlay[open] {
   margin-bottom: var(--sp-1);
 }
 
-.share-link-section select {
-  width: 100%;
+.share-link-access-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.share-link-access-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.share-link-access-card:hover {
+  background: var(--bg-surface-hover);
+}
+
+.share-link-access-card-selected {
+  border-color: var(--accent);
+}
+
+.share-link-access-card input[type='radio'] {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.share-link-access-card input[type='radio']:disabled {
+  cursor: default;
+}
+
+.share-link-access-card:has(input:disabled) {
+  cursor: default;
+}
+
+.share-link-access-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.share-link-access-card-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.share-link-access-card-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .share-link-row {
@@ -5240,6 +5292,26 @@ dialog.modal-overlay[open] {
   font-size: 0.82rem;
 }
 
+.share-link-row-actions {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.share-link-security-section {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.share-link-security-header {
+  margin: 0 0 var(--sp-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .share-link-passcode-row {
   display: flex;
   flex-wrap: wrap;
@@ -5247,6 +5319,10 @@ dialog.modal-overlay[open] {
   justify-content: space-between;
   gap: var(--sp-2);
   margin-top: var(--sp-3);
+}
+
+.share-link-passcode-row:first-of-type {
+  margin-top: 0;
 }
 
 .share-link-passcode-toggle {
@@ -5261,6 +5337,58 @@ dialog.modal-overlay[open] {
 .share-link-passcode-input {
   flex: 1;
   min-width: 160px;
+}
+
+.btn-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+  text-decoration: none;
+}
+
+@keyframes share-link-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.share-link-passcode-drawer {
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-hover);
+  animation: share-link-drawer-in 0.15s ease;
+}
+
+.share-link-passcode-drawer .share-link-row {
+  margin-top: var(--sp-2);
+}
+
+.share-link-passcode-drawer-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .share-modal-tabs {

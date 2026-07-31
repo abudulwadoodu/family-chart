@@ -1192,7 +1192,7 @@ export function renderRenameModalBody({ name }) {
 // the Share modal's collaborator list but never the raw share_token, since
 // holding it grants read access (see backend/routes/trees.js's /share-link
 // routes, all owner-only).
-function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
+function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError, passcodeDrawerOpen }) {
   if (!shareLink) return '';
 
   const isViewAccess = shareLink.link_access === 'view';
@@ -1200,51 +1200,77 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
   const errorHtml = shareLinkError ? `<p class="error">${escapeHtml(shareLinkError)}</p>` : '';
   const passcodeEnabled = Boolean(shareLink.passcode_enabled);
   const emailVerificationRequired = Boolean(shareLink.email_verification_required);
+  // The drawer's open/close intent is tracked client-side (shareModalState.passcodeDrawerOpen
+  // in main.js) rather than derived purely from passcodeEnabled - every other checkbox/button
+  // in this modal triggers a full refreshShareModal() re-render, which would otherwise wipe out
+  // an in-progress (not-yet-saved) passcode entry and flip the checkbox back off.
+  const passcodeDrawerVisible = Boolean(passcodeDrawerOpen);
+  const passcodeChecked = passcodeEnabled || passcodeDrawerVisible;
 
   return `
     <div class="share-link-section">
-      <label class="share-link-access-label" for="share-link-access-select">General Link Access</label>
-      <select id="share-link-access-select" ${shareLinkBusy ? 'disabled' : ''}>
-        <option value="restricted" ${!isViewAccess ? 'selected' : ''}>Link sharing off (invited people only)</option>
-        <option value="view" ${isViewAccess ? 'selected' : ''}>Anyone with the link can View</option>
-      </select>
+      <p class="share-link-access-label" id="share-link-access-label">General Link Access</p>
+      <div class="share-link-access-group" role="radiogroup" aria-labelledby="share-link-access-label">
+        <label class="share-link-access-card ${!isViewAccess ? 'share-link-access-card-selected' : ''}">
+          <input type="radio" name="share-link-access" value="restricted" ${!isViewAccess ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+          <span class="share-link-access-card-body">
+            <span class="share-link-access-card-title">Restricted (Link Sharing Off)</span>
+            <span class="share-link-access-card-desc">Only explicitly invited people can access.</span>
+          </span>
+        </label>
+        <label class="share-link-access-card ${isViewAccess ? 'share-link-access-card-selected' : ''}">
+          <input type="radio" name="share-link-access" value="view" ${isViewAccess ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+          <span class="share-link-access-card-body">
+            <span class="share-link-access-card-title">Anyone with the link can View</span>
+            <span class="share-link-access-card-desc">Anyone with the share URL can view read-only data.</span>
+          </span>
+        </label>
+      </div>
       ${
         isViewAccess
           ? `
         <div class="share-link-row">
           <input type="text" id="share-link-url-input" class="share-link-url-input" value="${escapeHtml(linkUrl)}" readonly />
-          <button type="button" id="copy-share-link-btn" class="btn btn-secondary btn-sm">${icon('link')}<span>Copy Link</span></button>
-          <button type="button" id="reset-share-link-btn" class="btn btn-ghost btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Reset Link</button>
+          <div class="share-link-row-actions">
+            <button type="button" id="copy-share-link-btn" class="btn btn-secondary btn-sm" aria-label="Copy link" title="Copy link">${icon('link')}<span>Copy</span></button>
+            <button type="button" id="reset-share-link-btn" class="btn btn-secondary btn-sm" aria-label="Reset link" title="Reset link" ${shareLinkBusy ? 'disabled' : ''}>${icon('refresh')}<span>Reset</span></button>
+          </div>
         </div>
-        <div class="share-link-passcode-row">
-          <label class="share-link-passcode-toggle">
-            <input type="checkbox" id="share-link-passcode-toggle" ${passcodeEnabled ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
-            <span>Require a passcode to view</span>
-          </label>
-          ${
-            passcodeEnabled
-              ? `<button type="button" id="change-share-link-passcode-btn" class="btn btn-ghost btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Change Passcode</button>`
-              : ''
-          }
-        </div>
-        <form id="share-link-passcode-form" class="share-link-row" hidden>
-          <input
-            type="text"
-            id="share-link-passcode-input"
-            class="share-link-passcode-input"
-            placeholder="Passcode (4-64 characters)"
-            autocomplete="off"
-            minlength="4"
-            maxlength="64"
-          />
-          <button type="submit" class="btn btn-primary btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Save</button>
-          <button type="button" id="cancel-share-link-passcode-btn" class="btn btn-ghost btn-sm">Cancel</button>
-        </form>
-        <div class="share-link-passcode-row">
-          <label class="share-link-passcode-toggle">
-            <input type="checkbox" id="share-link-email-verification-toggle" ${emailVerificationRequired ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
-            <span>Require Email Verification to View</span>
-          </label>
+        <div class="share-link-security-section">
+          <p class="share-link-security-header">Security Guardrails</p>
+          <div class="share-link-passcode-row">
+            <label class="share-link-passcode-toggle">
+              <input type="checkbox" id="share-link-passcode-toggle" ${passcodeChecked ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+              <span>Require Passcode to View</span>
+            </label>
+            ${
+              passcodeEnabled
+                ? `<button type="button" id="change-share-link-passcode-btn" class="btn-link" ${shareLinkBusy ? 'disabled' : ''}>Change Passcode</button>`
+                : ''
+            }
+          </div>
+          <form id="share-link-passcode-form" class="share-link-passcode-drawer" ${passcodeDrawerVisible ? '' : 'hidden'}>
+            <p class="share-link-passcode-drawer-title">${passcodeEnabled ? 'Update Passcode' : 'Set Passcode'}</p>
+            <div class="share-link-row">
+              <input
+                type="text"
+                id="share-link-passcode-input"
+                class="share-link-passcode-input"
+                placeholder="Passcode (4-64 characters)"
+                autocomplete="off"
+                minlength="4"
+                maxlength="64"
+              />
+              <button type="submit" class="btn btn-primary btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Save</button>
+              <button type="button" id="cancel-share-link-passcode-btn" class="btn btn-ghost btn-sm">Cancel</button>
+            </div>
+          </form>
+          <div class="share-link-passcode-row">
+            <label class="share-link-passcode-toggle">
+              <input type="checkbox" id="share-link-email-verification-toggle" ${emailVerificationRequired ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+              <span>Require Email Verification to View</span>
+            </label>
+          </div>
         </div>
       `
           : ''
@@ -1312,6 +1338,7 @@ export function renderShareModalBody({
   shareLink,
   shareLinkBusy,
   shareLinkError,
+  passcodeDrawerOpen = false,
   shareModalTab = 'members',
   accessLog = [],
   accessLogLoading = false,
@@ -1327,25 +1354,25 @@ export function renderShareModalBody({
 
   const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
   const formErrorHtml = formError ? `<p class="error">${escapeHtml(formError)}</p>` : '';
-  const shareLinkSectionHtml = isOwnerViewing ? renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) : '';
 
-  // Only the owner can see who has viewed their tree (same gating as the raw
-  // share_token/shareLinkSectionHtml above).
+  // Only the owner can manage link sharing / see who has viewed via the link
+  // (same gating as the raw share_token below).
   const tabsHtml = isOwnerViewing
     ? `
     <div class="share-modal-tabs" role="tablist">
-      <button type="button" class="share-modal-tab ${shareModalTab !== 'access-history' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="members" role="tab" aria-selected="${shareModalTab !== 'access-history'}">Collaborators</button>
-      <button type="button" class="share-modal-tab ${shareModalTab === 'access-history' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="access-history" role="tab" aria-selected="${shareModalTab === 'access-history'}">Access History</button>
+      <button type="button" class="share-modal-tab ${shareModalTab !== 'link-sharing' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="members" role="tab" aria-selected="${shareModalTab !== 'link-sharing'}">Invited People</button>
+      <button type="button" class="share-modal-tab ${shareModalTab === 'link-sharing' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="link-sharing" role="tab" aria-selected="${shareModalTab === 'link-sharing'}">Link Sharing</button>
     </div>
   `
     : '';
 
-  if (isOwnerViewing && shareModalTab === 'access-history') {
+  if (isOwnerViewing && shareModalTab === 'link-sharing') {
     return `
       ${modalCloseButton()}
       <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
-      ${shareLinkSectionHtml}
       ${tabsHtml}
+      ${renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError, passcodeDrawerOpen })}
+      <p class="share-link-access-label">Access History</p>
       ${renderAccessHistoryTab({ accessLog, accessLogLoading, accessLogError })}
     `;
   }
@@ -1411,7 +1438,6 @@ export function renderShareModalBody({
   return `
     ${modalCloseButton()}
     <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
-    ${shareLinkSectionHtml}
     ${tabsHtml}
     <p class="modal-message">Invite someone by email and choose what they can do.</p>
     <form id="share-form" class="share-form">

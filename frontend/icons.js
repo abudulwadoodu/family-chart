@@ -158,6 +158,9 @@ export const icons = {
   link: svg(
     '<path d="M9.5 14.5 14.5 9.5"></path><path d="M8.3 16.7l-1.6 1.6a3 3 0 0 1-4.24 0 3 3 0 0 1 0-4.24l3-3a3 3 0 0 1 4.24 0"></path><path d="M15.7 7.3l1.6-1.6a3 3 0 0 1 4.24 0 3 3 0 0 1 0 4.24l-3 3a3 3 0 0 1-4.24 0"></path>'
   ),
+  refresh: svg(
+    '<path d="M21 12a9 9 0 1 1-3.5-7.1"></path><path d="M21 3v6h-6"></path>'
+  ),
 };
 
 export function icon(name) {
