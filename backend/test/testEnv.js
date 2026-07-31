@@ -42,7 +42,8 @@ export async function resetDb() {
       contact_submissions, support_tickets, support_messages,
       settings, audit_logs, media, media_tags, media_shares, albums, album_media,
       events, event_participants, event_media, event_shares,
-      comments, reactions
+      comments, reactions,
+      tree_access_log, tree_blocked_viewers, otp_codes
     CASCADE
   `);
 }

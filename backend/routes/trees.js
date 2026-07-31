@@ -29,6 +29,8 @@ import { recordActivity, ACTIVITY_TYPES } from '../services/activity.js';
 import { MemberClaimError, proposeClaim, getPendingClaimsForOwner, getSentClaimsForUser, decideClaim } from '../models/memberClaimModel.js';
 import { generateShareToken } from '../utils/shareToken.js';
 import { hashPasscode } from '../utils/passcode.js';
+import { listAccessLogForTree } from '../models/treeAccessLogModel.js';
+import { blockViewer, unblockViewer } from '../models/treeBlockedViewersModel.js';
 
 const JOIN_REQUEST_ERROR_RESPONSES = {
   ALREADY_MEMBER: { status: 409, message: 'You already have access to this tree' },
@@ -536,11 +538,16 @@ const LINK_ACCESS_VALUES = ['restricted', 'view'];
 treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { rows } = await query('SELECT share_token, link_access, link_passcode_hash FROM trees WHERE id = $1', [treeId]);
+    const { rows } = await query(
+      'SELECT share_token, link_access, link_passcode_hash, require_passcode, require_email_verification FROM trees WHERE id = $1',
+      [treeId]
+    );
     return res.json({
       share_token: rows[0].share_token,
       link_access: rows[0].link_access,
       passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
     });
   } catch (error) {
     return next(error);
@@ -557,10 +564,17 @@ treesRouter.get('/:id/share-link', requireTreeRole(['owner']), async (req, res, 
 // body leaves whatever's already stored untouched, an empty string clears
 // it, and a non-empty string (re)hashes and replaces it (see
 // backend/utils/passcode.js - only the hash is ever persisted).
+//
+// require_passcode/require_email_verification (see migration 016) are the
+// explicit enforcement flags: link_passcode_hash presence is still "a
+// passcode exists", require_passcode is "it's currently enforced". Setting a
+// non-empty passcode implicitly turns enforcement on (matching the existing
+// single-checkbox UI) unless requirePasscode is explicitly given in the same
+// request; require_passcode can never end up true without a hash.
 treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res, next) => {
   try {
     const treeId = Number(req.params.id);
-    const { link_access: linkAccess, passcode } = req.body || {};
+    const { link_access: linkAccess, passcode, requirePasscode, requireEmailVerification } = req.body || {};
     if (!LINK_ACCESS_VALUES.includes(linkAccess)) {
       return res.status(400).json({ error: "link_access must be either 'restricted' or 'view'" });
     }
@@ -570,20 +584,45 @@ treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res
     if (typeof passcode === 'string' && passcode.length > 0 && (passcode.length < 4 || passcode.length > 64)) {
       return res.status(400).json({ error: 'passcode must be between 4 and 64 characters' });
     }
+    if (requirePasscode !== undefined && typeof requirePasscode !== 'boolean') {
+      return res.status(400).json({ error: 'requirePasscode must be a boolean' });
+    }
+    if (requireEmailVerification !== undefined && typeof requireEmailVerification !== 'boolean') {
+      return res.status(400).json({ error: 'requireEmailVerification must be a boolean' });
+    }
 
-    const { rows: treeRows } = await query('SELECT share_token, link_passcode_hash FROM trees WHERE id = $1', [treeId]);
+    const { rows: treeRows } = await query(
+      'SELECT share_token, link_passcode_hash, require_passcode FROM trees WHERE id = $1',
+      [treeId]
+    );
     const needsToken = linkAccess === 'view' && !treeRows[0].share_token;
     const shareToken = needsToken ? generateShareToken() : treeRows[0].share_token;
 
     let passcodeHash = treeRows[0].link_passcode_hash;
+    let requirePasscodeValue = treeRows[0].require_passcode;
     if (passcode !== undefined) {
-      passcodeHash = passcode.length > 0 ? hashPasscode(passcode) : null;
+      if (passcode.length > 0) {
+        passcodeHash = hashPasscode(passcode);
+        requirePasscodeValue = requirePasscode !== undefined ? requirePasscode : true;
+      } else {
+        passcodeHash = null;
+        requirePasscodeValue = false;
+      }
+    } else if (requirePasscode !== undefined) {
+      requirePasscodeValue = requirePasscode;
+    }
+
+    if (requirePasscodeValue && !passcodeHash) {
+      return res.status(400).json({ error: 'Cannot require a passcode without setting one first' });
     }
 
     const { rows } = await query(
-      `UPDATE trees SET link_access = $1, share_token = COALESCE(share_token, $2), link_passcode_hash = $3 WHERE id = $4
-       RETURNING share_token, link_access, link_passcode_hash`,
-      [linkAccess, shareToken, passcodeHash, treeId]
+      `UPDATE trees
+       SET link_access = $1, share_token = COALESCE(share_token, $2), link_passcode_hash = $3,
+           require_passcode = $4, require_email_verification = COALESCE($5, require_email_verification)
+       WHERE id = $6
+       RETURNING share_token, link_access, link_passcode_hash, require_passcode, require_email_verification`,
+      [linkAccess, shareToken, passcodeHash, requirePasscodeValue, requireEmailVerification ?? null, treeId]
     );
 
     return res.json({
@@ -591,6 +630,8 @@ treesRouter.patch('/:id/share-link', requireTreeRole(['owner']), async (req, res
       share_token: rows[0].share_token,
       link_access: rows[0].link_access,
       passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
     });
   } catch (error) {
     return next(error);
@@ -605,7 +646,8 @@ treesRouter.post('/:id/share-link/reset', requireTreeRole(['owner']), async (req
     const treeId = Number(req.params.id);
     const shareToken = generateShareToken();
     const { rows } = await query(
-      'UPDATE trees SET share_token = $1 WHERE id = $2 RETURNING share_token, link_access, link_passcode_hash',
+      `UPDATE trees SET share_token = $1 WHERE id = $2
+       RETURNING share_token, link_access, link_passcode_hash, require_passcode, require_email_verification`,
       [shareToken, treeId]
     );
     return res.json({
@@ -613,7 +655,60 @@ treesRouter.post('/:id/share-link/reset', requireTreeRole(['owner']), async (req
       share_token: rows[0].share_token,
       link_access: rows[0].link_access,
       passcode_enabled: Boolean(rows[0].link_passcode_hash),
+      passcode_required: Boolean(rows[0].require_passcode),
+      email_verification_required: Boolean(rows[0].require_email_verification),
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Distinct verified viewer emails + last-viewed timestamp for this tree's
+// share link (see backend/models/treeAccessLogModel.js) - owner-only, same
+// reasoning as the raw share_token being owner-only above.
+treesRouter.get('/:id/access-log', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const [entries, blockedRows] = await Promise.all([
+      listAccessLogForTree(treeId),
+      query('SELECT lower(email) AS email FROM tree_blocked_viewers WHERE tree_id = $1', [treeId]),
+    ]);
+    const blockedEmails = new Set(blockedRows.rows.map((row) => row.email));
+    return res.json({
+      entries: entries.map((entry) => ({
+        viewer_email: entry.viewer_email,
+        last_viewed_at: entry.last_viewed_at,
+        view_count: Number(entry.view_count),
+        blocked: blockedEmails.has(entry.viewer_email.toLowerCase()),
+      })),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Blocking only prevents *future* OTP verification (see design.md open
+// question 4 / resolution) - it does not retroactively touch tree_access_log
+// or kill an already-verified guest's live sessionStorage session.
+treesRouter.post('/:id/access-log/block', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'A valid email address is required' });
+    await blockViewer({ treeId, email, blockedBy: req.user.id });
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+treesRouter.post('/:id/access-log/unblock', requireTreeRole(['owner']), async (req, res, next) => {
+  try {
+    const treeId = Number(req.params.id);
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'A valid email address is required' });
+    await unblockViewer({ treeId, email });
+    return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }

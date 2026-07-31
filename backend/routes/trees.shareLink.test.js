@@ -47,7 +47,13 @@ describe('share-link configuration', () => {
 
     const res = await request(app).get(`/api/trees/${treeId}/share-link`).set('Authorization', owner);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ share_token: null, link_access: 'restricted', passcode_enabled: false });
+    expect(res.body).toEqual({
+      share_token: null,
+      link_access: 'restricted',
+      passcode_enabled: false,
+      passcode_required: false,
+      email_verification_required: false,
+    });
   });
 
   it('generates a share token the first time link access is turned on', async () => {

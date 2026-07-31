@@ -1199,6 +1199,7 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
   const linkUrl = shareLink.share_token ? `${window.location.origin}/tree/t/${shareLink.share_token}` : '';
   const errorHtml = shareLinkError ? `<p class="error">${escapeHtml(shareLinkError)}</p>` : '';
   const passcodeEnabled = Boolean(shareLink.passcode_enabled);
+  const emailVerificationRequired = Boolean(shareLink.email_verification_required);
 
   return `
     <div class="share-link-section">
@@ -1239,6 +1240,12 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
           <button type="submit" class="btn btn-primary btn-sm" ${shareLinkBusy ? 'disabled' : ''}>Save</button>
           <button type="button" id="cancel-share-link-passcode-btn" class="btn btn-ghost btn-sm">Cancel</button>
         </form>
+        <div class="share-link-passcode-row">
+          <label class="share-link-passcode-toggle">
+            <input type="checkbox" id="share-link-email-verification-toggle" ${emailVerificationRequired ? 'checked' : ''} ${shareLinkBusy ? 'disabled' : ''} />
+            <span>Require Email Verification to View</span>
+          </label>
+        </div>
       `
           : ''
       }
@@ -1248,7 +1255,68 @@ function renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) {
   `;
 }
 
-export function renderShareModalBody({ treeName, permissions, loading, error, formError, isOwnerViewing, shareLink, shareLinkBusy, shareLinkError }) {
+// Distinct verified-viewer rows for the owner-only "Access History" tab (see
+// GET /:id/access-log). A blocked row still shows here (it isn't hidden or
+// removed - blocking is forward-looking only, see design.md open question 4)
+// so the owner can see who they've blocked and reverse it.
+function renderAccessHistoryTab({ accessLog, accessLogLoading, accessLogError }) {
+  if (accessLogLoading) {
+    return '<p class="modal-message">Loading access history...</p>';
+  }
+
+  const errorHtml = accessLogError ? `<p class="error">${escapeHtml(accessLogError)}</p>` : '';
+
+  if (!accessLog || accessLog.length === 0) {
+    return `<p class="muted">No verified views yet.</p>${errorHtml}`;
+  }
+
+  const rows = accessLog
+    .map((entry) => {
+      const viewCount = Number(entry.view_count) || 0;
+      const lastViewed = entry.last_viewed_at ? new Date(entry.last_viewed_at).toLocaleString() : 'Unknown';
+      const actionAttr = entry.blocked
+        ? `data-access-log-unblock-email="${escapeHtml(entry.viewer_email)}"`
+        : `data-access-log-block-email="${escapeHtml(entry.viewer_email)}"`;
+      const actionLabel = entry.blocked ? 'Unblock' : 'Block';
+
+      return `
+        <div class="member-row">
+          <div class="member-info">
+            <span class="user-avatar user-avatar-sm">${escapeHtml((entry.viewer_email || '?').charAt(0).toUpperCase())}</span>
+            <div>
+              <p class="member-email">${escapeHtml(entry.viewer_email)}</p>
+              <p class="member-meta">
+                Last viewed ${escapeHtml(lastViewed)} &middot; ${viewCount} view${viewCount === 1 ? '' : 's'}
+                ${entry.blocked ? '<span class="badge badge-role-viewer">Blocked</span>' : ''}
+              </p>
+            </div>
+          </div>
+          <div class="member-actions">
+            <button type="button" class="btn btn-ghost btn-sm" ${actionAttr}>${actionLabel}</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `<div class="member-list">${rows}</div>${errorHtml}`;
+}
+
+export function renderShareModalBody({
+  treeName,
+  permissions,
+  loading,
+  error,
+  formError,
+  isOwnerViewing,
+  shareLink,
+  shareLinkBusy,
+  shareLinkError,
+  shareModalTab = 'members',
+  accessLog = [],
+  accessLogLoading = false,
+  accessLogError = '',
+}) {
   if (loading) {
     return `
       ${modalCloseButton()}
@@ -1260,6 +1328,27 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
   const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
   const formErrorHtml = formError ? `<p class="error">${escapeHtml(formError)}</p>` : '';
   const shareLinkSectionHtml = isOwnerViewing ? renderShareLinkSection({ shareLink, shareLinkBusy, shareLinkError }) : '';
+
+  // Only the owner can see who has viewed their tree (same gating as the raw
+  // share_token/shareLinkSectionHtml above).
+  const tabsHtml = isOwnerViewing
+    ? `
+    <div class="share-modal-tabs" role="tablist">
+      <button type="button" class="share-modal-tab ${shareModalTab !== 'access-history' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="members" role="tab" aria-selected="${shareModalTab !== 'access-history'}">Collaborators</button>
+      <button type="button" class="share-modal-tab ${shareModalTab === 'access-history' ? 'share-modal-tab-active' : ''}" data-share-modal-tab="access-history" role="tab" aria-selected="${shareModalTab === 'access-history'}">Access History</button>
+    </div>
+  `
+    : '';
+
+  if (isOwnerViewing && shareModalTab === 'access-history') {
+    return `
+      ${modalCloseButton()}
+      <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
+      ${shareLinkSectionHtml}
+      ${tabsHtml}
+      ${renderAccessHistoryTab({ accessLog, accessLogLoading, accessLogError })}
+    `;
+  }
 
   const rows = permissions
     .map((permission) => {
@@ -1323,6 +1412,7 @@ export function renderShareModalBody({ treeName, permissions, loading, error, fo
     ${modalCloseButton()}
     <h3 id="modal-title">Share "${escapeHtml(treeName)}"</h3>
     ${shareLinkSectionHtml}
+    ${tabsHtml}
     <p class="modal-message">Invite someone by email and choose what they can do.</p>
     <form id="share-form" class="share-form">
       <input type="email" id="share-email-input" name="email" placeholder="name@example.com" required />

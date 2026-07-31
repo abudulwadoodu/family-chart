@@ -3682,8 +3682,21 @@ function handleExportCurrentTree(format) {
 // Share modal (built on the tree_permissions API)
 // ---------------------------------------------------------------------------
 
+// Tracks which tab is open and the fetched access-log rows across
+// refreshShareModal() re-renders (every mutation in this modal re-fetches
+// and re-renders the whole body, same pattern as shareLinkBusy/shareLinkError
+// above) - reset each time the modal is (re)opened.
+const shareModalState = {
+  tab: 'members',
+  accessLog: [],
+  accessLogError: '',
+};
+
 async function openShareModal(treeId) {
   const treeName = state.trees.find((t) => t.id === treeId)?.name || state.selectedTreeName || '';
+  shareModalState.tab = 'members';
+  shareModalState.accessLog = [];
+  shareModalState.accessLogError = '';
   const modal = showModal({
     bodyHtml: renderShareModalBody({ treeName, permissions: [], loading: true, error: '', formError: '' }),
     className: 'modal-share',
@@ -3707,6 +3720,17 @@ async function refreshShareModal(modal, treeId, treeName, formError = '', shareL
     // fetched at all when this viewer is the owner, mirroring how the
     // transfer-ownership menu item is also gated on isOwnerViewing above.
     const shareLink = isOwnerViewing ? await api(`/api/trees/${treeId}/share-link`) : null;
+
+    if (isOwnerViewing && shareModalState.tab === 'access-history') {
+      try {
+        const accessLogPayload = await api(`/api/trees/${treeId}/access-log`);
+        shareModalState.accessLog = accessLogPayload.entries;
+        shareModalState.accessLogError = '';
+      } catch (error) {
+        shareModalState.accessLogError = error.message || 'Could not load access history.';
+      }
+    }
+
     modal.setBody(
       renderShareModalBody({
         treeName,
@@ -3718,6 +3742,10 @@ async function refreshShareModal(modal, treeId, treeName, formError = '', shareL
         shareLink,
         shareLinkBusy: false,
         shareLinkError,
+        shareModalTab: shareModalState.tab,
+        accessLog: shareModalState.accessLog,
+        accessLogLoading: false,
+        accessLogError: shareModalState.accessLogError,
       })
     );
     bindShareModalClose(modal);
@@ -3846,6 +3874,21 @@ function bindShareLinkSectionListeners(modal, treeId, treeName) {
       await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not save the passcode.');
     }
   });
+
+  modal.root.querySelector('#share-link-email-verification-toggle')?.addEventListener('change', async (event) => {
+    const requireEmailVerification = event.target.checked;
+    event.target.disabled = true;
+    try {
+      await api(`/api/trees/${treeId}/share-link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ link_access: 'view', requireEmailVerification }),
+      });
+      showToast(requireEmailVerification ? 'Email verification required.' : 'Email verification no longer required.');
+      await refreshShareModal(modal, treeId, treeName);
+    } catch (error) {
+      await refreshShareModal(modal, treeId, treeName, '', error.message || 'Could not update email verification.');
+    }
+  });
 }
 
 function bindShareModalActions(modal, treeId, treeName) {
@@ -3924,6 +3967,45 @@ function bindShareModalActions(modal, treeId, treeName) {
         loadTrees();
       } catch (error) {
         showToast(error.message || 'Could not remove access.', { type: 'error' });
+        btn.disabled = false;
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-share-modal-tab]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const tab = btn.dataset.shareModalTab;
+      if (tab === shareModalState.tab) return;
+      shareModalState.tab = tab;
+      await refreshShareModal(modal, treeId, treeName);
+    });
+  });
+
+  modal.root.querySelectorAll('[data-access-log-block-email]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const email = btn.dataset.accessLogBlockEmail;
+      btn.disabled = true;
+      try {
+        await api(`/api/trees/${treeId}/access-log/block`, { method: 'POST', body: JSON.stringify({ email }) });
+        showToast(`Blocked ${email}.`);
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        showToast(error.message || 'Could not block this email.', { type: 'error' });
+        btn.disabled = false;
+      }
+    });
+  });
+
+  modal.root.querySelectorAll('[data-access-log-unblock-email]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const email = btn.dataset.accessLogUnblockEmail;
+      btn.disabled = true;
+      try {
+        await api(`/api/trees/${treeId}/access-log/unblock`, { method: 'POST', body: JSON.stringify({ email }) });
+        showToast(`Unblocked ${email}.`);
+        await refreshShareModal(modal, treeId, treeName);
+      } catch (error) {
+        showToast(error.message || 'Could not unblock this email.', { type: 'error' });
         btn.disabled = false;
       }
     });

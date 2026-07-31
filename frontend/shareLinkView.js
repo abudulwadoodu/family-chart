@@ -18,6 +18,8 @@ import { showToast } from './ui.js';
 
 export const PENDING_SHARE_ACCESS_REQUEST_KEY = 'family-chart-pending-share-access-request';
 
+const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
+
 const shareLinkState = {
   loadedToken: null,
   loading: true,
@@ -25,6 +27,15 @@ const shareLinkState = {
   notFound: false,
   passcodeRequired: false,
   passcodeError: '',
+  // Email-verification gate state (see design.md decision 3: passcode gate
+  // resolves first, then this one). passcodeVerified is trivially true when
+  // no passcode is required at all, so the render logic below only needs to
+  // check passcodeRequired before falling through to the email gate.
+  emailVerificationRequired: false,
+  otpEmail: '',
+  otpRequested: false,
+  otpError: '',
+  otpCooldownUntil: 0,
   tree: null,
   data: [],
   requestSent: false,
@@ -37,6 +48,11 @@ export function resetShareLinkState() {
   shareLinkState.notFound = false;
   shareLinkState.passcodeRequired = false;
   shareLinkState.passcodeError = '';
+  shareLinkState.emailVerificationRequired = false;
+  shareLinkState.otpEmail = '';
+  shareLinkState.otpRequested = false;
+  shareLinkState.otpError = '';
+  shareLinkState.otpCooldownUntil = 0;
   shareLinkState.tree = null;
   shareLinkState.data = [];
   shareLinkState.requestSent = false;
@@ -48,6 +64,15 @@ export function resetShareLinkState() {
 // forever on a shared machine either.
 function sessionKeyForToken(shareToken) {
   return `family-chart-share-link-verified-${shareToken}`;
+}
+
+// Same session-only reasoning as sessionKeyForToken, but for the OTP gate:
+// caches the last email+code pair that successfully verified so a reload
+// resubmits it instead of forcing a fresh email round-trip (see
+// backend/routes/publicTrees.js otp/verify - a once-consumed code stays
+// valid for the rest of the browser session for exactly this purpose).
+function otpSessionKeyForToken(shareToken) {
+  return `family-chart-share-link-otp-verified-${shareToken}`;
 }
 
 function renderShareLinkShell(bodyHtml) {
@@ -103,6 +128,14 @@ export async function renderShareLinkPage(shareToken) {
     return;
   }
 
+  // Only reached once the passcode gate (if any) is satisfied - see
+  // design.md decision 3.
+  if (shareLinkState.emailVerificationRequired) {
+    renderShareLinkShell(renderOtpGate());
+    attachOtpGateListeners(shareToken);
+    return;
+  }
+
   if (shareLinkState.error) {
     renderShareLinkShell(renderShareLinkMessage('Something went wrong', shareLinkState.error));
     return;
@@ -119,17 +152,40 @@ export async function renderShareLinkPage(shareToken) {
   attachShareLinkPageListeners(shareToken);
 }
 
-async function loadShareLinkTree(shareToken) {
-  // A passcode verified earlier this tab session is cached client-side only
-  // (see sessionKeyForToken) - re-send it to /verify rather than the plain
-  // GET so a reload doesn't re-prompt; the server still re-checks it, it's
-  // just not re-typed by the visitor.
-  const cachedPasscode = sessionStorage.getItem(sessionKeyForToken(shareToken));
-  if (cachedPasscode !== null) {
-    await verifyAndLoad(shareToken, cachedPasscode);
-    return;
+function readCachedOtp(shareToken) {
+  const raw = sessionStorage.getItem(otpSessionKeyForToken(shareToken));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.email && parsed?.code ? parsed : null;
+  } catch (_error) {
+    return null;
   }
+}
 
+// Attempts to resume a previously-verified OTP session silently (no gate
+// shown, no error surfaced on failure) - if the cached code no longer works
+// (expired between visits, owner reset something), this just falls through
+// to the normal gate flow below rather than flashing a confusing "incorrect
+// code" message on what the visitor experiences as a fresh page load.
+async function tryResumeOtpSession(shareToken, cachedOtp, cachedPasscode) {
+  try {
+    const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}/otp/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ email: cachedOtp.email, code: cachedOtp.code, passcode: cachedPasscode ?? undefined }),
+    });
+    shareLinkState.tree = payload.tree;
+    shareLinkState.data = payload.data || [];
+    shareLinkState.loading = false;
+    await renderShareLinkPage(shareToken);
+    return true;
+  } catch (_error) {
+    sessionStorage.removeItem(otpSessionKeyForToken(shareToken));
+    return false;
+  }
+}
+
+async function fetchPlainGate(shareToken) {
   try {
     const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}`);
     shareLinkState.tree = payload.tree;
@@ -137,8 +193,9 @@ async function loadShareLinkTree(shareToken) {
     shareLinkState.loading = false;
   } catch (error) {
     shareLinkState.loading = false;
-    if (error.status === 401 && error.payload?.passcode_required) {
-      shareLinkState.passcodeRequired = true;
+    if (error.status === 401) {
+      shareLinkState.passcodeRequired = Boolean(error.payload?.passcode_required);
+      shareLinkState.emailVerificationRequired = Boolean(error.payload?.email_verification_required);
     } else if (error.status === 404) {
       shareLinkState.notFound = true;
     } else {
@@ -148,18 +205,48 @@ async function loadShareLinkTree(shareToken) {
   await renderShareLinkPage(shareToken);
 }
 
+async function loadShareLinkTree(shareToken) {
+  // A passcode verified earlier this tab session is cached client-side only
+  // (see sessionKeyForToken) - re-send it rather than the plain GET so a
+  // reload doesn't re-prompt; the server still re-checks it, it's just not
+  // re-typed by the visitor. A cached, previously-verified OTP session is
+  // checked first since it implies the passcode gate (if any) already
+  // succeeded too.
+  const cachedPasscode = sessionStorage.getItem(sessionKeyForToken(shareToken));
+  const cachedOtp = readCachedOtp(shareToken);
+
+  if (cachedOtp) {
+    const resumed = await tryResumeOtpSession(shareToken, cachedOtp, cachedPasscode);
+    if (resumed) return;
+  }
+
+  if (cachedPasscode !== null) {
+    await verifyAndLoad(shareToken, cachedPasscode);
+    return;
+  }
+
+  await fetchPlainGate(shareToken);
+}
+
 async function verifyAndLoad(shareToken, passcode) {
   try {
     const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}/verify`, {
       method: 'POST',
       body: JSON.stringify({ passcode }),
     });
-    shareLinkState.tree = payload.tree;
-    shareLinkState.data = payload.data || [];
+    sessionStorage.setItem(sessionKeyForToken(shareToken), passcode);
     shareLinkState.loading = false;
     shareLinkState.passcodeRequired = false;
     shareLinkState.passcodeError = '';
-    sessionStorage.setItem(sessionKeyForToken(shareToken), passcode);
+
+    // Passcode gate satisfied - if email verification is also required, the
+    // response carries no tree data yet; the OTP gate renders next.
+    if (payload.email_verification_required) {
+      shareLinkState.emailVerificationRequired = true;
+    } else {
+      shareLinkState.tree = payload.tree;
+      shareLinkState.data = payload.data || [];
+    }
   } catch (error) {
     shareLinkState.loading = false;
     sessionStorage.removeItem(sessionKeyForToken(shareToken));
@@ -170,6 +257,62 @@ async function verifyAndLoad(shareToken, passcode) {
       shareLinkState.notFound = true;
     } else {
       shareLinkState.error = error.message || 'Could not load this family tree.';
+    }
+  }
+  await renderShareLinkPage(shareToken);
+}
+
+async function requestOtpCode(shareToken, email, { resend = false } = {}) {
+  const cachedPasscode = sessionStorage.getItem(sessionKeyForToken(shareToken));
+  shareLinkState.otpEmail = email;
+  try {
+    await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}/otp/request`, {
+      method: 'POST',
+      body: JSON.stringify({ email, passcode: cachedPasscode ?? undefined }),
+    });
+    shareLinkState.otpRequested = true;
+    shareLinkState.otpError = '';
+    shareLinkState.otpCooldownUntil = Date.now() + OTP_RESEND_COOLDOWN_MS;
+    if (resend) showToast('A new code has been sent.');
+    // Re-render once the cooldown lapses so the Resend button re-enables
+    // itself without requiring another interaction to unstick it.
+    setTimeout(() => {
+      if (shareLinkState.loadedToken === shareToken) renderShareLinkPage(shareToken);
+    }, OTP_RESEND_COOLDOWN_MS + 50);
+  } catch (error) {
+    if (error.status === 404) {
+      shareLinkState.notFound = true;
+    } else {
+      shareLinkState.otpError = error.message || 'Could not send a verification code. Please try again.';
+    }
+  }
+  await renderShareLinkPage(shareToken);
+}
+
+async function otpVerifyAndLoad(shareToken, email, code) {
+  const cachedPasscode = sessionStorage.getItem(sessionKeyForToken(shareToken));
+  try {
+    const payload = await apiPublic(`/api/public/trees/${encodeURIComponent(shareToken)}/otp/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ email, code, passcode: cachedPasscode ?? undefined }),
+    });
+    shareLinkState.tree = payload.tree;
+    shareLinkState.data = payload.data || [];
+    shareLinkState.loading = false;
+    shareLinkState.emailVerificationRequired = false;
+    shareLinkState.otpError = '';
+    sessionStorage.setItem(otpSessionKeyForToken(shareToken), JSON.stringify({ email, code }));
+  } catch (error) {
+    shareLinkState.loading = false;
+    sessionStorage.removeItem(otpSessionKeyForToken(shareToken));
+    if (error.status === 404) {
+      shareLinkState.notFound = true;
+    } else {
+      // Covers both a wrong/expired code (403) and a rate limit (429) - the
+      // server's message already distinguishes them for the visitor.
+      shareLinkState.emailVerificationRequired = true;
+      shareLinkState.otpRequested = true;
+      shareLinkState.otpError = error.message || 'Incorrect or expired code.';
     }
   }
   await renderShareLinkPage(shareToken);
@@ -209,6 +352,93 @@ function attachPasscodeFormListener(shareToken) {
     submitBtn.disabled = true;
     shareLinkState.loading = true;
     await verifyAndLoad(shareToken, passcode);
+  });
+}
+
+// Two-step gate: collect an email, send a code (POST otp/request), then
+// collect the 6-digit code and verify it (POST otp/verify). Modeled on
+// renderPasscodeGate's single-step shell above.
+function renderOtpGate() {
+  const errorHtml = shareLinkState.otpError ? `<p class="error">${escapeHtml(shareLinkState.otpError)}</p>` : '';
+
+  if (!shareLinkState.otpRequested) {
+    return `
+      <div class="share-link-message share-link-passcode-gate">
+        <h1>Email verification required</h1>
+        <p>Enter your email address to receive a one-time verification code.</p>
+        <form id="share-link-otp-request-form" class="share-link-passcode-gate-form">
+          <input
+            type="email"
+            id="share-link-otp-email-input"
+            placeholder="you@example.com"
+            autocomplete="email"
+            value="${escapeHtml(shareLinkState.otpEmail)}"
+            autofocus
+            required
+          />
+          <button type="submit" class="btn btn-primary">Send code</button>
+        </form>
+        ${errorHtml}
+      </div>
+    `;
+  }
+
+  const resendDisabled = Date.now() < shareLinkState.otpCooldownUntil;
+
+  return `
+    <div class="share-link-message share-link-passcode-gate">
+      <h1>Enter your verification code</h1>
+      <p>We sent a 6-digit code to ${escapeHtml(shareLinkState.otpEmail)}.</p>
+      <form id="share-link-otp-verify-form" class="share-link-passcode-gate-form">
+        <input
+          type="text"
+          id="share-link-otp-code-input"
+          placeholder="6-digit code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          autofocus
+          required
+        />
+        <button type="submit" class="btn btn-primary">Verify</button>
+      </form>
+      <button type="button" id="share-link-otp-resend-btn" class="btn btn-ghost btn-sm" ${resendDisabled ? 'disabled' : ''}>
+        Resend code
+      </button>
+      ${errorHtml}
+    </div>
+  `;
+}
+
+function attachOtpGateListeners(shareToken) {
+  document.querySelector('#share-link-otp-request-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector('#share-link-otp-email-input');
+    const email = input?.value.trim() || '';
+    if (!email) return;
+
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    await requestOtpCode(shareToken, email);
+  });
+
+  const verifyForm = document.querySelector('#share-link-otp-verify-form');
+  verifyForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector('#share-link-otp-code-input');
+    const code = input?.value.trim() || '';
+    if (!code) return;
+
+    const submitBtn = verifyForm.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    shareLinkState.loading = true;
+    await otpVerifyAndLoad(shareToken, shareLinkState.otpEmail, code);
+  });
+
+  document.querySelector('#share-link-otp-resend-btn')?.addEventListener('click', async (event) => {
+    if (Date.now() < shareLinkState.otpCooldownUntil) return;
+    event.target.disabled = true;
+    await requestOtpCode(shareToken, shareLinkState.otpEmail, { resend: true });
   });
 }
 

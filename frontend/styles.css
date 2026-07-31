@@ -5263,6 +5263,30 @@ dialog.modal-overlay[open] {
   min-width: 160px;
 }
 
+.share-modal-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  margin-top: var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.share-modal-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-2) var(--sp-1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.share-modal-tab-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
 .modal-divider {
   border-top: 1px solid var(--border-subtle);
   margin: var(--sp-4) 0;
