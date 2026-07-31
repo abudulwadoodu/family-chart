@@ -8779,3 +8779,50 @@ button.admin-stat-card {
     animation: none;
   }
 }
+
+/* Full-screen takeover rendered by maintenanceView.js when the backend
+   returns a maintenance 503 - replaces #app entirely, so it's styled as a
+   standalone screen rather than a component within the app chrome. */
+.maintenance-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg-page);
+}
+
+.maintenance-view__card {
+  max-width: 420px;
+  text-align: center;
+  padding: 40px 32px;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.maintenance-view__card h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  color: var(--text-primary);
+}
+
+.maintenance-view__card p {
+  margin: 0 0 24px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.maintenance-view__retry {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.maintenance-view__retry:hover {
+  background: var(--accent-hover);
+}

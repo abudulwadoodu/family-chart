@@ -1,5 +1,7 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 
+import { showMaintenanceView } from './maintenanceView.js';
+
 const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
 
 export function apiUrl(path) {
@@ -28,6 +30,14 @@ export async function api(path, options = {}) {
   });
 
   const payload = await response.json().catch(() => ({}));
+
+  if (response.status === 503 && payload.status === 'maintenance') {
+    showMaintenanceView();
+    const error = new Error(payload.message || 'System is under maintenance. Please check back shortly.');
+    error.status = 503;
+    throw error;
+  }
+
   if (!response.ok) {
     const error = new Error(payload.error || 'Request failed');
     error.status = response.status;

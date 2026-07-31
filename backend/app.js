@@ -11,6 +11,7 @@ import { adminSupportRouter } from './routes/adminSupport.js';
 import { adminUsersRouter } from './routes/adminUsers.js';
 import { adminTreesRouter } from './routes/adminTrees.js';
 import { adminSettingsRouter } from './routes/adminSettings.js';
+import { adminMaintenanceRouter } from './routes/adminMaintenance.js';
 import { adminAuditLogsRouter } from './routes/adminAuditLogs.js';
 import { adminDashboardRouter } from './routes/adminDashboard.js';
 import { mediaRouter } from './routes/media.js';
@@ -18,6 +19,7 @@ import { albumsRouter } from './routes/albums.js';
 import { eventsRouter } from './routes/events.js';
 import { activityRouter } from './routes/activity.js';
 import { commentsRouter, reactionsRouter } from './routes/comments.js';
+import { maintenanceGuard } from './middleware/maintenance.js';
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:8080';
 
@@ -32,6 +34,8 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.use(maintenanceGuard);
+
 app.use('/api/auth', authRouter);
 app.use('/api/trees', treesRouter);
 app.use('/api/account', accountRouter);
@@ -41,6 +45,7 @@ app.use('/api/admin/support', adminSupportRouter);
 app.use('/api/admin/users', adminUsersRouter);
 app.use('/api/admin/trees', adminTreesRouter);
 app.use('/api/admin/settings', adminSettingsRouter);
+app.use('/api/admin/maintenance', adminMaintenanceRouter);
 app.use('/api/admin/audit-logs', adminAuditLogsRouter);
 app.use('/api/admin/dashboard', adminDashboardRouter);
 app.use('/api/trees/:treeId/media', mediaRouter);

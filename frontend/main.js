@@ -51,6 +51,7 @@ import { getTreeOrientation, toggleTreeOrientation } from './treeOrientation.js'
 import { escapeHtml, downloadJson, downloadCsv, downloadBlob, treeDataToCsv, slugifyFilename } from './utils.js';
 import { icon } from './icons.js';
 import { api, fetchAttachment } from './api.js';
+import { isMaintenanceActive } from './maintenanceView.js';
 import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel, getRelativesSummary } from './memberSearch.js';
 import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
@@ -561,6 +562,11 @@ Hub.listen('auth', ({ payload }) => {
 const DEFAULT_TITLE = 'Secure Family Chart';
 
 function render() {
+  // Once the maintenance takeover screen is showing, no further render() may
+  // overwrite #app - otherwise the very next render() call (e.g. from
+  // loadSession()'s catch block, which swallows the 503 as "no session yet")
+  // clobbers it with the normal login screen a moment after it appears.
+  if (isMaintenanceActive()) return;
   // Checked before state.user so /support renders the same shell-choice logic
   // regardless of sign-in state - this is what makes it a "public" route in
   // an app with no router/middleware layer to bypass.
