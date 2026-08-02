@@ -4730,6 +4730,11 @@ body.focus-mode-transitioning .focus-mode-target {
   font-weight: 600;
 }
 
+.vault-snapshot-description {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
 .vault-snapshot-actions {
   gap: var(--sp-2);
   flex-shrink: 0;
