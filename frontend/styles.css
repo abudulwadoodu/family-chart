@@ -3434,6 +3434,17 @@ button.secondary:active,
   color: var(--text-tertiary);
 }
 
+.combobox-option-detail {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 0.74rem;
+  font-style: italic;
+}
+
 .relationship-card {
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-default);

@@ -11,7 +11,7 @@
 // avatar + birth/death-year rows to each option so people who share a name
 // stay distinguishable (see relationship-finder-v2-design.md).
 
-import { buildMemberSearchIndex, searchMembers, getLabel } from './memberSearch.js';
+import { buildMemberSearchIndex, searchMembers, getLabel, getRelativesSummary } from './memberSearch.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 
@@ -40,13 +40,15 @@ function avatarHtml(person) {
     : `<span class="combobox-avatar-fallback">${escapeHtml(getInitials(person))}</span>`;
 }
 
-function optionInnerHtml(person, query) {
+function optionInnerHtml(person, query, byId) {
   const years = getVitalYears(person);
+  const summary = getRelativesSummary(person, byId);
   return `
     <span class="combobox-avatar">${avatarHtml(person)}</span>
     <span class="combobox-option-text">
       <span class="combobox-option-name">${highlightMatch(getLabel(person), query)}</span>
       ${years ? `<span class="combobox-option-years">${escapeHtml(years)}</span>` : ''}
+      ${summary ? `<span class="combobox-option-detail">${escapeHtml(summary)}</span>` : ''}
     </span>
   `;
 }
@@ -145,7 +147,7 @@ export function createPersonCombobox({ id, label, data, onSelect, excludeId }) {
           role="option"
           aria-selected="${i === state.activeIndex}"
           data-id="${escapeHtml(entry.id)}"
-        >${optionInnerHtml(byId.get(String(entry.id)), query)}</button>
+        >${optionInnerHtml(byId.get(String(entry.id)), query, byId)}</button>
       `)
       .join('');
 
