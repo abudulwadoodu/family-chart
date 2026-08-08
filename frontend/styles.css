@@ -3131,12 +3131,13 @@ button.secondary:active,
 /* ------------------------------------------------------------------ */
 
 /* .member-search/.member-search-box/.member-search-results are shared
-   styling reused by two different markups: the canvas widget below
-   (#member-search, from renderMemberSearch in components.js) and the
-   standalone Relationship Finder page (#relationship-finder-search, see
-   relationshipFinder.js and .relationship-finder-page below) - so the base
-   rules here stay layout-agnostic (relative positioning, no fixed size) and
-   the floating/card treatment is scoped to #member-search only, below. */
+   styling reused by three different markups: the canvas widget below
+   (#member-search, from renderMemberSearch in components.js), the
+   Relationship Finder's Person A/Person B comboboxes (#rf-combobox-a/-b, see
+   relationshipFinderCombobox.js and .relationship-finder-page below), and
+   .rf-combobox-box's own border/radius - so the base rules here stay
+   layout-agnostic (relative positioning, no fixed size) and the floating/
+   card treatment is scoped to #member-search only, below. */
 .member-search {
   position: relative;
 }
@@ -3322,10 +3323,115 @@ button.secondary:active,
 .relationship-finder {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-5);
   width: 100%;
-  max-width: 480px;
+  max-width: 680px;
   margin: 0 auto;
+}
+
+/* Person A / Person B pickers + swap button. Stacks vertically on mobile
+   (see breakpoint below) since two side-by-side comboboxes get cramped. */
+.rf-picker-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+
+.rf-picker {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.rf-combobox-label {
+  display: block;
+  margin-bottom: var(--sp-1);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rf-combobox-box {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.rf-swap-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+  /* Aligns with the input row rather than the label above it. */
+  margin-bottom: 1px;
+}
+
+.rf-swap-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.rf-swap-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Avatar + name/years rows shared by the combobox's selected-state icon and
+   its dropdown result options (relationshipFinderCombobox.js). */
+.combobox-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-inset);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.combobox-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.combobox-avatar-selected {
+  width: 20px;
+  height: 20px;
+}
+
+.combobox-result-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.combobox-option-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.combobox-option-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combobox-option-years {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
 }
 
 .relationship-card {
@@ -3339,83 +3445,120 @@ button.secondary:active,
   gap: var(--sp-4);
 }
 
-.relationship-card-title {
-  font-size: 1.1rem;
-  font-weight: 700;
+/* Plain-language summary sentence at the top of the result card, e.g.
+   "Asharaf is the father-in-law of your sister's son's son." */
+.relationship-card-summary {
+  font-size: 1.05rem;
+  line-height: 1.5;
   color: var(--text-primary);
+  text-align: center;
 }
 
-/* Profile header: name + primary kinship title + optional birth-year meta */
-.relationship-card-header {
+.relationship-card-badges {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.rf-badge {
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.rf-badge-category {
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
+/* Visual node-by-node path: avatar + name per person, with the relation
+   term labeling the edge to the next node. Wraps on narrow cards; the
+   mobile breakpoint below switches to a vertical stack instead. */
+.relationship-path {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-1) 0;
+  padding: var(--sp-2) 0;
+}
+
+.relationship-path-node {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--sp-1);
+  width: 96px;
   text-align: center;
-  padding-bottom: var(--sp-4);
-  border-bottom: 1px solid var(--border-subtle);
 }
 
-.relationship-card-name {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.relationship-card-kinship {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--accent-hover);
-  text-transform: capitalize;
-}
-
-.relationship-card-meta {
-  font-size: 0.8rem;
-  color: var(--text-tertiary);
-}
-
-.relationship-card-row {
+.relationship-path-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--border-default);
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-3) var(--sp-4);
+  align-items: center;
+  justify-content: center;
   background: var(--bg-inset);
-  border: 1px solid var(--border-subtle);
-  border-left-width: 4px;
-  border-radius: var(--radius-md);
-}
-
-/* "Their relation to you" - accent border to distinguish it at a glance
-   from "your relation to them" below, per the dual-perspective design. */
-.relationship-card-row-theirs {
-  border-left-color: var(--accent);
-}
-
-.relationship-card-row-yours {
-  border-left-color: var(--success);
-}
-
-.relationship-card-label {
-  font-size: 0.8rem;
+  font-weight: 700;
+  font-size: 0.85rem;
   color: var(--text-secondary);
 }
 
-.relationship-card-value {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.35;
+.relationship-path-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.relationship-card-distance {
-  font-size: 0.8rem;
+.relationship-path-name {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+  white-space: normal;
+  max-width: 100%;
+  line-height: 1.25;
+}
+
+.relationship-path-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 48px;
+  padding: 0 var(--sp-1);
+  /* Vertically centers the connecting line on the 48px avatars either side
+     of it, accounting for the name label's height below each avatar. */
+  margin-top: 22px;
+}
+
+.relationship-path-edge-line {
+  width: 100%;
+  min-width: 24px;
+  height: 1px;
+  background: var(--border-default);
+}
+
+.relationship-path-edge-label {
+  font-size: 0.66rem;
   color: var(--text-tertiary);
-  text-align: center;
+  white-space: nowrap;
 }
 
 .relationship-card-empty-text {
   color: var(--text-secondary);
   font-size: 0.9rem;
+  text-align: center;
 }
 
 @media (max-width: 480px) {
@@ -3424,12 +3567,34 @@ button.secondary:active,
     border-radius: var(--radius-md);
   }
 
-  .relationship-card-name {
-    font-size: 1.1rem;
+  .relationship-card-summary {
+    font-size: 0.95rem;
   }
 
-  .relationship-card-value {
-    font-size: 1rem;
+  .rf-picker-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rf-swap-btn {
+    align-self: center;
+    margin-bottom: 0;
+  }
+
+  .relationship-path {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .relationship-path-edge {
+    flex-direction: row;
+    margin-top: 0;
+    min-width: 0;
+  }
+
+  .relationship-path-edge-line {
+    width: 20px;
+    min-width: 20px;
   }
 }
 

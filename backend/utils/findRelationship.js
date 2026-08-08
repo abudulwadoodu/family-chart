@@ -228,6 +228,29 @@ function buildCompoundLabel(steps, nodes, targetGender) {
   return `${chain} / ${capitalize(short)}`;
 }
 
+// Category bucket for the "N steps apart - Extended Relative" style badge.
+// Piggybacks on classifyPath's `kind` rather than re-deriving anything from
+// raw steps, so it always agrees with the label/short terms shown alongside it.
+const CATEGORY_LABELS = {
+  self: 'Self',
+  spouse: 'Immediate Family',
+  sibling: 'Immediate Family',
+  'aunt-uncle': 'Close Relative',
+  'nephew-niece': 'Close Relative',
+  cousin: 'Extended Relative',
+  'grand-aunt-uncle': 'Extended Relative',
+  'grand-nephew-niece': 'Extended Relative',
+  related: 'Extended Relative',
+};
+
+function categoryFor(classification) {
+  if (classification.kind === 'ancestor' || classification.kind === 'descendant') {
+    const count = classification.ups ?? classification.downs ?? 0;
+    return count > 2 ? 'Extended Relative' : 'Immediate Family';
+  }
+  return CATEGORY_LABELS[classification.kind] || 'Extended Relative';
+}
+
 // Reduces a raw step sequence into colloquial hops before it's rendered as
 // text, so chains like "Father's daughter's son" (a hop back down to a
 // sibling, then down again) read as "Sister's son" instead. Each hop tracks
@@ -299,18 +322,36 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+// Builds the ordered node/edge chain for a visual step-by-step path display,
+// reusing the same reduceHops() collapsing rules as buildStepChain so the
+// visual chain always matches the plain-text chain (e.g. a father-then-back-
+// down-to-sibling pair collapses to a single "Sister" node, not two nodes).
+// `startPerson` is included as the first node; `nodes[i+1]` is reached via
+// `edges[i]` from `nodes[i]`.
+function buildNodeChain(steps, nodes, startPerson) {
+  if (steps.length === 0) return { nodes: [startPerson], edges: [] };
+  const hops = reduceHops(steps, nodes);
+  return {
+    nodes: [startPerson, ...hops.map((hop) => hop.person)],
+    edges: hops.map((hop) => capitalize(hopTerm(hop))),
+  };
+}
+
 /**
  * Finds and describes the relationship between two people in a family tree.
  *
- * @param {string|number} rootUserId - the "from" person (usually the logged-in user)
- * @param {string|number} targetUserId - the person being looked up
+ * @param {string|number} rootUserId - the "from" person (Person A - usually the logged-in user)
+ * @param {string|number} targetUserId - the "to" person (Person B) being looked up
  * @param {Array} familyData - array of person records (see docs/data-format.md)
  * @returns {{
  *   found: boolean,
  *   distance: number,
  *   path: string[],
- *   rootToTarget: { label: string, short: string },
- *   targetToRoot: { label: string, short: string },
+ *   category: string,
+ *   nodes: Array,
+ *   edges: string[],
+ *   rootToTarget: { label: string, short: string, chain: string|null },
+ *   targetToRoot: { label: string, short: string, chain: string|null },
  * }}
  */
 function findRelationship(rootUserId, targetUserId, familyData) {
@@ -323,18 +364,25 @@ function findRelationship(rootUserId, targetUserId, familyData) {
       found: false,
       distance: -1,
       path: [],
-      rootToTarget: { label: 'Unknown', short: 'Unknown' },
-      targetToRoot: { label: 'Unknown', short: 'Unknown' },
+      category: 'Unknown',
+      nodes: [],
+      edges: [],
+      rootToTarget: { label: 'Unknown', short: 'Unknown', chain: null },
+      targetToRoot: { label: 'Unknown', short: 'Unknown', chain: null },
     };
   }
 
   if (rootId === targetId) {
+    const selfPerson = peopleById.get(rootId);
     return {
       found: true,
       distance: 0,
       path: [],
-      rootToTarget: { label: 'Self', short: 'Self' },
-      targetToRoot: { label: 'Self', short: 'Self' },
+      category: 'Self',
+      nodes: [selfPerson],
+      edges: [],
+      rootToTarget: { label: 'Self', short: 'Self', chain: null },
+      targetToRoot: { label: 'Self', short: 'Self', chain: null },
     };
   }
 
@@ -346,8 +394,11 @@ function findRelationship(rootUserId, targetUserId, familyData) {
       found: false,
       distance: -1,
       path: [],
-      rootToTarget: { label: 'Not related (no connecting path found)', short: 'Unrelated' },
-      targetToRoot: { label: 'Not related (no connecting path found)', short: 'Unrelated' },
+      category: 'Unrelated',
+      nodes: [],
+      edges: [],
+      rootToTarget: { label: 'Not related (no connecting path found)', short: 'Unrelated', chain: null },
+      targetToRoot: { label: 'Not related (no connecting path found)', short: 'Unrelated', chain: null },
     };
   }
 
@@ -358,21 +409,28 @@ function findRelationship(rootUserId, targetUserId, familyData) {
   const inverseSteps = invertSteps(forward.steps);
 
   // Direction A: how the target is related to the root.
+  const rootToTargetChain = buildStepChain(forward.steps, forwardNodes);
   const rootToTargetLabel = buildCompoundLabel(forward.steps, forwardNodes, targetPerson?.data?.gender);
   const rootToTargetShort = describe(classifyPath(forward.steps), targetPerson?.data?.gender).short;
 
   // Direction B: how the root is related to the target - invert the step
   // sequence (parent <-> child swap; spouse stays spouse) and walk the same
   // chain of people in reverse order, starting from the target.
+  const targetToRootChain = buildStepChain(inverseSteps, reverseNodes);
   const targetToRootLabel = buildCompoundLabel(inverseSteps, reverseNodes, rootPerson?.data?.gender);
   const targetToRootShort = describe(classifyPath(inverseSteps), rootPerson?.data?.gender).short;
+
+  const { nodes, edges } = buildNodeChain(forward.steps, forwardNodes, rootPerson);
 
   return {
     found: true,
     distance: forward.steps.length,
     path: forward.steps,
-    rootToTarget: { label: rootToTargetLabel, short: capitalize(rootToTargetShort) },
-    targetToRoot: { label: targetToRootLabel, short: capitalize(targetToRootShort) },
+    category: categoryFor(classifyPath(forward.steps)),
+    nodes,
+    edges,
+    rootToTarget: { label: rootToTargetLabel, short: capitalize(rootToTargetShort), chain: rootToTargetChain },
+    targetToRoot: { label: targetToRootLabel, short: capitalize(targetToRootShort), chain: targetToRootChain },
   };
 }
 

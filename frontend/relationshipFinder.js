@@ -1,100 +1,141 @@
 // Relationship Finder - a Tree View mode (alongside Focused/All Nodes/
 // Relationships/Duplicates/Settings, reachable from the Tree View options
-// menu's View group - see renderPrimaryTabSwitcher) that lets a user search
-// any person in the tree and see, in plain text, how that person relates to
-// a chosen root person - both "their relation to you" and "your relation to
-// them" - without a tree graph, just a simple high-contrast result card.
+// menu's View group - see renderPrimaryTabSwitcher) that lets a user pick
+// any two people in the tree (Person A/Person B) and see how they relate:
+// a plain-language summary sentence, step-count/category badges, and a
+// visual node-by-node path between them.
 //
-// Mirrors memberSearch.js's index/search split so lookups stay fast on large
-// trees, and reuses the same BFS traversal as backend/utils/findRelationship.js
-// (kept as relationshipGraph.js here since the frontend always computes
+// v1 only compared "any member vs. the tree's focused/root person" via a
+// single search box (see git history for the old single-box version). v2
+// generalizes that to arbitrary pairs - getRelationshipPath() already
+// accepted two arbitrary ids, so this only required a second combobox (see
+// relationshipFinderCombobox.js) and surfacing the node/edge chain the BFS
+// traversal was already computing (see relationshipGraph.js).
+//
+// Reuses the same BFS traversal as backend/utils/findRelationship.js (kept
+// as relationshipGraph.js here since the frontend always computes
 // client-side against already-fetched tree data, per this codebase's
-// convention - see memberSearch.js, mediaLibraryPanel.js, etc.). Unlike
-// Media Library/Timeline this page has nothing to fetch or persist, so
-// there's no createRelationshipFinderPageState()/loadRelationshipFinderPage()
-// pair - the page state lives in this module and is rebuilt from
-// state.selectedTreeData on every render.
+// convention - see memberSearch.js, mediaLibraryPanel.js, etc.).
 
 import { renderPageHeader } from './components.js';
-import { buildMemberSearchIndex, searchMembers } from './memberSearch.js';
+import { createPersonCombobox } from './relationshipFinderCombobox.js';
 import { getRelationshipPath } from './relationshipGraph.js';
+import { getLabel } from './memberSearch.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 
 const state = {
-  index: [],
   data: [],
-  rootId: null,
-  results: [],
-  activeIndex: -1,
-  selectedId: null,
+  personAId: null,
+  personBId: null,
+  initialized: false,
 };
 
-function getEls() {
-  return {
-    input: document.querySelector('#relationship-finder-input'),
-    clearBtn: document.querySelector('#relationship-finder-clear-btn'),
-    resultsEl: document.querySelector('#relationship-finder-results'),
-    cardEl: document.querySelector('#relationship-finder-card'),
-  };
+let comboboxA = null;
+let comboboxB = null;
+
+function getInitials(person) {
+  const label = getLabel(person).trim();
+  if (!label) return '?';
+  const parts = label.split(/\s+/);
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase() || '?';
 }
 
-function getPersonLabel(person) {
-  const first = person?.data?.['first name'] || '';
-  const last = person?.data?.['last name'] || '';
-  const label = `${first} ${last}`.trim();
-  return label || String(person?.id ?? '');
+function avatarHtml(person) {
+  const avatarUrl = person?.data?.avatar;
+  return avatarUrl
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" />`
+    : `<span class="relationship-path-avatar-fallback">${escapeHtml(getInitials(person))}</span>`;
 }
 
-// Birthday can be stored as a bare year ("1980") or a full date
-// ("1980-01-15") - see docs/data-format.md - so just pull the leading year
-// rather than risk misparsing an ambiguous date format.
-function getBirthYear(person) {
-  const birthday = person?.data?.birthday;
-  if (!birthday) return null;
-  const match = String(birthday).match(/\d{4}/);
-  return match ? match[0] : null;
+// Un-capitalizes just the leading word so a chain like "Sister's son" reads
+// naturally spliced mid-sentence ("...of your sister's son").
+function decapitalize(str) {
+  if (!str) return str;
+  return str.charAt(0).toLowerCase() + str.slice(1);
 }
 
-function relationshipCardHtml() {
-  if (state.selectedId == null || state.rootId == null) return '';
+// "<Person B> is the <short relation> of <Person A>['s <chain>]" - e.g.
+// "Asharaf is the father-in-law of your sister's son's son". Uses
+// rootToTarget.chain (the plain step chain with no " / Short" suffix, see
+// relationshipGraph.js) rather than .label, which sometimes has that suffix
+// appended and would read oddly spliced into a sentence.
+function summarySentence(result, personAName, personBName) {
+  const { rootToTarget, distance } = result;
+  if (distance === 0) return `${escapeHtml(personBName)} and ${escapeHtml(personAName)} are the same person.`;
 
-  const result = getRelationshipPath(state.rootId, state.selectedId, state.data);
-  const targetPerson = state.data.find((p) => String(p.id) === String(state.selectedId));
-  const rootPerson = state.data.find((p) => String(p.id) === String(state.rootId));
-  const targetName = getPersonLabel(targetPerson);
-  const rootName = getPersonLabel(rootPerson);
+  const relation = rootToTarget.short.toLowerCase();
+  if (!rootToTarget.chain || rootToTarget.chain.toLowerCase() === relation) {
+    return `${escapeHtml(personBName)} is the ${escapeHtml(relation)} of ${escapeHtml(personAName)}.`;
+  }
+  return `${escapeHtml(personBName)} is the ${escapeHtml(relation)} of ${escapeHtml(personAName)}'s ${escapeHtml(decapitalize(rootToTarget.chain))}.`;
+}
+
+function relationshipResultHtml() {
+  if (state.personAId == null || state.personBId == null) {
+    return `<p class="relationship-card-empty-text">Pick two people above to see how they're related.</p>`;
+  }
+  if (state.personAId === state.personBId) {
+    return `<p class="relationship-card-empty-text">Pick two different people to compare.</p>`;
+  }
+
+  const result = getRelationshipPath(state.personAId, state.personBId, state.data);
+  const personA = state.data.find((p) => String(p.id) === String(state.personAId));
+  const personB = state.data.find((p) => String(p.id) === String(state.personBId));
+  const personAName = getLabel(personA);
+  const personBName = getLabel(personB);
 
   if (!result.found) {
     return `
       <div class="relationship-card relationship-card-empty">
-        <div class="relationship-card-title">${escapeHtml(targetName)}</div>
-        <div class="relationship-card-empty-text">No relationship path found between ${escapeHtml(rootName)} and ${escapeHtml(targetName)}.</div>
+        <p class="relationship-card-empty-text">No relationship path found between ${escapeHtml(personAName)} and ${escapeHtml(personBName)}.</p>
       </div>
     `;
   }
 
-  const birthYear = getBirthYear(targetPerson);
-  const metaParts = [birthYear ? `Born ${escapeHtml(birthYear)}` : null].filter(Boolean);
+  const { nodes, edges, distance, category } = result;
 
   return `
-    <div class="relationship-card">
-      <div class="relationship-card-header">
-        <div class="relationship-card-name">${escapeHtml(targetName)}</div>
-        <div class="relationship-card-kinship">${escapeHtml(result.rootToTarget.short)}</div>
-        ${metaParts.length ? `<div class="relationship-card-meta">${metaParts.join(' &middot; ')}</div>` : ''}
+    <div class="relationship-card relationship-card-v2">
+      <p class="relationship-card-summary">${summarySentence(result, personAName, personBName)}</p>
+      <div class="relationship-card-badges">
+        <span class="rf-badge">${distance} step${distance === 1 ? '' : 's'} apart</span>
+        <span class="rf-badge rf-badge-category">${escapeHtml(category)}</span>
       </div>
-      <div class="relationship-card-row relationship-card-row-theirs">
-        <div class="relationship-card-label">Their relation to you</div>
-        <div class="relationship-card-value">${escapeHtml(result.rootToTarget.label)}</div>
+      <div class="relationship-path" role="list" aria-label="Relationship path from ${escapeHtml(personAName)} to ${escapeHtml(personBName)}">
+        ${nodes.map((person, i) => `
+          ${i > 0 ? `
+            <div class="relationship-path-edge" role="listitem">
+              <span class="relationship-path-edge-line" aria-hidden="true"></span>
+              <span class="relationship-path-edge-label">${escapeHtml(edges[i - 1])}</span>
+            </div>
+          ` : ''}
+          <div class="relationship-path-node" role="listitem">
+            <span class="relationship-path-avatar">${avatarHtml(person)}</span>
+            <span class="relationship-path-name">${escapeHtml(getLabel(person))}</span>
+          </div>
+        `).join('')}
       </div>
-      <div class="relationship-card-row relationship-card-row-yours">
-        <div class="relationship-card-label">Your relation to them</div>
-        <div class="relationship-card-value">${escapeHtml(result.targetToRoot.label)}</div>
-      </div>
-      <div class="relationship-card-distance">${result.distance} step${result.distance === 1 ? '' : 's'} apart in the family tree</div>
     </div>
   `;
+}
+
+function renderResult() {
+  const el = document.querySelector('#relationship-finder-result');
+  if (!el) return;
+  el.innerHTML = relationshipResultHtml();
+}
+
+function renderPickers() {
+  const elA = document.querySelector('#rf-person-a');
+  const elB = document.querySelector('#rf-person-b');
+  if (!elA || !elB) return;
+  elA.innerHTML = comboboxA.render({ selectedId: state.personAId });
+  elB.innerHTML = comboboxB.render({ selectedId: state.personBId });
+  comboboxA.attach(elA);
+  comboboxB.attach(elB);
 }
 
 /**
@@ -102,51 +143,44 @@ function relationshipCardHtml() {
  * into #FamilyChart in place of the chart canvas, same as
  * relationship-manager/duplicate-manager/settings (see
  * renderRelationshipFinderViewMode in main.js). The tree breadcrumb/tabs/
- * Editing dropdown all live in the shared chrome above this, so it only
- * renders the tagline + search/result card.
- * @param {{ data: Array, rootId: string|number, rootLabel?: string }} options
- *   `data` is the full family tree array for the current tree; `rootId` is
- *   the person the relationship is described relative to (the tree's
- *   focused/default person, since person-nodes aren't tied 1:1 to accounts).
+ * Editing dropdown all live in the shared chrome above this.
+ * @param {{ data: Array, rootId: string|number }} options
+ *   `data` is the full family tree array for the current tree; `rootId`
+ *   seeds Person A the first time this panel is opened for a tree (the
+ *   tree's focused/default person, since person-nodes aren't tied 1:1 to
+ *   accounts) - it does not override a Person A the user already picked on
+ *   a later re-render.
  */
 export function renderRelationshipFinderPageContent({ data, rootId }) {
-  state.data = Array.isArray(data) ? data : [];
-  state.rootId = rootId != null ? String(rootId) : null;
-  state.index = buildMemberSearchIndex(state.data);
-  if (state.selectedId != null && !state.data.some((p) => String(p.id) === String(state.selectedId))) {
-    state.selectedId = null;
-  }
+  const nextData = Array.isArray(data) ? data : [];
+  const treeChanged = nextData !== state.data;
+  state.data = nextData;
 
-  const rootPerson = state.data.find((p) => String(p.id) === String(state.rootId));
-  const rootName = getPersonLabel(rootPerson);
+  if (!state.initialized || treeChanged) {
+    state.personAId = rootId != null ? String(rootId) : null;
+    state.personBId = null;
+    state.initialized = true;
+  }
+  if (state.personAId != null && !state.data.some((p) => String(p.id) === String(state.personAId))) {
+    state.personAId = null;
+  }
+  if (state.personBId != null && !state.data.some((p) => String(p.id) === String(state.personBId))) {
+    state.personBId = null;
+  }
 
   return `
     <div class="relationship-finder-page">
       ${renderPageHeader({
-        subtitle: rootPerson
-          ? `See how anyone in this tree relates to ${rootName}.`
-          : 'Search a family member to see how they relate to this tree.',
+        subtitle: 'Find the relationship between any two people in this tree.',
       })}
 
       <div class="relationship-finder" id="relationship-finder">
-        <div class="member-search" id="relationship-finder-search">
-          <label class="search-box member-search-box">
-            ${icon('search')}
-            <input
-              type="text"
-              id="relationship-finder-input"
-              placeholder="Search a family member..."
-              autocomplete="off"
-              aria-label="Search a family member to see how they're related"
-              aria-expanded="false"
-              aria-controls="relationship-finder-results"
-              role="combobox"
-            />
-            <button type="button" id="relationship-finder-clear-btn" class="member-search-clear" aria-label="Clear search" hidden>${icon('close')}</button>
-          </label>
-          <div class="member-search-results" id="relationship-finder-results" role="listbox" hidden></div>
+        <div class="rf-picker-row">
+          <div class="rf-picker" id="rf-person-a"></div>
+          <button type="button" id="rf-swap-btn" class="rf-swap-btn" aria-label="Swap Person A and Person B" title="Swap">${icon('swap')}</button>
+          <div class="rf-picker" id="rf-person-b"></div>
         </div>
-        <div id="relationship-finder-card" ${state.selectedId == null ? 'hidden' : ''}>${relationshipCardHtml()}</div>
+        <div id="relationship-finder-result">${relationshipResultHtml()}</div>
       </div>
     </div>
   `;
@@ -155,133 +189,38 @@ export function renderRelationshipFinderPageContent({ data, rootId }) {
 // The breadcrumb/tabs/Editing dropdown are shared chrome owned by
 // attachTreeViewerHeaderListeners (see main.js) - same as
 // relationship-manager/duplicate-manager/settings, this only wires the
-// panel's own search input.
+// panel's own two comboboxes + swap button.
 export function attachRelationshipFinderPageListeners() {
   const root = document.querySelector('.relationship-finder-page');
   if (!root) return;
 
-  const { input, clearBtn } = getEls();
-  if (!input || !clearBtn) return;
-
-  input.addEventListener('input', () => {
-    clearBtn.hidden = !input.value;
-    runSearch(input.value);
+  comboboxA = createPersonCombobox({
+    id: 'a',
+    label: 'Person A',
+    data: state.data,
+    excludeId: () => state.personBId,
+    onSelect: (id) => {
+      state.personAId = id;
+      renderResult();
+    },
+  });
+  comboboxB = createPersonCombobox({
+    id: 'b',
+    label: 'Person B',
+    data: state.data,
+    excludeId: () => state.personAId,
+    onSelect: (id) => {
+      state.personBId = id;
+      renderResult();
+    },
   });
 
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveActive(1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveActive(-1);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      const target = state.results[Math.max(state.activeIndex, 0)];
-      if (target) selectPerson(target.id);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      if (input.value) {
-        input.value = '';
-        clearBtn.hidden = true;
-        closeResults();
-      } else {
-        input.blur();
-      }
-    }
+  renderPickers();
+
+  const swapBtn = document.querySelector('#rf-swap-btn');
+  swapBtn?.addEventListener('click', () => {
+    [state.personAId, state.personBId] = [state.personBId, state.personAId];
+    renderPickers();
+    renderResult();
   });
-
-  clearBtn.addEventListener('click', () => {
-    input.value = '';
-    clearBtn.hidden = true;
-    closeResults();
-    input.focus();
-  });
-}
-
-function runSearch(query) {
-  if (!query.trim()) {
-    closeResults();
-    return;
-  }
-  state.results = searchMembers(state.index, query).filter((entry) => entry.id !== state.rootId);
-  state.activeIndex = state.results.length ? 0 : -1;
-  renderResults(query);
-}
-
-function renderResults(query) {
-  const { resultsEl, input } = getEls();
-  if (!resultsEl || !input) return;
-
-  resultsEl.hidden = false;
-  input.setAttribute('aria-expanded', 'true');
-
-  if (state.results.length === 0) {
-    resultsEl.innerHTML = `<div class="member-search-empty">No members found for "${escapeHtml(query.trim())}"</div>`;
-    return;
-  }
-
-  resultsEl.innerHTML = state.results
-    .map((entry, index) => `
-      <button
-        type="button"
-        class="member-search-result-item ${index === state.activeIndex ? 'active' : ''}"
-        role="option"
-        aria-selected="${index === state.activeIndex}"
-        data-id="${escapeHtml(entry.id)}"
-      >${highlightMatch(entry.label, query)}</button>
-    `)
-    .join('');
-
-  resultsEl.querySelectorAll('.member-search-result-item').forEach((btn) => {
-    btn.addEventListener('click', () => selectPerson(btn.dataset.id));
-  });
-}
-
-function highlightMatch(label, query) {
-  const q = query.trim();
-  if (!q) return escapeHtml(label);
-  const at = label.toLowerCase().indexOf(q.toLowerCase());
-  if (at === -1) return escapeHtml(label);
-  return (
-    escapeHtml(label.slice(0, at)) +
-    '<strong>' + escapeHtml(label.slice(at, at + q.length)) + '</strong>' +
-    escapeHtml(label.slice(at + q.length))
-  );
-}
-
-function moveActive(delta) {
-  const count = state.results.length;
-  if (!count) return;
-  state.activeIndex = (state.activeIndex + delta + count) % count;
-  document.querySelectorAll('#relationship-finder-results .member-search-result-item').forEach((el, index) => {
-    el.classList.toggle('active', index === state.activeIndex);
-    el.setAttribute('aria-selected', index === state.activeIndex);
-    if (index === state.activeIndex) el.scrollIntoView({ block: 'nearest' });
-  });
-}
-
-function closeResults() {
-  state.results = [];
-  state.activeIndex = -1;
-  const { resultsEl, input } = getEls();
-  if (resultsEl) {
-    resultsEl.hidden = true;
-    resultsEl.innerHTML = '';
-  }
-  if (input) input.setAttribute('aria-expanded', 'false');
-}
-
-function selectPerson(targetId) {
-  if (!targetId) return;
-  const { input, clearBtn, cardEl } = getEls();
-  closeResults();
-  if (input) input.value = '';
-  if (clearBtn) clearBtn.hidden = true;
-
-  state.selectedId = targetId;
-  if (cardEl) {
-    cardEl.hidden = false;
-    cardEl.innerHTML = relationshipCardHtml();
-  }
 }

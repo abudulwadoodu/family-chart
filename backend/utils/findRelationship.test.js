@@ -110,3 +110,36 @@ describe('findRelationship - chain reduction', () => {
     expect(result.rootToTarget.label).toBe('Sister');
   });
 });
+
+describe('findRelationship - visual node chain and category', () => {
+  it('returns a node chain starting at root and ending at target, one edge shorter', () => {
+    const result = findRelationship('6', '8', familyData);
+    expect(result.nodes[0].id).toBe('6');
+    expect(result.nodes[result.nodes.length - 1].id).toBe('8');
+    expect(result.edges.length).toBe(result.nodes.length - 1);
+  });
+
+  it('collapses the visual chain the same way as the text chain (sister/nephew case)', () => {
+    const result = findRelationship('12', '15', siblingFamilyData);
+    expect(result.nodes.map((n) => n.id)).toEqual(['12', '13', '15']);
+    expect(result.edges).toEqual(['Sister', 'Son']);
+  });
+
+  it('has a single-node, edge-less chain for Self', () => {
+    const result = findRelationship('6', '6', familyData);
+    expect(result.nodes).toEqual([expect.objectContaining({ id: '6' })]);
+    expect(result.edges).toEqual([]);
+  });
+
+  it('categorizes immediate family vs. extended relatives', () => {
+    expect(findRelationship('6', '3', familyData).category).toBe('Immediate Family');
+    expect(findRelationship('6', '8', familyData).category).toBe('Extended Relative');
+    expect(findRelationship('6', '4', familyData).category).toBe('Close Relative');
+  });
+
+  it('exposes a plain step chain without the " / Short" suffix', () => {
+    const result = findRelationship('12', '15', siblingFamilyData);
+    expect(result.rootToTarget.chain).toBe("Sister's son");
+    expect(result.rootToTarget.label).toBe("Sister's son / Nephew");
+  });
+});

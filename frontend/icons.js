@@ -161,6 +161,11 @@ export const icons = {
   refresh: svg(
     '<path d="M21 12a9 9 0 1 1-3.5-7.1"></path><path d="M21 3v6h-6"></path>'
   ),
+  // Left-right swap arrows, for the Relationship Finder's Person A/Person B
+  // swap button (relationshipFinder.js).
+  swap: svg(
+    '<path d="M4 8h13.5"></path><path d="M14 4.5 17.5 8 14 11.5"></path><path d="M20 16H6.5"></path><path d="M10 12.5 6.5 16 10 19.5"></path>'
+  ),
 };
 
 export function icon(name) {
