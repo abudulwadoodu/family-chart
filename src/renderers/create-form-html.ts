@@ -83,12 +83,14 @@ export function getHtmlEdit(form_creator: EditDatumFormCreator) {
 
       <div class="f3-form-buttons">
         <button type="button" class="f3-cancel-btn">Cancel</button>
-        <button type="submit">Save and close</button>
+        <!-- Labeled "Done", not "Save": the tree autosaves in the background
+             (see #autosave-status in frontend/main.js). This button only
+             commits the field edits into the in-memory datum and closes the
+             panel - "Save" would wrongly imply it persists to the server. -->
+        <button type="submit">Done</button>
       </div>
     </form>
   `)
-
-
 }
 
 function displayName(form_creator: EditDatumFormCreator) {
