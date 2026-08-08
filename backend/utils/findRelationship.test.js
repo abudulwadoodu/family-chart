@@ -58,6 +58,16 @@ describe('findRelationship', () => {
     expect(result.targetToRoot.short).toBe('Nephew-in-law');
   });
 
+  it('does not duplicate an in-law relationship in the compound label', () => {
+    // "Aunt-in-law" and "grandfather's son's wife" name the same person -
+    // the label should show only the short in-law term, not both.
+    const result = findRelationship('6', '7', familyData);
+    expect(result.rootToTarget.label).toBe('Aunt-in-law');
+    expect(result.rootToTarget.label).not.toContain('/');
+    expect(result.targetToRoot.label).toBe('Nephew-in-law');
+    expect(result.targetToRoot.label).not.toContain('/');
+  });
+
   it('returns found: false for an unknown id', () => {
     const result = findRelationship('6', '999', familyData);
     expect(result.found).toBe(false);
@@ -89,6 +99,30 @@ const siblingFamilyData = [
   { id: '14', data: { gender: 'M' }, rels: { parents: [], spouses: ['13'], children: ['15'] } },
   { id: '15', data: { gender: 'M' }, rels: { parents: ['13', '14'], spouses: [], children: [] } },
 ];
+
+// me(20, F) -- husband(21, M)
+// husband's parents: husbandMom(22, F), husbandDad(23, M)
+const inLawFamilyData = [
+  { id: '20', data: { gender: 'F' }, rels: { parents: [], spouses: ['21'], children: [] } },
+  { id: '21', data: { gender: 'M' }, rels: { parents: ['22', '23'], spouses: ['20'], children: [] } },
+  { id: '22', data: { gender: 'F' }, rels: { parents: [], spouses: ['23'], children: ['21'] } },
+  { id: '23', data: { gender: 'M' }, rels: { parents: [], spouses: ['22'], children: ['21'] } },
+];
+
+describe('findRelationship - in-law chain collapsing', () => {
+  it('collapses "husband\'s mother" into "Mother-in-law" with no duplicate phrasing', () => {
+    const result = findRelationship('20', '22', inLawFamilyData);
+    expect(result.rootToTarget.short).toBe('Mother-in-law');
+    expect(result.rootToTarget.chain).toBe('Mother-in-law');
+    expect(result.rootToTarget.label).toBe('Mother-in-law');
+  });
+
+  it('collapses the reverse direction into "Daughter-in-law"', () => {
+    const result = findRelationship('22', '20', inLawFamilyData);
+    expect(result.rootToTarget.short).toBe('Daughter-in-law');
+    expect(result.rootToTarget.label).toBe('Daughter-in-law');
+  });
+});
 
 describe('findRelationship - chain reduction', () => {
   it('collapses "Father\'s daughter\'s son" into "Sister\'s son / Nephew"', () => {

@@ -62,12 +62,20 @@ function decapitalize(str) {
 // rootToTarget.chain (the plain step chain with no " / Short" suffix, see
 // relationshipGraph.js) rather than .label, which sometimes has that suffix
 // appended and would read oddly spliced into a sentence.
+//
+// In-law relations are always skipped from this "A's chain" splice: the
+// chain for an in-law path (e.g. "husband's mother") already names the same
+// relationship "mother-in-law" describes end-to-end, not an intermediate
+// person of A's - splicing it in as "of A's husband's mother" either just
+// restates the same fact twice or, when the chain didn't fully collapse
+// (e.g. aunt-in-law), reads as an unrelated/garbled relation entirely.
 function summarySentence(result, personAName, personBName) {
   const { rootToTarget, distance } = result;
   if (distance === 0) return `${escapeHtml(personBName)} and ${escapeHtml(personAName)} are the same person.`;
 
   const relation = rootToTarget.short.toLowerCase();
-  if (!rootToTarget.chain || rootToTarget.chain.toLowerCase() === relation) {
+  const isInLaw = relation.endsWith('-in-law');
+  if (isInLaw || !rootToTarget.chain || rootToTarget.chain.toLowerCase() === relation) {
     return `${escapeHtml(personBName)} is the ${escapeHtml(relation)} of ${escapeHtml(personAName)}.`;
   }
   return `${escapeHtml(personBName)} is the ${escapeHtml(relation)} of ${escapeHtml(personAName)}'s ${escapeHtml(decapitalize(rootToTarget.chain))}.`;

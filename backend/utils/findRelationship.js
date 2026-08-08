@@ -217,9 +217,17 @@ function describe(classification, gender) {
 //   "Mother's brother / Uncle"
 // We don't have birth-order data to know "younger/older", so we build the
 // step-by-step chain description plus the canonical short label.
+//
+// In-law paths always use just the short label: the chain for an in-law
+// path (e.g. "husband's mother") already names the same relationship
+// "mother-in-law" describes, not some other person the short label is
+// relative to, so pairing them as "chain / short" either restates the same
+// fact twice or - when the chain doesn't fully collapse (e.g. aunt-in-law's
+// "grandfather's son's wife") - reads as an unrelated compound.
 function buildCompoundLabel(steps, nodes, targetGender) {
   const classification = classifyPath(steps);
   const { short } = describe(classification, targetGender);
+  if (classification.inLaw) return capitalize(short);
 
   const chain = buildStepChain(steps, nodes);
   if (!chain || chain.toLowerCase() === short.toLowerCase()) {
@@ -258,7 +266,17 @@ function categoryFor(classification) {
 // later hops can still be collapsed against earlier ones (e.g. a reduced
 // "Grandfather" hop can itself take part in a further sibling collapse).
 //
-// Two rules, applied left-to-right and repeated until no more apply:
+// Rules:
+//   - first, a spouse hop at either end of the whole chain merges into its
+//     one neighboring hop as an "-in-law" variant of that hop's term (e.g.
+//     "husband's mother" -> "mother-in-law", "uncle's wife" ->
+//     "aunt-in-law"), rather than being spelled out as two separate hops
+//     that just restate what classifyPath's `short` label already says.
+//     Only fires at position 0 or the last position (mirroring
+//     classifyPath's own leading/trailing spouse stripping), and only once
+//     up front - so the `inLaw` flag it sets is in place before the
+//     collapses below can propagate it further inward (e.g.
+//     grandmother-in-law, sibling-in-law).
 //   - parent, child (up to a parent, then back down to one of their other
 //     children) collapses to a sibling term ("Brother"/"Sister") using the
 //     gender of the person actually reached - the child, not the parent
@@ -269,23 +287,36 @@ function categoryFor(classification) {
 //   - parent, parent collapses to a grandparent term ("Grandfather"/
 //     "Grandmother") using the gender of the person reached by the second
 //     (final) step.
+//   Both collapses carry an `inLaw` flag forward from either input hop, so
+//   an in-law flag set by the spouse-merge above survives further collapsing
+//   (e.g. spouse+parent+parent -> parent-in-law+parent -> grandparent-in-law).
 function reduceHops(steps, nodes) {
   const hops = steps.map((step, i) => ({ step, person: nodes[i + 1] }));
-  let changed = true;
 
+  if (hops.length >= 2 && hops[0].step === 'spouse' && hops[1].step !== 'spouse') {
+    const b = hops[1];
+    hops.splice(0, 2, { step: b.step, person: b.person, inLaw: true });
+  } else if (hops.length >= 2 && hops[hops.length - 1].step === 'spouse' && hops[hops.length - 2].step !== 'spouse') {
+    const last = hops.length - 1;
+    const a = hops[last - 1];
+    hops.splice(last - 1, 2, { step: a.step, person: hops[last].person, inLaw: true });
+  }
+
+  let changed = true;
   while (changed) {
     changed = false;
     for (let i = 0; i + 1 < hops.length; i++) {
       const a = hops[i];
       const b = hops[i + 1];
+      const inLaw = a.inLaw || b.inLaw;
 
       if (a.step === 'parent' && b.step === 'child') {
-        hops.splice(i, 2, { step: 'sibling', person: b.person });
+        hops.splice(i, 2, { step: 'sibling', person: b.person, inLaw });
         changed = true;
         break;
       }
       if (a.step === 'parent' && b.step === 'parent') {
-        hops.splice(i, 2, { step: 'grandparent', person: b.person });
+        hops.splice(i, 2, { step: 'grandparent', person: b.person, inLaw });
         changed = true;
         break;
       }
@@ -297,10 +328,11 @@ function reduceHops(steps, nodes) {
 
 function hopTerm(hop) {
   const gender = hop.person?.data?.gender;
-  if (hop.step === 'sibling') return genderTerm('sibling', gender);
-  if (hop.step === 'grandparent') return genderTerm('grandparent', gender);
-  if (hop.step === 'parent') return genderTerm('parent', gender);
-  if (hop.step === 'child') return genderTerm('child', gender);
+  const suffix = hop.inLaw ? '-in-law' : '';
+  if (hop.step === 'sibling') return genderTerm('sibling', gender) + suffix;
+  if (hop.step === 'grandparent') return genderTerm('grandparent', gender) + suffix;
+  if (hop.step === 'parent') return genderTerm('parent', gender) + suffix;
+  if (hop.step === 'child') return genderTerm('child', gender) + suffix;
   return genderTerm('spouse', gender);
 }
 
