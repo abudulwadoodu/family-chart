@@ -2122,7 +2122,7 @@ function setSidebarOpen(open) {
   document.querySelector('.app-shell')?.classList.toggle('sidebar-open', open);
 }
 
-// Desktop icon-rail collapse. Like setSidebarOpen, this only ever toggles a
+// Desktop sidebar collapse (shrinks to a bare arrow strip). Like setSidebarOpen, this only ever toggles a
 // CSS class - it deliberately does NOT call render(), since collapsing the
 // sidebar has nothing to do with the tree/chart and shouldn't tear it down.
 // The collapse button itself needs its label/title/aria-pressed refreshed in

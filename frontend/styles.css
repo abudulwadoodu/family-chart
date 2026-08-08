@@ -1140,12 +1140,18 @@ button.secondary:active,
 
 /* Small semicircular tab anchored to the sidebar's right border seam,
    vertically centered - lets the whole rail collapse/expand without eating
-   space in the nav or footer flow. */
+   space in the nav or footer flow. `position: fixed` (viewport-relative)
+   rather than `absolute` (would be relative to .sidebar, which stretches to
+   the full scrollable page height via .app-shell's flex stretch) - with
+   `absolute` the button's "50%" tracked the page's total height instead of
+   the viewport, so it could sit far below the fold on tall pages, and shift
+   position across collapse/expand as that height changed. `left` mirrors
+   .sidebar's width so it still tracks the collapsing edge. */
 .sidebar-collapse-btn {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translate(50%, -50%);
+  position: fixed;
+  top: 50vh;
+  left: var(--sidebar-width);
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1186,47 +1192,27 @@ button.secondary:active,
   box-shadow: var(--shadow-lg);
 }
 
-/* Icon-rail collapse only applies at desktop widths (distinct from the
-   mobile drawer's open/closed state, which .sidebar-open governs below
-   1100px - see the @media (max-width: 1100px) block further down, which
-   never receives sidebar-collapsed's width/spacing rules at all, so the
-   mobile drawer can't accidentally render as a narrow rail). Hides every
-   text label and shrinks the rail to just fit the icons/avatar, leaving all
-   nav buttons in place so click targets and IDs don't change. */
+/* Full collapse only applies at desktop widths (distinct from the mobile
+   drawer's open/closed state, which .sidebar-open governs below 1100px -
+   see the @media (max-width: 1100px) block further down, which never
+   receives sidebar-collapsed's width/spacing rules at all, so the mobile
+   drawer can't accidentally render as a narrow strip). Shrinks the rail down
+   to a bare sliver with nothing but the expand arrow - head, nav labels,
+   and icons are all hidden rather than just the labels, since a strip this
+   thin has no room to keep icons legible/clickable anyway. */
 @media (min-width: 1101px) {
   .app-shell.sidebar-collapsed .sidebar {
-    width: 72px;
-    /* Less horizontal padding than the expanded rail's 16px - with labels
-       gone there's no text to protect from the edge, so that space is
-       better spent letting icons sit bigger/closer to true-centered. */
-    padding-left: var(--sp-2);
-    padding-right: var(--sp-2);
+    width: 20px;
+    padding: var(--sp-5) 0;
   }
 
-  .app-shell.sidebar-collapsed .sidebar-head {
-    justify-content: center;
-  }
-
-  .app-shell.sidebar-collapsed .sidebar-wordmark,
-  .app-shell.sidebar-collapsed .nav-label {
+  .app-shell.sidebar-collapsed .sidebar-head,
+  .app-shell.sidebar-collapsed .sidebar-nav {
     display: none;
   }
 
-  .app-shell.sidebar-collapsed .nav-item {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
-  }
-
-  .app-shell.sidebar-collapsed .nav-item .icon {
-    width: 20px;
-    height: 20px;
-  }
-
-  .app-shell.sidebar-collapsed .sidebar-logo,
-  .app-shell.sidebar-collapsed .sidebar-logo .icon {
-    width: 28px;
-    height: 28px;
+  .app-shell.sidebar-collapsed .sidebar-collapse-btn {
+    left: 20px;
   }
 
   .app-shell.sidebar-collapsed .sidebar-collapse-btn .icon {
@@ -2944,9 +2930,10 @@ button.secondary:active,
   transform: translateY(-50%) translateX(0);
 }
 
-/* Sidebar nav items are collapsible to icon-only (see .sidebar-collapsed) -
-   their [data-tooltip] bubble always reads to the right regardless of
-   collapsed state, since the item itself never has room to the left. */
+/* Sidebar nav items sit in a narrow rail - their [data-tooltip] bubble
+   always reads to the right, since the item itself never has room to the
+   left. Also covers the collapse button, which stays visible as a bare
+   arrow even when .sidebar-collapsed hides the rest of the sidebar. */
 .sidebar [data-tooltip]::after {
   bottom: auto;
   left: calc(100% + var(--sp-3));
@@ -9235,6 +9222,14 @@ button.admin-stat-card {
 
 [data-tooltip] {
   position: relative;
+}
+
+/* The collapse button also carries data-tooltip, but needs to stay
+   viewport-fixed (see .sidebar-collapse-btn above) - without this, the
+   generic rule above wins on source order (equal specificity) and silently
+   reverts it to position: relative. */
+.sidebar-collapse-btn[data-tooltip] {
+  position: fixed;
 }
 
 [data-tooltip]::after {
