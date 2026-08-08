@@ -47,6 +47,23 @@ describe('POST /api/vault/trees/:id/snapshots', () => {
     expect(res.body.snapshot).toMatchObject({ treeId, archiveName: 'My Backup' });
   });
 
+  it('saves an optional description alongside the snapshot', async () => {
+    const owner = await asUser('owner-sub', 'owner@example.com');
+    const createRes = await request(app).post('/api/trees').set('Authorization', owner.header).send({ name: 'Family A' });
+    const treeId = createRes.body.id;
+
+    const res = await request(app)
+      .post(`/api/vault/trees/${treeId}/snapshots`)
+      .set('Authorization', owner.header)
+      .send({ archiveName: 'My Backup', description: 'Before the big GEDCOM import' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.snapshot).toMatchObject({ description: 'Before the big GEDCOM import' });
+
+    const list = await request(app).get('/api/vault/snapshots').set('Authorization', owner.header);
+    expect(list.body.snapshots[0]).toMatchObject({ description: 'Before the big GEDCOM import' });
+  });
+
   it('blocks an editor from snapshotting a tree they do not own', async () => {
     const owner = await asUser('owner-sub', 'owner@example.com');
     const editor = await asUser('editor-sub', 'editor@example.com');

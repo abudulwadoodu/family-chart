@@ -1,0 +1,11 @@
+{
+  "name": "family-chart",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "postCreateCommand": "npm install",
+  "postStartCommand": "for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done; docker compose up -d",
+  "forwardPorts": [3003, 8082],
+  "portsAttributes": {
+    "3003": { "label": "Backend API" },
+    "8082": { "label": "Frontend (Vite)" }
+  }
+}

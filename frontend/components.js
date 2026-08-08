@@ -1187,6 +1187,23 @@ export function renderRenameModalBody({ name }) {
   `;
 }
 
+export function renderVaultSnapshotModalBody({ treeName }) {
+  return `
+    ${modalCloseButton('vault-snapshot-modal-close-btn')}
+    <h3 id="modal-title">Save to Vault</h3>
+    <p class="muted">Save an instant private backup of "${escapeHtml(treeName)}" to your vault.</p>
+    <form id="vault-snapshot-form" class="stack">
+      <label>Description <span class="muted">(optional)</span>
+        <textarea name="description" maxlength="2000" rows="3" placeholder="What's notable about this snapshot?" autofocus></textarea>
+      </label>
+      <div class="modal-actions row">
+        <button type="button" class="btn btn-ghost" id="vault-snapshot-modal-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">${icon('save')}<span>Save to Vault</span></button>
+      </div>
+    </form>
+  `;
+}
+
 // General Link Access control: link disabled (default) vs. anyone holding the
 // link can view read-only. Only rendered for the owner - editors/viewers see
 // the Share modal's collaborator list but never the raw share_token, since

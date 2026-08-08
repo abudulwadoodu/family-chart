@@ -23,6 +23,7 @@ function serializeSnapshot(row) {
     id: row.id,
     treeId: row.tree_id,
     archiveName: row.archive_name,
+    description: row.description || '',
     createdAt: row.created_at,
   };
 }
@@ -43,8 +44,9 @@ vaultRouter.post('/trees/:id/snapshots', requireTreeRole(['owner']), async (req,
   try {
     const treeId = Number(req.params.id);
     const archiveName = typeof req.body?.archiveName === 'string' ? req.body.archiveName.trim() : '';
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
 
-    const snapshot = await createSnapshotForTree(req.user.id, treeId, archiveName);
+    const snapshot = await createSnapshotForTree(req.user.id, treeId, archiveName, description);
     return res.status(201).json({ ok: true, snapshot: serializeSnapshot(snapshot) });
   } catch (error) {
     if (error instanceof VaultError) {

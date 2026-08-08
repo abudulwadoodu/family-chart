@@ -13,7 +13,7 @@ export class VaultError extends Error {
 // permissionModel.getTreesOwnedByUser already uses for account deletion.
 // This also guarantees an editor/viewer on someone else's tree can never
 // clone that owner's data into their own permanent archive.
-export async function createSnapshotForTree(userId, treeId, archiveName) {
+export async function createSnapshotForTree(userId, treeId, archiveName, description) {
   return withTransaction(async (client) => {
     const { rows: treeRows } = await client.query('SELECT id, name, owner_id FROM trees WHERE id = $1 FOR UPDATE', [
       treeId,
@@ -28,10 +28,10 @@ export async function createSnapshotForTree(userId, treeId, archiveName) {
     const familyData = familyDataRows[0]?.json_data ?? [];
 
     const { rows } = await client.query(
-      `INSERT INTO user_account_archives (user_id, tree_id, archive_name, family_data)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, user_id, tree_id, archive_name, family_data, created_at`,
-      [userId, treeId, archiveName || tree.name, JSON.stringify(familyData)]
+      `INSERT INTO user_account_archives (user_id, tree_id, archive_name, description, family_data)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, tree_id, archive_name, description, family_data, created_at`,
+      [userId, treeId, archiveName || tree.name, description || null, JSON.stringify(familyData)]
     );
     return rows[0];
   });
@@ -39,7 +39,7 @@ export async function createSnapshotForTree(userId, treeId, archiveName) {
 
 export async function getSnapshotsForUser(userId) {
   const { rows } = await query(
-    `SELECT id, user_id, tree_id, archive_name, created_at
+    `SELECT id, user_id, tree_id, archive_name, description, created_at
      FROM user_account_archives
      WHERE user_id = $1
      ORDER BY created_at DESC`,
@@ -50,7 +50,7 @@ export async function getSnapshotsForUser(userId) {
 
 export async function getSnapshotById(id) {
   const { rows } = await query(
-    `SELECT id, user_id, tree_id, archive_name, family_data, created_at
+    `SELECT id, user_id, tree_id, archive_name, description, family_data, created_at
      FROM user_account_archives
      WHERE id = $1`,
     [id]

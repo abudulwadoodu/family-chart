@@ -96,6 +96,7 @@ import {
   renderMemberSearch,
   renderShareModalBody,
   renderRenameModalBody,
+  renderVaultSnapshotModalBody,
   renderContactPageMarkup,
   renderContactFormCard,
   renderFooter,
@@ -377,7 +378,6 @@ const state = {
     snapshots: [],
     loading: false,
     loaded: false,
-    creatingTreeId: null,
   },
   // "My Support Tickets" (user-facing) list + the shared ticket detail view.
   support: {
@@ -5128,6 +5128,7 @@ function renderVaultDrawerMarkup() {
         <div class="vault-snapshot-info">
           <span class="vault-snapshot-name">${escapeHtml(snapshot.archiveName)}</span>
           <span class="muted vault-snapshot-date">Saved on ${new Date(snapshot.createdAt).toLocaleString()}</span>
+          ${snapshot.description ? `<span class="vault-snapshot-description">${escapeHtml(snapshot.description)}</span>` : ''}
         </div>
         <div class="vault-snapshot-actions row">
           <button type="button" class="btn-secondary vault-restore-snapshot-btn" data-snapshot-id="${snapshot.id}">${icon('upload')}<span>Restore</span></button>
@@ -5145,8 +5146,8 @@ function renderVaultDrawerMarkup() {
         <select id="vault-create-tree-select">
           ${ownedTrees.map((tree) => `<option value="${tree.id}">${escapeHtml(tree.name)}</option>`).join('')}
         </select>
-        <button type="button" id="vault-create-snapshot-btn" class="btn btn-primary" ${vault.creatingTreeId ? 'disabled' : ''}>
-          ${icon('save')}<span>${vault.creatingTreeId ? 'Saving...' : 'Create Snapshot'}</span>
+        <button type="button" id="vault-create-snapshot-btn" class="btn btn-primary">
+          ${icon('save')}<span>Create Snapshot</span>
         </button>
       </div>`
     : `<p class="muted">You don't own any trees yet, so there's nothing to snapshot.</p>`;
@@ -5220,46 +5221,50 @@ async function loadVaultSnapshots() {
   }
 }
 
-async function handleCreateVaultSnapshot() {
+function handleCreateVaultSnapshot() {
   const select = document.querySelector('#vault-create-tree-select');
   const treeId = Number(select?.value);
   if (!treeId) return;
-
-  const tree = state.trees.find((t) => t.id === treeId);
-  state.vault.creatingTreeId = treeId;
-  render();
-  try {
-    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
-      method: 'POST',
-      body: JSON.stringify({ archiveName: tree?.name || '' }),
-    });
-    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
-    showToast('Snapshot saved to your vault.');
-  } catch (error) {
-    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
-  } finally {
-    state.vault.creatingTreeId = null;
-    render();
-  }
+  openVaultSnapshotModal(treeId);
 }
 
 // Entry point for the "Save to Vault" action in the tree-card menu and the
 // viewer's settings menu - unlike handleCreateVaultSnapshot (vault drawer's
 // own tree picker), the tree is already known from context here.
-async function handleCreateVaultSnapshotForTree(treeId) {
+function handleCreateVaultSnapshotForTree(treeId) {
+  openVaultSnapshotModal(treeId);
+}
+
+// Shared by both "Save to Vault" entry points (the vault drawer's own tree
+// picker and the tree-card/viewer menu's "Save to Vault" action) so the user
+// can attach an optional description to the snapshot before it's saved.
+function openVaultSnapshotModal(treeId) {
   const tree = state.trees.find((t) => t.id === treeId);
-  const archiveName = tree?.name || state.selectedTreeName || '';
-  try {
-    const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
-      method: 'POST',
-      body: JSON.stringify({ archiveName }),
-    });
-    state.vault.snapshots = [snapshot, ...state.vault.snapshots];
-    state.vault.loaded = true;
-    showToast('Snapshot saved to your vault.');
-  } catch (error) {
-    showToast(error.message || 'Could not create snapshot.', { type: 'error' });
-  }
+  const treeName = tree?.name || state.selectedTreeName || 'this tree';
+  const modal = showModal({ bodyHtml: renderVaultSnapshotModalBody({ treeName }) });
+
+  modal.root.querySelector('#vault-snapshot-modal-close-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#vault-snapshot-modal-cancel-btn').addEventListener('click', modal.close);
+  modal.root.querySelector('#vault-snapshot-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const description = String(new FormData(event.target).get('description') || '').trim();
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      const { snapshot } = await api(`/api/vault/trees/${treeId}/snapshots`, {
+        method: 'POST',
+        body: JSON.stringify({ archiveName: treeName, description }),
+      });
+      state.vault.snapshots = [snapshot, ...state.vault.snapshots];
+      state.vault.loaded = true;
+      modal.close();
+      render();
+      showToast('Snapshot saved to your vault.');
+    } catch (error) {
+      showToast(error.message || 'Could not create snapshot.', { type: 'error' });
+      submitBtn.disabled = false;
+    }
+  });
 }
 
 async function handleDownloadVaultSnapshotGedcom(snapshotId) {
@@ -6077,7 +6082,7 @@ async function handleSignOut() {
   state.totpSetup = null;
   state.dashboardView = 'trees';
   state.mfa = { status: 'unknown', loading: false, error: '', success: '', enrollment: null };
-  state.vault = { snapshots: [], loading: false, loaded: false, creatingTreeId: null };
+  state.vault = { snapshots: [], loading: false, loaded: false };
   state.treeSearchMode = 'trees';
   state.support = { ...state.support, tickets: [], total: 0, page: 1, loaded: false, selectedTicketId: null, selectedTicket: null, selectedMessages: [] };
   state.admin = { ...state.admin, section: 'dashboard', tickets: [], total: 0, page: 1, selectedTicketId: null, selectedTicket: null, selectedOwner: null, selectedMessages: [], selectedNotes: [] };
