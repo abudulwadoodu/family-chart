@@ -9558,6 +9558,17 @@ button.admin-stat-card {
   font-size: 12px;
 }
 
+/* Same treatment as .combobox-option-detail (relationshipFinderCombobox.js) -
+   the app's other "immediate relations" summary line - so the phrasing reads
+   as the same feature wherever it shows up. Card width is narrow enough that
+   this can wrap to two lines instead of the combobox's single-line ellipsis. */
+.directory-card-relatives {
+  margin: 0;
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
 /* List View */
 .directory-table {
   width: 100%;
@@ -9589,6 +9600,14 @@ button.admin-stat-card {
   align-items: center;
   gap: var(--sp-3);
   font-weight: 500;
+}
+
+.directory-table-relatives {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
 }
 
 /* Profile popup (openMemberProfileModal in memberDirectory.js) - opened over

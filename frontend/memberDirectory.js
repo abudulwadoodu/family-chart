@@ -14,6 +14,7 @@ import { renderPageHeader } from './components.js';
 import { escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 import { showModal } from './ui.js';
+import { getRelativesSummary } from './memberSearch.js';
 
 const GENDER_LABELS = { M: 'Male', F: 'Female', U: 'Unknown' };
 
@@ -49,7 +50,10 @@ function avatarHtml(name, avatarUrl) {
   return `<span class="directory-avatar-fallback">${escapeHtml(initials(name).toUpperCase())}</span>`;
 }
 
-function toDirectoryMember(person) {
+// `byId` is a Map<id, Datum> over the full tree - same lookup
+// relationshipFinderCombobox.js passes to getRelativesSummary to resolve
+// "Child of X; Spouse of Y"-style names from raw rels ids.
+function toDirectoryMember(person, byId) {
   const data = person?.data || {};
   return {
     id: person.id,
@@ -57,6 +61,7 @@ function toDirectoryMember(person) {
     gender: data.gender || null,
     years: vitalYears(data),
     avatar: data.avatar || null,
+    relatives: getRelativesSummary(person, byId),
   };
 }
 
@@ -87,10 +92,11 @@ function renderProfileRow(label, value) {
   `;
 }
 
-function renderProfileModalBody(person) {
+function renderProfileModalBody(person, byId) {
   const data = person?.data || {};
   const name = memberName(person);
-  const fieldsHtml = PROFILE_FIELDS.map(({ id, label }) => renderProfileRow(label, data[id])).join('');
+  const relatives = getRelativesSummary(person, byId);
+  const fieldsHtml = [renderProfileRow('Immediate Relations', relatives), ...PROFILE_FIELDS.map(({ id, label }) => renderProfileRow(label, data[id]))].join('');
 
   return `
     <button type="button" class="icon-btn modal-close" id="member-profile-close-btn" aria-label="Close">${icon('close')}</button>
@@ -107,9 +113,9 @@ function renderProfileModalBody(person) {
   `;
 }
 
-export function openMemberProfileModal(person) {
+export function openMemberProfileModal(person, byId) {
   if (!person) return;
-  const modal = showModal({ bodyHtml: renderProfileModalBody(person), className: 'modal-member-profile' });
+  const modal = showModal({ bodyHtml: renderProfileModalBody(person, byId), className: 'modal-member-profile' });
   modal.root.querySelector('#member-profile-close-btn')?.addEventListener('click', modal.close);
 }
 
@@ -144,6 +150,7 @@ function renderCardGrid(members) {
           <h3 class="directory-card-name">${escapeHtml(m.name)}</h3>
           <p class="directory-card-years muted">${escapeHtml(m.years)}</p>
           <p class="directory-card-gender muted">${escapeHtml(GENDER_LABELS[m.gender] || 'Unknown')}</p>
+          ${m.relatives ? `<p class="directory-card-relatives">${escapeHtml(m.relatives)}</p>` : ''}
         </article>
       `
         )
@@ -161,6 +168,7 @@ function renderTable(members) {
           <th>Name</th>
           <th>Gender</th>
           <th>Birth / Death</th>
+          <th>Immediate Relations</th>
           <th></th>
         </tr>
       </thead>
@@ -177,6 +185,7 @@ function renderTable(members) {
             </td>
             <td class="muted">${escapeHtml(GENDER_LABELS[m.gender] || 'Unknown')}</td>
             <td class="muted">${escapeHtml(m.years)}</td>
+            <td class="muted directory-table-relatives">${m.relatives ? escapeHtml(m.relatives) : '&mdash;'}</td>
             <td>
               <button type="button" class="btn-link directory-view-profile-btn" data-member-id="${escapeHtml(String(m.id))}">View Profile</button>
             </td>
@@ -189,19 +198,35 @@ function renderTable(members) {
   `;
 }
 
+function getFilteredMembers(people) {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const needle = state.search.trim().toLowerCase();
+  const members = people.map((p) => toDirectoryMember(p, byId)).filter((m) => !needle || m.name.toLowerCase().includes(needle));
+  members.sort((a, b) => a.name.localeCompare(b.name));
+  return members;
+}
+
+function renderResults(people) {
+  const members = getFilteredMembers(people);
+  return state.view === 'list' ? renderTable(members) : renderCardGrid(members);
+}
+
 // `data` is the full family tree array for the current tree (state.selectedTreeData
 // in main.js), same convention as relationshipFinder.js's renderRelationshipFinderPageContent.
+// The results (card grid/table) live in their own #directory-results
+// container, separate from the search input/view toggle above them -
+// attachMemberDirectoryPageListeners's search handler re-renders only that
+// inner container on every keystroke, rather than main.js's rerender (a full
+// innerHTML replace of the whole page) which would tear down and recreate
+// the <input> itself and drop focus/cursor mid-type.
 export function renderMemberDirectoryPageContent({ data }) {
   const people = Array.isArray(data) ? data : [];
-  const needle = state.search.trim().toLowerCase();
-  const members = people.map(toDirectoryMember).filter((m) => !needle || m.name.toLowerCase().includes(needle));
-  members.sort((a, b) => a.name.localeCompare(b.name));
 
   return `
     <div class="member-directory-page">
       ${renderPageHeader({ title: 'Member Directory', subtitle: 'Every person in this tree, at a glance.' })}
       ${renderToolbar()}
-      ${state.view === 'list' ? renderTable(members) : renderCardGrid(members)}
+      <div id="directory-results">${renderResults(people)}</div>
     </div>
   `;
 }
@@ -218,9 +243,37 @@ export function attachMemberDirectoryPageListeners({ data, rerender } = {}) {
   const root = document.querySelector('.member-directory-page');
   if (!root) return;
 
+  const people = Array.isArray(data) ? data : [];
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const openProfile = (memberId) => {
+    const person = people.find((p) => String(p.id) === memberId);
+    openMemberProfileModal(person, byId);
+  };
+
+  function bindResultListeners(resultsEl) {
+    resultsEl.querySelectorAll('.directory-card, .directory-view-profile-btn, .directory-table tr[data-member-id]').forEach((el) => {
+      el.addEventListener('click', () => openProfile(el.dataset.memberId));
+      if (el.classList.contains('directory-card')) {
+        el.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openProfile(el.dataset.memberId);
+          }
+        });
+      }
+    });
+  }
+
+  function rerenderResults() {
+    const resultsEl = root.querySelector('#directory-results');
+    if (!resultsEl) return;
+    resultsEl.innerHTML = renderResults(people);
+    bindResultListeners(resultsEl);
+  }
+
   root.querySelector('#directory-search-input')?.addEventListener('input', (event) => {
     state.search = event.target.value;
-    rerender?.();
+    rerenderResults();
   });
 
   root.querySelectorAll('.directory-view-btn').forEach((btn) => {
@@ -230,21 +283,6 @@ export function attachMemberDirectoryPageListeners({ data, rerender } = {}) {
     });
   });
 
-  const people = Array.isArray(data) ? data : [];
-  const openProfile = (memberId) => {
-    const person = people.find((p) => String(p.id) === memberId);
-    openMemberProfileModal(person);
-  };
-
-  root.querySelectorAll('.directory-card, .directory-view-profile-btn, .directory-table tr[data-member-id]').forEach((el) => {
-    el.addEventListener('click', () => openProfile(el.dataset.memberId));
-    if (el.classList.contains('directory-card')) {
-      el.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          openProfile(el.dataset.memberId);
-        }
-      });
-    }
-  });
+  const resultsEl = root.querySelector('#directory-results');
+  if (resultsEl) bindResultListeners(resultsEl);
 }
