@@ -7976,17 +7976,6 @@ button.admin-stat-card {
   flex-direction: column;
 }
 
-/* Pinned top right, same corner as .modal-close (which reserves 16-50px in
-   from the border - see below) - sits just left of it rather than at the
-   bottom of the modal, mirroring where the list view's primary "+ Upload"/
-   "+ Create Event" action lives (top right of its own header row). */
-.lightbox-delete-top-btn {
-  position: absolute;
-  top: var(--sp-3);
-  right: 56px;
-  z-index: 1;
-}
-
 .lightbox-scroll {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -8256,6 +8245,22 @@ button.admin-stat-card {
 
 .lightbox-visibility-badge.lightbox-visibility-static {
   cursor: default;
+}
+
+/* mediaLightbox.js's delete button - shares .lightbox-visibility-badge's
+   pill shape/sizing (previously it was a 34px square .icon-btn pinned to the
+   modal's top-right corner next to Close, which read as a second close/
+   dismiss control rather than a destructive action) and just recolors it
+   danger-red, matching .btn-danger's palette. */
+.lightbox-delete-btn {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.lightbox-delete-btn:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger-hover);
+  color: var(--danger-hover);
 }
 
 .lightbox-edit-form {
@@ -8637,6 +8642,89 @@ button.admin-stat-card {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
+}
+
+/* Drag-and-drop target for uploads (media-library-panel.js's
+   .media-library-main, timelinePanel.js's Attach Media modal body). Applied
+   via mediaUpload.js's attachDropZone while a file is dragged over the whole
+   zone (not just the visible box below), so users don't have to hit a small
+   target precisely. */
+.drop-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+
+/* Always-visible drag-and-drop affordance, styled like .gedcom-dropzone -
+   plain text alone ("drag files here") reads as decoration, not an actual
+   drop target, so this gives upload a real clickable/drop-able box instead
+   of relying on the drop zone being an invisible full-panel hit area. */
+.media-library-dropzone-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: center;
+}
+
+.media-library-dropzone-box:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.drop-active .media-library-dropzone-box {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+.pending-upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.pending-upload-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-hover);
+  font-size: 0.85rem;
+}
+
+.pending-upload-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-upload-status .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.pending-upload-item-uploading .pending-upload-status .icon {
+  animation: wizard-spin 1s linear infinite;
+}
+
+.pending-upload-error {
+  color: var(--danger);
 }
 
 @media (max-width: 640px) {
