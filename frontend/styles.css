@@ -9429,3 +9429,224 @@ button.admin-stat-card {
 .maintenance-view__retry:hover {
   background: var(--accent-hover);
 }
+
+/* ===========================================================================
+   Member Directory (frontend/memberDirectory.js) - Card/List toggle over a
+   single tree's members.
+   =========================================================================== */
+
+/* Same convention as .relationship-finder-page above: #FamilyChart's wrapper
+   (.chart-canvas-wrap) bleeds -var(--sp-10) past .content's own horizontal
+   padding for the chart canvas, so this panel re-adds it to line up under
+   .app-primary-bar instead of sitting flush with the bled edge. */
+.member-directory-page {
+  width: 100%;
+  padding: 0 var(--sp-10);
+}
+
+/* .chart-container's fixed viewport-relative height + overflow: hidden (set
+   above for the canvas-based chart views) otherwise clips the member grid
+   once it's taller than calc(100vh - 190px), with no way to scroll to the
+   rest - member directories with more than a handful of people hit this on
+   any normal viewport. Let the page grow naturally instead and rely on the
+   document-level scrollbar (html { overflow-y: scroll } above). */
+.chart-container:has(.member-directory-page) {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.directory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.directory-search-box {
+  flex: 1;
+  max-width: 360px;
+}
+
+.directory-view-toggle {
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.directory-view-btn-active {
+  background: var(--bg-surface-raised);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.directory-empty {
+  padding: var(--sp-8) 0;
+  text-align: center;
+}
+
+/* Card View */
+.directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-4);
+}
+
+.directory-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-2);
+  padding: var(--sp-5) var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.directory-card:hover,
+.directory-card:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+  outline: none;
+}
+
+.directory-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface-hover-strong);
+  flex-shrink: 0;
+}
+
+.directory-avatar-sm {
+  width: 32px;
+  height: 32px;
+}
+
+.directory-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.directory-avatar-fallback {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.directory-card-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.directory-card-years,
+.directory-card-gender {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* List View */
+.directory-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.directory-table th {
+  text-align: left;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.directory-table td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.directory-table tr:hover td {
+  background: var(--bg-surface-hover);
+}
+
+.directory-table-name-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-weight: 500;
+}
+
+/* Profile popup (openMemberProfileModal in memberDirectory.js) - opened over
+   the directory in place, so "View Profile" never has to navigate away to
+   the chart just to show a person's details. */
+.modal-dialog.modal-member-profile {
+  width: min(90vw, 420px);
+}
+
+.member-profile-modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.member-profile-avatar {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.member-profile-name {
+  margin: 0;
+  padding-right: 0;
+}
+
+.member-profile-meta {
+  margin: var(--sp-1) 0 0;
+}
+
+.member-profile-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.member-profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.member-profile-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.member-profile-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.member-profile-row-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}

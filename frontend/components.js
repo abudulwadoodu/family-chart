@@ -1039,8 +1039,8 @@ export function renderAppHeader({
 // what actually navigates. Tree View's label and caret are separate click
 // targets sharing one pill (see .segmented-option-group): the label switches
 // to Tree View like Media/Events do, the caret opens a menu of two groups:
-// View (Focused/All Nodes/Relationship Finder - formerly a standalone row of
-// chips, see the old renderTreeViewSubtoggle) and Manage Data
+// View (Focused/All Nodes/Relationship Finder/Member Directory - formerly a
+// standalone row of chips, see the old renderTreeViewSubtoggle) and Manage Data
 // (Relationships/Duplicates, moved here from the Manage Data "More" dropdown's
 // old Tools group so they're not duplicated across two menus) - reuses the
 // original #focused-mode-btn/#all-nodes-mode-btn/#relationship-finder-btn ids
@@ -1076,6 +1076,9 @@ export function renderPrimaryTabSwitcher({ primaryTab, viewMode, canEdit }) {
           </button>
           <button type="button" id="relationship-finder-btn" class="dropdown-item ${viewMode === 'relationship-finder' ? 'dropdown-item-active' : ''}" title="Find how two people in this tree are related">
             ${icon('share')}<span>Relationship Finder</span>
+          </button>
+          <button type="button" id="member-directory-btn" class="dropdown-item ${viewMode === 'member-directory' ? 'dropdown-item-active' : ''}" title="Browse every person in this tree as cards or a list">
+            ${icon('user')}<span>Member Directory</span>
           </button>
           <div class="dropdown-divider"></div>
           <div class="dropdown-group-label">Manage Data</div>

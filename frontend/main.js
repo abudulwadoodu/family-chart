@@ -56,6 +56,7 @@ import { api, fetchAttachment } from './api.js';
 import { isMaintenanceActive } from './maintenanceView.js';
 import { buildMemberSearchIndex, searchMembers, getLabel as getMemberLabel, getRelativesSummary } from './memberSearch.js';
 import { renderRelationshipFinderPageContent, attachRelationshipFinderPageListeners } from './relationshipFinder.js';
+import { renderMemberDirectoryPageContent, attachMemberDirectoryPageListeners } from './memberDirectory.js';
 import { openGedcomImportWizard } from './gedcomWizard.js';
 import { openCsvImportPanel } from './csvImportPanel.js';
 import { openTreeExportDialog } from './treeExportDialog.js';
@@ -3363,8 +3364,8 @@ function selectSearchedMember(id) {
     return;
   }
 
-  if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager') {
-    // The tree-toolbar member search isn't wired into either mode's own
+  if (state.viewMode === 'relationship-manager' || state.viewMode === 'duplicate-manager' || state.viewMode === 'member-directory') {
+    // The tree-toolbar member search isn't wired into any of these modes' own
     // panels - fall back to Focused mode, same as the All Nodes case below.
     state.focusedMainId = id;
     state.viewMode = 'focused';
@@ -3483,6 +3484,7 @@ function syncFocusModeToolbarState() {
     state.viewMode === 'relationship-finder' ||
     state.viewMode === 'relationship-manager' ||
     state.viewMode === 'duplicate-manager' ||
+    state.viewMode === 'member-directory' ||
     state.viewMode === 'settings';
   focusModeController?.setActionDisabled('zoom-in', disabled);
   focusModeController?.setActionDisabled('zoom-out', disabled);
@@ -4351,6 +4353,11 @@ function renderChart() {
     setupViewModeToggle();
     return;
   }
+  if (state.viewMode === 'member-directory') {
+    renderMemberDirectoryViewMode();
+    setupViewModeToggle();
+    return;
+  }
   if (state.viewMode === 'all-nodes') {
     renderAllNodesMode();
     setupViewModeToggle();
@@ -4741,8 +4748,8 @@ function switchTreeViewMode(mode) {
     if (currentMain?.id) state.focusedMainId = currentMain.id;
   }
   state.viewMode = mode;
-  // Every viewMode (chart, all-nodes, relationship-finder, relationship-manager,
-  // duplicate-manager, settings) renders into #FamilyChart, which only exists
+  // Every viewMode (chart, all-nodes, relationship-finder, member-directory,
+  // relationship-manager, duplicate-manager, settings) renders into #FamilyChart, which only exists
   // on the tree canvas page - reachable here via the Tree View options menu's
   // View/Manage Data groups or the gear menu's Settings item, all of which are
   // also shown on the Media Library/Timeline pages (see renderAppHeader), so
@@ -4820,6 +4827,7 @@ function setupViewModeToggle() {
   document.querySelector('#focused-mode-btn')?.addEventListener('click', () => switchTreeViewMode('focused'));
   document.querySelector('#all-nodes-mode-btn')?.addEventListener('click', () => switchTreeViewMode('all-nodes'));
   document.querySelector('#relationship-finder-btn')?.addEventListener('click', () => switchTreeViewMode('relationship-finder'));
+  document.querySelector('#member-directory-btn')?.addEventListener('click', () => switchTreeViewMode('member-directory'));
   // Relationships/Duplicates are rendered `disabled` in view mode (see
   // renderPrimaryTabSwitcher's canEdit param) - disabled buttons never fire
   // click, so no extra guard is needed here.
@@ -6515,6 +6523,27 @@ function renderRelationshipFinderViewMode() {
   });
 
   attachRelationshipFinderPageListeners();
+}
+
+// Member Directory is a nested Tree View mode too (see the Tree View options
+// menu's View group in renderPrimaryTabSwitcher), routed through #FamilyChart
+// the same way as relationship-finder/relationship-manager/duplicate-manager/
+// settings above. "View Profile" (card click / list row / its button) opens
+// that person's profile in a popup right over the directory (see
+// memberDirectory.js's openMemberProfileModal) instead of navigating away to
+// the chart - state.chart/editor stay null the whole time this mode is
+// showing, same as the other non-canvas Tree View modes above.
+function renderMemberDirectoryViewMode() {
+  state.chart = null;
+  state.editor = null;
+
+  const container = document.querySelector('#FamilyChart');
+  container.innerHTML = renderMemberDirectoryPageContent({ data: state.selectedTreeData });
+
+  attachMemberDirectoryPageListeners({
+    data: state.selectedTreeData,
+    rerender: renderMemberDirectoryViewMode,
+  });
 }
 
 function renderTreeSettingsViewMode() {
