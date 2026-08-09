@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 import * as mediaApi from './mediaApi.js';
 import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
+import { kindForFile, attachDropZone, attachPasteListener, createPendingFileEntry } from './mediaUpload.js';
 import {
   createVisibilityPickerState,
   loadCollaborators,
@@ -56,7 +57,9 @@ export function createMediaLibraryPageState() {
     albums: [],
     activeAlbumId: null,
     media: [],
-    pendingFile: null,
+    // Each entry: { file, status: 'pending'|'uploading'|'error', error? }.
+    // Shared across drag-drop/paste/file-input - all three just append here.
+    pendingFiles: [],
     visibilityPicker: createVisibilityPickerState(),
   };
 }
@@ -86,7 +89,7 @@ export function renderMediaLibraryActions(pageState, { readOnly }) {
     <div class="toolbar-actions">
       <button type="button" class="icon-btn media-library-new-album-btn" aria-label="New Album" data-tooltip="New Album" data-tooltip-pos="bottom">${icon('folderPlus')}</button>
       <label class="icon-btn media-library-upload-label" for="media-library-upload-input" aria-label="Upload" data-tooltip="Upload" data-tooltip-pos="bottom">${icon('upload')}</label>
-      <input type="file" id="media-library-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />
+      <input type="file" id="media-library-upload-input" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx" />
     </div>
   `;
 }
@@ -97,8 +100,49 @@ export function renderMediaLibraryActions(pageState, { readOnly }) {
 // renderMediaLibraryActions above) and shared with the Tree View/Timeline
 // pages - this only ever renders what's specific to Media Library's own body
 // (albums sidebar + media grid).
+function pendingFilesQueue(pageState, { readOnly }) {
+  if (readOnly || !pageState.pendingFiles.length) return '';
+  const { pendingFiles } = pageState;
+  const anyPending = pendingFiles.some((f) => f.status !== 'uploading');
+  const anyUploading = pendingFiles.some((f) => f.status === 'uploading');
+  const label = anyUploading
+    ? pendingFiles.length === 1
+      ? 'Uploading 1 file'
+      : `Uploading ${pendingFiles.length} files`
+    : pendingFiles.length === 1
+      ? '1 file selected'
+      : `${pendingFiles.length} files selected`;
+  return `
+    <div class="media-library-pending-upload">
+      <p class="modal-message">${label}</p>
+      <ul class="pending-upload-list">
+        ${pendingFiles
+          .map(
+            (entry) => `
+          <li class="pending-upload-item pending-upload-item-${entry.status}" data-pending-id="${entry.id}">
+            <span class="pending-upload-name">${escapeHtml(entry.file.name)}</span>
+            ${
+              entry.status === 'uploading'
+                ? `<span class="pending-upload-status">${icon('spinner')}</span>`
+                : entry.status === 'error'
+                  ? `<span class="pending-upload-status pending-upload-error" title="${escapeHtml(entry.error || 'Upload failed')}">${icon('close')}</span>`
+                  : `<button type="button" class="icon-btn pending-upload-remove-btn" data-pending-id="${entry.id}" aria-label="Remove">${icon('close')}</button>`
+            }
+          </li>`
+          )
+          .join('')}
+      </ul>
+      ${renderVisibilityPickerHtml(pageState.visibilityPicker, { idPrefix: 'media-library-upload' })}
+      <div class="modal-actions row">
+        <button type="button" class="btn-secondary" id="media-library-pending-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="media-library-pending-confirm-btn" ${anyPending ? '' : 'disabled'}>Upload</button>
+      </div>
+    </div>
+  `;
+}
+
 export function renderMediaLibraryPageContent(pageState, { readOnly, currentUserId }) {
-  const { mineOnly, albums, activeAlbumId, loaded, pendingFile } = pageState;
+  const { mineOnly, albums, activeAlbumId, loaded } = pageState;
   const media = mineOnly ? pageState.media.filter((m) => m.uploaded_by === currentUserId) : pageState.media;
 
   return `
@@ -112,19 +156,17 @@ export function renderMediaLibraryPageContent(pageState, { readOnly, currentUser
           ${albumsSidebar(albums, activeAlbumId, readOnly)}
         </div>
 
-        <div class="media-library-main">
+        <div class="media-library-main" id="media-library-dropzone">
           ${
-            pendingFile
-              ? `<div class="media-library-pending-upload">
-                   <p class="modal-message">Uploading <strong>${escapeHtml(pendingFile.name)}</strong></p>
-                   ${renderVisibilityPickerHtml(pageState.visibilityPicker, { idPrefix: 'media-library-upload' })}
-                   <div class="modal-actions row">
-                     <button type="button" class="btn-secondary" id="media-library-pending-cancel-btn">Cancel</button>
-                     <button type="button" class="btn btn-primary" id="media-library-pending-confirm-btn">Upload</button>
-                   </div>
-                 </div>`
-              : ''
+            readOnly
+              ? ''
+              : `<label class="media-library-dropzone-box" for="media-library-upload-input">
+                   ${icon('upload')}
+                   <span>Drag files here, paste from your clipboard, or click to upload</span>
+                 </label>`
           }
+
+          ${pendingFilesQueue(pageState, { readOnly })}
 
           ${
             media.length
@@ -138,7 +180,9 @@ export function renderMediaLibraryPageContent(pageState, { readOnly, currentUser
                      )
                      .join('')}
                  </div>`
-              : '<p class="muted">No media found.</p>'
+              : readOnly
+                ? '<p class="muted">No media found.</p>'
+                : ''
           }
         </div>
       </div>
@@ -146,12 +190,6 @@ export function renderMediaLibraryPageContent(pageState, { readOnly, currentUser
       }
     </div>
   `;
-}
-
-function kindForFile(file) {
-  if (file.type.startsWith('image/')) return 'photo';
-  if (file.type.startsWith('video/')) return 'video';
-  return 'document';
 }
 
 export async function loadMediaLibraryPage(pageState, { api, treeId }, rerender) {
@@ -328,39 +366,81 @@ export function attachMediaLibraryPageListeners(pageState, { api, treeId, member
     }
   });
 
+  const addPendingFiles = (files) => {
+    if (!files.length) return;
+    const wasEmpty = pageState.pendingFiles.length === 0;
+    pageState.pendingFiles = [...pageState.pendingFiles, ...files.map(createPendingFileEntry)];
+    if (wasEmpty) pageState.visibilityPicker = createVisibilityPickerState();
+    rerender();
+    if (wasEmpty) loadCollaborators(pageState.visibilityPicker, { api, treeId, currentUserId }).then(rerender);
+  };
+
   const uploadInput = document.querySelector('#media-library-upload-input');
   uploadInput?.addEventListener('change', () => {
-    const file = uploadInput.files?.[0];
-    if (!file) return;
-    pageState.pendingFile = file;
-    pageState.visibilityPicker = createVisibilityPickerState();
-    rerender();
-    loadCollaborators(pageState.visibilityPicker, { api, treeId, currentUserId }).then(rerender);
+    addPendingFiles([...(uploadInput.files || [])]);
+    uploadInput.value = '';
+  });
+
+  attachDropZone(root.querySelector('#media-library-dropzone'), { onFiles: addPendingFiles });
+  attachPasteListener('media-library', {
+    isActive: () => document.querySelector('.media-library-page') === root && root.isConnected,
+    onFiles: addPendingFiles,
   });
 
   root.querySelector('#media-library-pending-cancel-btn')?.addEventListener('click', () => {
-    pageState.pendingFile = null;
+    pageState.pendingFiles = [];
     rerender();
   });
 
+  root.querySelectorAll('.pending-upload-remove-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.pendingId);
+      pageState.pendingFiles = pageState.pendingFiles.filter((e) => e.id !== id);
+      rerender();
+    });
+  });
+
   root.querySelector('#media-library-pending-confirm-btn')?.addEventListener('click', async () => {
-    const file = pageState.pendingFile;
-    if (!file) return;
-    try {
-      const { media } = await mediaApi.uploadMedia(api, treeId, {
-        file,
-        kind: kindForFile(file),
-        title: file.name,
-        ...getVisibilityPayload(pageState.visibilityPicker),
-      });
-      if (pageState.activeAlbumId) {
-        await mediaApi.addMediaToAlbum(api, treeId, pageState.activeAlbumId, media.id);
-      }
-      pageState.pendingFile = null;
-      await reloadMedia(pageState, { api, treeId }, rerender);
-      showToast('Uploaded');
-    } catch (error) {
-      showToast(error.message || 'Upload failed', { type: 'error' });
-    }
+    const toUpload = pageState.pendingFiles.filter((entry) => entry.status !== 'uploading');
+    if (!toUpload.length) return;
+    const uploadingIds = new Set(toUpload.map((entry) => entry.id));
+    pageState.pendingFiles = pageState.pendingFiles.map((entry) =>
+      uploadingIds.has(entry.id) ? { ...entry, status: 'uploading' } : entry
+    );
+    rerender();
+
+    const visibilityPayload = getVisibilityPayload(pageState.visibilityPicker);
+    let successCount = 0;
+    let failureCount = 0;
+
+    await Promise.all(
+      toUpload.map(async (entry) => {
+        try {
+          const { media } = await mediaApi.uploadMedia(api, treeId, {
+            file: entry.file,
+            kind: kindForFile(entry.file),
+            title: entry.file.name,
+            ...visibilityPayload,
+          });
+          if (pageState.activeAlbumId) {
+            await mediaApi.addMediaToAlbum(api, treeId, pageState.activeAlbumId, media.id);
+          }
+          pageState.pendingFiles = pageState.pendingFiles.filter((e) => e.id !== entry.id);
+          successCount += 1;
+        } catch (error) {
+          failureCount += 1;
+          pageState.pendingFiles = pageState.pendingFiles.map((e) =>
+            e.id === entry.id ? { ...e, status: 'error', error: error.message || 'Upload failed' } : e
+          );
+        }
+      })
+    );
+
+    if (successCount) await reloadMedia(pageState, { api, treeId }, rerender);
+    else rerender();
+
+    if (successCount && !failureCount) showToast(successCount === 1 ? 'Uploaded' : `Uploaded ${successCount} files`);
+    else if (successCount && failureCount) showToast(`Uploaded ${successCount}, ${failureCount} failed`, { type: 'error' });
+    else if (failureCount) showToast('Upload failed', { type: 'error' });
   });
 }

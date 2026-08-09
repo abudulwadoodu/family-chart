@@ -10,6 +10,7 @@ import { searchMembers, getRelativesSummary } from './memberSearch.js';
 import * as mediaApi from './mediaApi.js';
 import { hydrateMediaSources, mediaThumbHtml } from './mediaSrc.js';
 import { openMediaLightbox, openMediaStubModal } from './mediaLightbox.js';
+import { kindForFile, attachDropZone, attachPasteListener, createPendingFileEntry } from './mediaUpload.js';
 import {
   createVisibilityPickerState,
   setVisibilityPickerValue,
@@ -355,28 +356,51 @@ function eventDetail({ event, participants, media, memberIndex, memberById, read
   `;
 }
 
-function kindForFile(file) {
-  if (file.type.startsWith('image/')) return 'photo';
-  if (file.type.startsWith('video/')) return 'video';
-  return 'document';
-}
-
-function mediaPickerBody(items, { pendingFile, visibilityPicker }) {
+function mediaPickerBody(items, { pendingFiles, visibilityPicker }) {
+  const anyPending = pendingFiles.some((f) => f.status !== 'uploading');
+  const anyUploading = pendingFiles.some((f) => f.status === 'uploading');
+  const pendingLabel = anyUploading
+    ? pendingFiles.length === 1
+      ? 'Uploading 1 file'
+      : `Uploading ${pendingFiles.length} files`
+    : pendingFiles.length === 1
+      ? '1 file selected'
+      : `${pendingFiles.length} files selected`;
   return `
     <button type="button" class="icon-btn modal-close" id="timeline-media-picker-close-btn" aria-label="Close">${icon('close')}</button>
     <h3>Attach Media</h3>
     ${
-      pendingFile
+      pendingFiles.length
         ? `<div class="media-library-pending-upload">
-             <p class="modal-message">Uploading <strong>${escapeHtml(pendingFile.name)}</strong></p>
+             <p class="modal-message">${pendingLabel}</p>
+             <ul class="pending-upload-list">
+               ${pendingFiles
+                 .map(
+                   (entry) => `
+                 <li class="pending-upload-item pending-upload-item-${entry.status}" data-pending-id="${entry.id}">
+                   <span class="pending-upload-name">${escapeHtml(entry.file.name)}</span>
+                   ${
+                     entry.status === 'uploading'
+                       ? `<span class="pending-upload-status">${icon('spinner')}</span>`
+                       : entry.status === 'error'
+                         ? `<span class="pending-upload-status pending-upload-error" title="${escapeHtml(entry.error || 'Upload failed')}">${icon('close')}</span>`
+                         : `<button type="button" class="icon-btn pending-upload-remove-btn" data-pending-id="${entry.id}" aria-label="Remove">${icon('close')}</button>`
+                   }
+                 </li>`
+                 )
+                 .join('')}
+             </ul>
              ${renderVisibilityPickerHtml(visibilityPicker, { idPrefix: 'timeline-media-picker-upload' })}
              <div class="modal-actions row">
                <button type="button" class="btn-secondary" id="timeline-media-picker-pending-cancel-btn">Cancel</button>
-               <button type="button" class="btn btn-primary" id="timeline-media-picker-pending-confirm-btn">Upload</button>
+               <button type="button" class="btn btn-primary" id="timeline-media-picker-pending-confirm-btn" ${anyPending ? '' : 'disabled'}>Upload</button>
              </div>
            </div>`
-        : `<label class="btn btn-primary timeline-media-picker-upload-label" for="timeline-media-picker-upload-input">${icon('upload')}<span>Upload New</span></label>
-           <input type="file" id="timeline-media-picker-upload-input" hidden accept="image/*,video/*,.pdf,.doc,.docx" />`
+        : `<label class="media-library-dropzone-box" for="timeline-media-picker-upload-input">
+             ${icon('upload')}
+             <span>Drag files here, paste from your clipboard, or click to upload</span>
+           </label>
+           <input type="file" id="timeline-media-picker-upload-input" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx" />`
     }
     ${
       items.length
@@ -401,7 +425,7 @@ function mediaPickerBody(items, { pendingFile, visibilityPicker }) {
 // data-media-src/hydrateMediaSources convention for authenticated thumbnails.
 function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttach }) {
   const modal = showModal({ bodyHtml: '<p>Loading&hellip;</p>', className: 'modal-media-lightbox' });
-  const local = { pendingFile: null, visibilityPicker: createVisibilityPickerState() };
+  const local = { pendingFiles: [], visibilityPicker: createVisibilityPickerState() };
 
   function renderAvailable(available) {
     modal.setBody(mediaPickerBody(available, local));
@@ -415,33 +439,77 @@ function openMediaPicker({ api, treeId, currentUserId, attachedMediaIds, onAttac
         modal.close();
       });
     });
+
+    const addPendingFiles = (files) => {
+      if (!files.length) return;
+      const wasEmpty = local.pendingFiles.length === 0;
+      local.pendingFiles = [...local.pendingFiles, ...files.map(createPendingFileEntry)];
+      if (wasEmpty) local.visibilityPicker = createVisibilityPickerState();
+      renderAvailable(available);
+      if (wasEmpty) loadCollaborators(local.visibilityPicker, { api, treeId, currentUserId }).then(() => renderAvailable(available));
+    };
+
     const uploadInput = modal.root.querySelector('#timeline-media-picker-upload-input');
     uploadInput?.addEventListener('change', () => {
-      const file = uploadInput.files?.[0];
-      if (!file) return;
-      local.pendingFile = file;
-      local.visibilityPicker = createVisibilityPickerState();
-      renderAvailable(available);
-      loadCollaborators(local.visibilityPicker, { api, treeId, currentUserId }).then(() => renderAvailable(available));
+      addPendingFiles([...(uploadInput.files || [])]);
     });
+
+    attachDropZone(modal.root, { onFiles: addPendingFiles });
+    attachPasteListener('timeline-media-picker', {
+      isActive: () => modal.root.isConnected,
+      onFiles: addPendingFiles,
+    });
+
+    modal.root.querySelectorAll('.pending-upload-remove-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.dataset.pendingId);
+        local.pendingFiles = local.pendingFiles.filter((e) => e.id !== id);
+        renderAvailable(available);
+      });
+    });
+
     modal.root.querySelector('#timeline-media-picker-pending-cancel-btn')?.addEventListener('click', () => {
-      local.pendingFile = null;
+      local.pendingFiles = [];
       renderAvailable(available);
     });
+
     modal.root.querySelector('#timeline-media-picker-pending-confirm-btn')?.addEventListener('click', async () => {
-      const file = local.pendingFile;
-      if (!file) return;
-      try {
-        const { media } = await mediaApi.uploadMedia(api, treeId, {
-          file,
-          kind: kindForFile(file),
-          title: file.name,
-          ...getVisibilityPayload(local.visibilityPicker),
-        });
-        onAttach(media);
+      const toUpload = local.pendingFiles.filter((entry) => entry.status !== 'uploading');
+      if (!toUpload.length) return;
+      const uploadingIds = new Set(toUpload.map((entry) => entry.id));
+      local.pendingFiles = local.pendingFiles.map((entry) =>
+        uploadingIds.has(entry.id) ? { ...entry, status: 'uploading' } : entry
+      );
+      renderAvailable(available);
+
+      const visibilityPayload = getVisibilityPayload(local.visibilityPicker);
+      let failureCount = 0;
+
+      await Promise.all(
+        toUpload.map(async (entry) => {
+          try {
+            const { media } = await mediaApi.uploadMedia(api, treeId, {
+              file: entry.file,
+              kind: kindForFile(entry.file),
+              title: entry.file.name,
+              ...visibilityPayload,
+            });
+            onAttach(media);
+            local.pendingFiles = local.pendingFiles.filter((e) => e.id !== entry.id);
+          } catch (error) {
+            failureCount += 1;
+            local.pendingFiles = local.pendingFiles.map((e) =>
+              e.id === entry.id ? { ...e, status: 'error', error: error.message || 'Upload failed' } : e
+            );
+          }
+        })
+      );
+
+      if (!failureCount) {
         modal.close();
-      } catch (error) {
-        showToast(error.message || 'Upload failed', { type: 'error' });
+      } else {
+        showToast('Some uploads failed', { type: 'error' });
+        renderAvailable(available);
       }
     });
     hydrateMediaSources(modal.root, new Map(available.map((m) => [m.id, m])));

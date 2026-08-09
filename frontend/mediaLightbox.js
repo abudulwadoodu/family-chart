@@ -131,11 +131,6 @@ function mediaBody({ media, tags, memberIndex, memberById, readOnly, tagQuery, t
 
   return `
     <button type="button" class="icon-btn modal-close" id="lightbox-close-btn" aria-label="Close">${icon('close')}</button>
-    ${
-      !readOnly && !showingForm
-        ? `<button type="button" class="btn btn-sm btn-danger lightbox-delete-top-btn" id="lightbox-delete-btn">${icon('trash')}<span>Delete</span></button>`
-        : ''
-    }
     <div class="lightbox-scroll">
     ${
       editing
@@ -145,6 +140,11 @@ function mediaBody({ media, tags, memberIndex, memberById, readOnly, tagQuery, t
         ${media.title ? `<h3>${escapeHtml(media.title)}</h3>` : '<h3 class="muted">Untitled</h3>'}
         ${readOnly ? '' : `<button type="button" class="icon-btn" id="lightbox-edit-btn" aria-label="Edit title">${icon('pencil')}</button>`}
         ${editingVisibility ? '' : visibilityBadge(media, shareCount, readOnly)}
+        ${
+          !readOnly && !showingForm
+            ? `<button type="button" class="lightbox-visibility-badge lightbox-delete-btn" id="lightbox-delete-btn" aria-label="Delete" data-tooltip="Delete" data-tooltip-pos="bottom">${icon('trash')}<span>Delete</span></button>`
+            : ''
+        }
       </div>
     `
     }
